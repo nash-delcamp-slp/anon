@@ -94,6 +94,37 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
                  check_approximate = TRUE, max_distance = 2,
                  df_variable_names = NULL, df_classes = NULL,
                  check_names = TRUE, check_labels = TRUE, .self = FALSE) {
+  
+  # Combine user arguments with global options
+  if (!.self) {
+    option_pattern_list <- getOption("anon.pattern_list", default = list())
+    option_df_variable_names <- getOption("anon.df_variable_names", default = NULL)
+    option_df_classes <- getOption("anon.df_classes", default = NULL)
+    
+    # Combine pattern_list with option
+    if (length(option_pattern_list) > 0 && !isFALSE(pattern_list)) {
+      pattern_list <- c(option_pattern_list, pattern_list)
+    }
+
+    # Combine df_variable_names with option
+    if (!is.null(option_df_variable_names) && !isFALSE(df_variable_names)) {
+      if (is.null(df_variable_names)) {
+        df_variable_names <- option_df_variable_names
+      } else {
+        df_variable_names <- c(option_df_variable_names, df_variable_names)
+      }
+    }
+  
+    # Combine df_classes with option
+    if (!is.null(option_df_classes) && !isFALSE(df_classes)) {
+      if (is.null(df_classes)) {
+        df_classes <- option_df_classes
+      } else {
+        df_classes <- c(option_df_classes, df_classes)
+      }
+    }
+  }
+
   pattern_replacements <- with_default_replacements(
     pattern_list,
     default_replacement = default_replacement

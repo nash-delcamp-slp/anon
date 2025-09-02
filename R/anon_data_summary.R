@@ -76,6 +76,14 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
 
   name <- type <- NULL
 
+  # Combine user arguments with global options
+  option_pattern_list <- getOption("anon.pattern_list", default = list())
+  
+  # Combine pattern_list with option
+  if (length(option_pattern_list) > 0) {
+    pattern_list <- c(option_pattern_list, pattern_list)
+  }
+
   pattern_replacements <- with_default_replacements(
     pattern_list,
     default_replacement = default_replacement
@@ -140,6 +148,7 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
   result <- anon(result, pattern_list = pattern_list,
                  default_replacement = default_replacement,
                  check_approximate = check_approximate, max_distance = max_distance,
+                 df_variable_names = FALSE, df_classes = FALSE,
                  check_names = FALSE)
 
   class(result) <- c("anon_data_summary", "anon_context", "list")
