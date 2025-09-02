@@ -44,8 +44,240 @@
   </div>
 </nav><div class="container template-home">
 <div class="row">
-  <main id="main" class="col-md-9">
-Provides tools for anonymizing sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based redaction with approximate matching warnings, specialized functions for common data types (identifiers, dates, emails, phone numbers), and environment summarization with anonymization. Designed to help data scientists share code and results while protecting sensitive information.
+  <main id="main" class="col-md-9"><div class="section level1">
+<div class="page-header"><h1 id="anon">anon<a class="anchor" aria-label="anchor" href="#anon"></a>
+</h1></div>
+<!-- badges: start -->
+<!-- badges: end -->
+<p>The goal of anon is to anonymize sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors.</p>
+<div class="section level2">
+<h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
+</h2>
+<p>You can install the development version of anon from <a href="https://github.com/" class="external-link">GitHub</a> with:</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># install.packages("pak")</span></span>
+<span><span class="fu">pak</span><span class="fu">::</span><span class="fu"><a href="https://pak.r-lib.org/reference/pak.html" class="external-link">pak</a></span><span class="op">(</span><span class="st">"nash-delcamp-slp/anon"</span><span class="op">)</span></span></code></pre></div>
+<p>Load it with:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va">anon</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="examples">Examples<a class="anchor" aria-label="anchor" href="#examples"></a>
+</h2>
+<p>The below examples demonstrate some of the anonymization functions found in <code>anon_fns</code>.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">anon_fns</span><span class="op">$</span><span class="fu">id_chr_sequence</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"John"</span>, <span class="st">"Paul"</span>, <span class="st">"John"</span>, <span class="st">"Keith"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "ID 1" "ID 2" "ID 1" "ID 3"</span></span>
+<span></span>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Attaching package: 'dplyr'</span></span>
+<span><span class="co">#&gt; The following objects are masked from 'package:stats':</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;     filter, lag</span></span>
+<span><span class="co">#&gt; The following objects are masked from 'package:base':</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;     intersect, setdiff, setequal, union</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/data.html" class="external-link">data</a></span><span class="op">(</span><span class="st">"starwars"</span>, package <span class="op">=</span> <span class="st">"dplyr"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="va">starwars</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Rows: 87</span></span>
+<span><span class="co">#&gt; Columns: 14</span></span>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or…</span></span>
+<span><span class="co">#&gt; $ height     &lt;int&gt; 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, …</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",…</span></span>
+<span><span class="va">anon_fns</span><span class="op">$</span><span class="fu">id_num_sequence</span><span class="op">(</span><span class="va">starwars</span><span class="op">$</span><span class="va">name</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 1 2 3 4 5 6</span></span>
+<span><span class="va">anon_fns</span><span class="op">$</span><span class="fu">num_preserve_distribution</span><span class="op">(</span><span class="va">starwars</span><span class="op">$</span><span class="va">height</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 150.0 190.0 158.5 170.0 180.0 165.0</span></span>
+<span><span class="va">anon_fns</span><span class="op">$</span><span class="fu">num_range</span><span class="op">(</span><span class="va">starwars</span><span class="op">$</span><span class="va">mass</span>, n_breaks <span class="op">=</span> <span class="fl">10</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "[0,100)"   "[0,100)"   "[0,100)"   "[100,200)" "[0,100)"   "[100,200)"</span></span></code></pre></div>
+<p>This example demonstrates how to anonymize a data frame with <code><a href="reference/anon.html">anon()</a></code>.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">anon_starwars</span> <span class="op">&lt;-</span> <span class="va">starwars</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="reference/anon.html">anon</a></span><span class="op">(</span></span>
+<span>    pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      DARK <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"empire"</span>, <span class="st">"imperials?"</span>, <span class="st">"sith"</span><span class="op">)</span>,</span>
+<span>      LIGHT <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"jedi"</span>, <span class="st">"rebels?"</span><span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    df_variable_names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      name <span class="op">=</span> <span class="va">anon_fns</span><span class="op">$</span><span class="va">id_chr_sequence</span>,</span>
+<span>      homeworld <span class="op">=</span> <span class="op">~</span> <span class="va">anon_fns</span><span class="op">$</span><span class="fu">id_chr_sequence</span><span class="op">(</span><span class="va">.x</span>, start <span class="op">=</span> <span class="st">"Planet "</span><span class="op">)</span></span>
+<span>    <span class="op">)</span>,</span>
+<span>    df_classes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>      integer <span class="op">=</span> <span class="op">~</span> <span class="va">anon_fns</span><span class="op">$</span><span class="fu">num_range</span><span class="op">(</span><span class="va">.x</span>, n_breaks <span class="op">=</span> <span class="fl">10</span><span class="op">)</span>,</span>
+<span>      numeric <span class="op">=</span> <span class="va">anon_fns</span><span class="op">$</span><span class="va">num_preserve_distribution</span></span>
+<span>    <span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="va">anon_starwars</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Rows: 87</span></span>
+<span><span class="co">#&gt; Columns: 14</span></span>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0…</span></span>
+<span><span class="co">#&gt; $ height     &lt;chr&gt; "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 55, 88, 77, 101, 87, 68, 88, 77, 1358, 55, 1358, NA, 79, 65…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 58.0, 54.0, 47.0, 76.5, 58.0, 50.0, 46.0, NA, 600.0, 41.9, …</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The DARK Strikes Back", "Return of the LIG…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "DARK Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "DARK Sp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "DARK shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1", &lt;&gt;,…</span></span></code></pre></div>
+<p>When <code>check_approximate = TRUE</code>, warnings will be reported when an approximate match is detected.</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">starwars</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="reference/anon.html">anon</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    <span class="st">"blonde"</span>, <span class="st">"bleu"</span>, <span class="st">"imperials"</span></span>
+<span>  <span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span> </span>
+<span>  <span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Warning: Potential approximate match: 'blond' is similar to pattern 'blonde'</span></span>
+<span><span class="co">#&gt; Potential approximate match: 'blue' is similar to pattern 'bleu'</span></span>
+<span><span class="co">#&gt; Potential approximate match: 'Imperial Speeder Bike' is similar to pattern</span></span>
+<span><span class="co">#&gt; 'imperials'</span></span>
+<span><span class="co">#&gt; Potential approximate match: 'Imperial shuttle' is similar to pattern</span></span>
+<span><span class="co">#&gt; 'imperials'</span></span>
+<span><span class="co">#&gt; Rows: 87</span></span>
+<span><span class="co">#&gt; Columns: 14</span></span>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or…</span></span>
+<span><span class="co">#&gt; $ height     &lt;int&gt; 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, …</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",…</span></span></code></pre></div>
+<p>This example demonstrates the <code><a href="reference/anon_data_summary.html">anon_data_summary()</a></code> function which summarizes the data in an environment.</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="reference/anon_data_summary.html">anon_data_summary</a></span><span class="op">(</span></span>
+<span>  pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    DARK <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"empire"</span>, <span class="st">"imperials?"</span>, <span class="st">"sith"</span><span class="op">)</span>,</span>
+<span>    LIGHT <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"jedi"</span>, <span class="st">"rebels?"</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; Environment Data Summary</span></span>
+<span><span class="co">#&gt; ========================</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;   total_objects data_frames other_objects total_memory</span></span>
+<span><span class="co">#&gt; 1             1           1             0        57440</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Data Frames:</span></span>
+<span><span class="co">#&gt; ------------</span></span>
+<span><span class="co">#&gt;       name       type n_rows n_cols memory_size</span></span>
+<span><span class="co">#&gt; 1 starwars data.frame     87     14     56.1 Kb</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Variable Details (starwars):</span></span>
+<span><span class="co">#&gt; -------------------------- </span></span>
+<span><span class="co">#&gt;      variable data_type n_distinct n_missing n_total pct_missing label</span></span>
+<span><span class="co">#&gt; 1        name character         87         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 2      height   integer         45         6      87        6.90  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 3        mass   numeric         38        28      87       32.18  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 4  hair_color character         11         5      87        5.75  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 5  skin_color character         31         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 6   eye_color character         15         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 7  birth_year   numeric         36        44      87       50.57  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 8         sex character          4         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 9      gender character          2         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 10  homeworld character         48        10      87       11.49  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 11    species character         37         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 12      films      list         24         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 13   vehicles      list         11         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 14  starships      list         16         0      87        0.00  &lt;NA&gt;</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="default-options">Default Options<a class="anchor" aria-label="anchor" href="#default-options"></a>
+</h2>
+<p>Default values can be provided to <code><a href="https://rdrr.io/r/base/options.html" class="external-link">options()</a></code> to automatically include patterns and variable rules to use in <code><a href="reference/anon.html">anon()</a></code> and <code><a href="reference/anon_data_summary.html">anon_data_summary()</a></code>.</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span></span>
+<span>  anon.pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    DARK <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"empire"</span>, <span class="st">"imperials?"</span>, <span class="st">"sith"</span><span class="op">)</span>,</span>
+<span>    LIGHT <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"jedi"</span>, <span class="st">"rebels?"</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  anon.df_variable_names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    name <span class="op">=</span> <span class="va">anon_fns</span><span class="op">$</span><span class="va">id_chr_sequence</span>,</span>
+<span>    homeworld <span class="op">=</span> <span class="op">~</span> <span class="va">anon_fns</span><span class="op">$</span><span class="fu">id_chr_sequence</span><span class="op">(</span><span class="va">.x</span>, start <span class="op">=</span> <span class="st">"Planet "</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  anon.df_classes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    integer <span class="op">=</span> <span class="op">~</span> <span class="va">anon_fns</span><span class="op">$</span><span class="fu">num_range</span><span class="op">(</span><span class="va">.x</span>, n_breaks <span class="op">=</span> <span class="fl">10</span><span class="op">)</span>,</span>
+<span>    numeric <span class="op">=</span> <span class="va">anon_fns</span><span class="op">$</span><span class="va">num_preserve_distribution</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="reference/anon.html">anon</a></span><span class="op">(</span><span class="va">starwars</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="reference/anon_data_summary.html">anon_data_summary</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="co">#&gt; === ANONYMIZED DATA CONTEXT ===</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; # A tibble: 87 × 14</span></span>
+<span><span class="co">#&gt;    name  height     mass hair_color skin_color eye_color birth_year sex   gender</span></span>
+<span><span class="co">#&gt;  * &lt;chr&gt; &lt;chr&gt;     &lt;dbl&gt; &lt;chr&gt;      &lt;chr&gt;      &lt;chr&gt;          &lt;dbl&gt; &lt;chr&gt; &lt;chr&gt; </span></span>
+<span><span class="co">#&gt;  1 ID 01 [160,180)  84   blond      fair       blue            44.0 male  mascu…</span></span>
+<span><span class="co">#&gt;  2 ID 02 [160,180)  82   &lt;NA&gt;       gold       yellow          67   none  mascu…</span></span>
+<span><span class="co">#&gt;  3 ID 03 [80,100)   81   &lt;NA&gt;       white, bl… red             33   none  mascu…</span></span>
+<span><span class="co">#&gt;  4 ID 04 [200,220)  77.5 none       white      yellow          75   male  mascu…</span></span>
+<span><span class="co">#&gt;  5 ID 05 [140,160)  79   brown      light      brown           44.0 fema… femin…</span></span>
+<span><span class="co">#&gt;  6 ID 06 [160,180) 113   brown, gr… light      blue            31.5 male  mascu…</span></span>
+<span><span class="co">#&gt;  7 ID 07 [160,180)  82   brown      light      blue            48   fema… femin…</span></span>
+<span><span class="co">#&gt;  8 ID 08 [80,100)   81   &lt;NA&gt;       white, red red             NA   none  mascu…</span></span>
+<span><span class="co">#&gt;  9 ID 09 [180,200)  15   black      light      brown            8   male  mascu…</span></span>
+<span><span class="co">#&gt; 10 ID 10 [180,200)  84   auburn, w… fair       blue-gray      200   male  mascu…</span></span>
+<span><span class="co">#&gt; # ℹ 77 more rows</span></span>
+<span><span class="co">#&gt; # ℹ 5 more variables: homeworld &lt;chr&gt;, species &lt;chr&gt;, films &lt;list&gt;,</span></span>
+<span><span class="co">#&gt; #   vehicles &lt;list&gt;, starships &lt;list&gt;</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Environment Data Summary</span></span>
+<span><span class="co">#&gt; ========================</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;   total_objects data_frames other_objects total_memory</span></span>
+<span><span class="co">#&gt; 1             1           1             0        57440</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Data Frames:</span></span>
+<span><span class="co">#&gt; ------------</span></span>
+<span><span class="co">#&gt;       name       type n_rows n_cols memory_size</span></span>
+<span><span class="co">#&gt; 1 starwars data.frame     87     14     56.1 Kb</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; Variable Details (starwars):</span></span>
+<span><span class="co">#&gt; -------------------------- </span></span>
+<span><span class="co">#&gt;      variable data_type n_distinct n_missing n_total pct_missing label</span></span>
+<span><span class="co">#&gt; 1        name character         87         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 2      height   integer         45         6      87        6.90  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 3        mass   numeric         38        28      87       32.18  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 4  hair_color character         11         5      87        5.75  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 5  skin_color character         31         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 6   eye_color character         15         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 7  birth_year   numeric         36        44      87       50.57  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 8         sex character          4         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 9      gender character          2         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 10  homeworld character         48        10      87       11.49  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 11    species character         37         4      87        4.60  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 12      films      list         24         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 13   vehicles      list         11         0      87        0.00  &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 14  starships      list         16         0      87        0.00  &lt;NA&gt;</span></span></code></pre></div>
+</div>
+</div>
   </main><aside class="col-md-3"><div class="license">
 <h2 data-toc-skip>License</h2>
 <ul class="list-unstyled">
