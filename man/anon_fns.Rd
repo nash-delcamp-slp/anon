@@ -131,5 +131,6 @@ anon_fns$num_range(values, n_breaks = 3)
 # Date shifting
 dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))
 anon_fns$date_shift(dates, center_date = "2024-06-01")
+
 }
 \keyword{datasets}

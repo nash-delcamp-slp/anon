@@ -108,6 +108,8 @@
 #' # Date shifting
 #' dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))
 #' anon_fns$date_shift(dates, center_date = "2024-06-01")
+#' 
+#' @export
 anon_fns <- list(
   date_shift = function(x, center_date = Sys.Date(), scramble = FALSE) {
     # Handle missing values
@@ -220,7 +222,7 @@ anon_fns <- list(
 
     x_key <- seq_along(x_unique)
     if (padding) {
-      stopifnot(nchar(padding) == 1)
+      stopifnot(nchar(padding_chr) == 1)
       max_chars <- max(nchar(x_key))
       x_key <- sprintf(paste0("%", padding_chr, max_chars, "d"), x_key)
     }
