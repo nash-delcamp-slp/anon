@@ -1,0 +1,118 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+# anon
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of anon is to anonymize sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors.
+
+## Installation
+
+You can install the development version of anon from [GitHub](https://github.com/) with:
+
+``` r
+# install.packages("pak")
+pak::pak("nash-delcamp-slp/anon")
+```
+
+Load it with:
+```{r}
+library(anon)
+```
+
+## Examples
+
+The below examples demonstrate some of the anonymization functions found in `anon_fns`.
+```{r}
+anon_fns$id_chr_sequence(c("John", "Paul", "John", "Keith"))
+
+library(dplyr)
+data("starwars", package = "dplyr")
+glimpse(starwars)
+anon_fns$id_num_sequence(starwars$name) |> 
+  head()
+anon_fns$num_preserve_distribution(starwars$height) |> 
+  head()
+anon_fns$num_range(starwars$mass, n_breaks = 10) |> 
+  head()
+```
+
+This example demonstrates how to anonymize a data frame with `anon()`.
+```{r}
+anon_starwars <- starwars |> 
+  anon(
+    pattern_list = list(
+      DARK = c("empire", "imperials?", "sith"),
+      LIGHT = c("jedi", "rebels?")
+    ),
+    df_variable_names = list(
+      name = anon_fns$id_chr_sequence,
+      homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+    ),
+    df_classes = list(
+      integer = ~ anon_fns$num_range(.x, n_breaks = 10),
+      numeric = anon_fns$num_preserve_distribution
+    )
+  )
+glimpse(anon_starwars)
+```
+
+When `check_approximate = TRUE`, warnings will be reported when an approximate match is detected.
+```{r}
+starwars |> 
+  anon(list(
+    "blonde", "bleu", "imperials"
+  )) |> 
+  glimpse()
+```
+
+This example demonstrates the `anon_data_summary()` function which summarizes the data in an environment.
+```{r}
+anon_data_summary(
+  pattern_list = list(
+    DARK = c("empire", "imperials?", "sith"),
+    LIGHT = c("jedi", "rebels?")
+  )
+)
+```
+
+## Default Options
+
+Default values can be provided to `options()` to automatically include patterns and variable rules to use in `anon()` and `anon_data_summary()`.
+```{r}
+options(
+  anon.pattern_list = list(
+    DARK = c("empire", "imperials?", "sith"),
+    LIGHT = c("jedi", "rebels?")
+  ),
+  anon.df_variable_names = list(
+    name = anon_fns$id_chr_sequence,
+    homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+  ),
+  anon.df_classes = list(
+    integer = ~ anon_fns$num_range(.x, n_breaks = 10),
+    numeric = anon_fns$num_preserve_distribution
+  )
+)
+```
+
+```{r}
+c(
+  anon(starwars),
+  anon_data_summary()
+)
+```
