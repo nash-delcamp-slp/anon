@@ -326,38 +326,40 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
 
 # helpers -----------------------------------------------------------------
 
-# Helper function for approximate distance matching with improved performance
+# Helper function for approximate distance matching
 compute_approximate_distances <- function(text, pattern, max_distance = 2) {
   if (nchar(pattern) == 0) {
-    return(list(candidates = integer(0), distances = integer(0), matches = integer(0), matching_strings = character(0)))
+    return(list(distances = integer(0), matches = integer(0), matching_strings = character(0)))
   }
 
   text_lengths <- nchar(text)
   pattern_length <- nchar(pattern)
 
-  # Check which elements might be approximate matches
-  candidates <- which(
-    text_lengths >= pattern_length - max_distance &
-      text_lengths <= pattern_length + max_distance
-  )
+  # First check with fixed (non-partial) where the candidates are x and the pattern is y and insertions are
+  # more costly.
+  distances1 <- utils::adist(tolower(text), tolower(pattern),
+                            fixed = TRUE, ignore.case = TRUE,
+                            costs = c(insertions = 2, deletions = 1, substitutions = 1))
+  
+  # Second check with partial matches where x and y are reverse of above and insertions are less
+  # costly.
+  distances2 <- utils::adist(tolower(pattern), tolower(text),
+                            partial = TRUE, ignore.case = TRUE,
+                            costs = c(insertions = 1, deletions = 5, substitutions = 5))
+  
+  # Take minimum distance for each pattern (transpose distances2 since matrix is flipped)
+  distances <- pmin(distances1, t(distances2))
 
-  if (length(candidates) == 0) {
-    return(list(candidates = integer(0), distances = integer(0), matches = integer(0), matching_strings = character(0)))
-  }
-
-  distances <- utils::adist(tolower(text[candidates]), tolower(pattern),
-                            fixed = TRUE, ignore.case = TRUE)
   matches <- which(distances <= max_distance)
 
   # Extract the actual matching strings
   matching_strings <- if (length(matches) > 0) {
-    text[candidates[matches]]
+    text[matches]
   } else {
     character(0)
   }
-
+  
   list(
-    candidates = candidates,
     distances = distances,
     matches = matches,
     matching_strings = matching_strings
