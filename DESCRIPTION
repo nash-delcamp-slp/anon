@@ -1,0 +1,22 @@
+Package: anon
+Title: Anonymize Sensitive Data in R Objects
+Version: 0.0.0.9000
+Authors@R: 
+    person("Nash", "Delcamp", , "nash.delcamp@simulations-plus.com", role = c("aut", "cre"))
+Description: Provides tools for anonymizing sensitive information in R objects including character vectors, factors, data frames, and lists. Features pattern-based redaction with approximate matching warnings, specialized functions for common data types (identifiers, dates, emails, phone numbers), and environment summarization with anonymization. Designed to help data scientists share code and results while protecting sensitive information.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports: 
+    cli,
+    dplyr,
+    glue,
+    purrr,
+    rlang,
+    stringr,
+    tibble,
+    utils
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
