@@ -403,7 +403,7 @@ anon_fns <- list(
       x_key <- anonymous_phones |>
         setNames(x_unique)
 
-      result[is_phone_like] <- unname(x_key[x_to_anonymized])
+      result[is_phone_like] <- unname(x_key[x_to_anonymize])
     }
 
     # Restore missing values
