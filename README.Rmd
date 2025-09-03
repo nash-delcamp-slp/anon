@@ -11,6 +11,7 @@ knitr::opts_chunk$set(
   fig.path = "man/figures/README-",
   out.width = "100%"
 )
+set.seed(1234)
 ```
 
 # anon
@@ -112,7 +113,7 @@ options(
 
 ```{r}
 c(
-  anon(starwars),
+  starwars = anon(starwars),
   anon_data_summary()
 )
 ```
