@@ -345,7 +345,7 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
       attr(result, "approximate_warnings") <- unique_warnings
     } else {
       # When called from top level, issue warnings normally
-      cli::cli_warn(unique_warnings)
+      rlang::warn(unique_warnings)
     }
   }
 
