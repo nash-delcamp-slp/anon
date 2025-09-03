@@ -14,7 +14,8 @@ new_anon_context <- function(x, ...) {
 #'
 #' This method allows combining multiple anonymized objects created by `anon()`
 #' or `anon_data_summary()` using `c()`. The result maintains the anonymized content
-#' and provides a print method suitable for LLM context.
+#' and provides a print method suitable for LLM context. An additional header is 
+#' included in printed output for named elements.
 #'
 #' @param ... anon_context objects to combine
 #' @return An anon_context_collection object containing all input objects
@@ -40,6 +41,7 @@ c.anon_context <- function(...) {
     dots,
     class = c("anon_context_collection", "anon_context")
   )
+  names(combined) <- names(dots)
 
   combined
 }
@@ -60,6 +62,11 @@ print.anon_context_collection <- function(x, ...) {
   cat("=== ANONYMIZED DATA CONTEXT ===\n\n")
 
   for (i in seq_along(x)) {
+    # Add header for named elements
+    if (!is.null(names(x)) && !is.na(names(x)[i]) && names(x)[i] != "") {
+      cat("--- ", names(x)[i], " ---\n")
+    }
+    
     # Delegate to individual print methods
     print(x[[i]], ...)
     cat("\n")
