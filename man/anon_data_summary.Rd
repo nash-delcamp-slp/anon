@@ -7,7 +7,7 @@
 anon_data_summary(
   envir = globalenv(),
   pattern_list = list(),
-  default_replacement = "**REDACTED**",
+  default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   check_approximate = TRUE,
   max_distance = 2
 )
@@ -21,10 +21,11 @@ or indexed as "x1", "x2", etc.). Default is \code{globalenv()}.}
 \itemize{
 \item Named elements where names are replacement values and values are one or more patterns to match
 \item Unnamed elements where one or more patterns are replaced with \code{default_replacement}
+This parameter is combined with the global option \code{getOption("anon.pattern_list")}.
 }}
 
 \item{default_replacement}{Value to use as the default replacement value when no specific replacement
-is provided. Default is \code{"**REDACTED**"}.}
+is provided. Default is \verb{getOption("anon.default_replacement", default = "\[REDACTED\]")}.}
 
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is \code{TRUE}.}

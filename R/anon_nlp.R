@@ -90,6 +90,41 @@ anon_nlp_kind <- function(
   
   kind <- match.arg(kind)
   
+  # Get default_replacement from arguments or options
+  args <- list(...)
+  if (!"default_replacement" %in% names(args)) {
+    # Check for kind-specific option first
+    kind_specific_option <- paste0("anon.default_replacement_", kind)
+    kind_specific_replacement <- getOption(kind_specific_option, default = NULL)
+    
+    if (!is.null(kind_specific_replacement)) {
+      args$default_replacement <- kind_specific_replacement
+    } else if (kind == "person") {
+      # Just in case someone sets a people option instead of person
+      people_option <- getOption("anon.default_replacement_people", default = NULL)
+      if (!is.null(!is.null(people_option))) {
+        args$default_replacement <- people_option
+      }
+    } else {
+      # Fall back to general default replacement option
+      general_replacement <- getOption("anon.default_replacement", default = NULL)
+      if (!is.null(general_replacement)) {
+        args$default_replacement <- general_replacement
+      }
+    }
+    # If none of the above options are set, use defaults based on kind.
+    if (!"default_replacement" %in% names(args)) {
+      args$default_replacement <- switch(kind,
+        "date" = "[DATE]",
+        "location" = "[PLACE]", 
+        "money" = "[$]",
+        "organization" = "[ORGANIZATION]",
+        "percentage" = "[%]",
+        "person" = "[NAME]"
+      )
+    }
+  }
+
   # Use NLP to get potentially sensitive information
   patterns <- switch(kind,
     "date" = nlp_get_dates(x),
@@ -108,5 +143,5 @@ anon_nlp_kind <- function(
   }
   
   # Apply anon() with the expanded patterns
-  anon(x, pattern_list = expanded_patterns, ...)
+  do.call(anon, c(list(x = x, pattern_list = expanded_patterns), args))
 }

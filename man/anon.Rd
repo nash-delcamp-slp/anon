@@ -7,7 +7,7 @@
 anon(
   x,
   pattern_list = list(),
-  default_replacement = "**REDACTED**",
+  default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   check_approximate = TRUE,
   max_distance = 2,
   df_variable_names = NULL,
@@ -24,10 +24,11 @@ anon(
 \itemize{
 \item Named elements where names are replacement values and values are one or more patterns to match
 \item Unnamed elements where one or more patterns are replaced with \code{default_replacement}
+This parameter is combined with the global option \code{getOption("anon.pattern_list")}.
 }}
 
 \item{default_replacement}{Value to use as the default replacement value when no specific replacement
-is provided. Default is \code{"**REDACTED**"}.}
+is provided. Default is \verb{getOption("anon.default_replacement", default = "\[REDACTED\]")}.}
 
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is \code{TRUE}.}
@@ -40,6 +41,7 @@ specifying which variable names should be anonymized:
 \itemize{
 \item Unnamed elements: variables are replaced with \code{default_replacement}
 \item Named elements: variable names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option \code{getOption("anon.df_variable_names")}.
 }}
 
 \item{df_classes}{For data frames, a character vector or named list specifying
@@ -47,6 +49,7 @@ which variable classes should be anonymized:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option \code{getOption("anon.df_classes")}.
 }}
 
 \item{check_names}{Logical indicating whether to anonymize object names
@@ -55,8 +58,9 @@ which variable classes should be anonymized:
 \item{check_labels}{Logical indicating whether to anonymize labels (attributes).
 Default is \code{TRUE}.}
 
-\item{.self}{Logical for internal use in recursive calls. When \code{TRUE}, warnings
-are collected as attributes instead of being issued immediately. Default is \code{FALSE}.}
+\item{.self}{Logical for internal use only. Used in recursive calls. Default is \code{FALSE}.
+When \code{TRUE}, warnings are collected as attributes instead of being issued immediately
+and global options are ignored and only explicitly provided parameters are used.}
 }
 \value{
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive
@@ -89,6 +93,26 @@ Replacement functions can be provided in \code{df_variable_names} and \code{df_c
 The returned object has class \code{anon_context} which allows it to be combined with other
 anonymized objects using \code{c()}.
 }
+\section{Global Options}{
+
+The following global options affect function behavior:
+
+\describe{
+\item{\code{anon.default_replacement}}{Default replacement text (default: "[REDACTED]").}
+\item{\code{anon.pattern_list}}{Global patterns to combine with (after) \code{pattern_list} parameter.}
+\item{\code{anon.df_variable_names}}{Global variable name specifications to combine with (after)
+\code{df_variable_names} parameter.}
+\item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
+}
+
+To set global options:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{options(anon.pattern_list = list("EMAIL" = "@\\\\S+"))
+options(anon.df_variable_names = c("name", "email"))
+options(anon.default_replacement = "[HIDDEN]")
+}\if{html}{\out{</div>}}
+}
+
 \examples{
 # Basic string anonymization
 text <- c("John Smith", "jane.doe@email.com", "Call 555-1234")
@@ -122,6 +146,11 @@ anon_df <- df |>
       "email"
     )
   )
+
+# Using global options
+options(anon.pattern_list = list("EMAIL" = "@\\\\S+"))
+options(anon.df_variable_names = "name")
+anon(df)  # Will anonymize emails and names using global settings
 
 # Combine anonymized objects
 anon_summary <- anon_data_summary(list(df = df))

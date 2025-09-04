@@ -9,8 +9,9 @@
 #' @param pattern_list A list of patterns to search for and replace. Can include:
 #'   - Named elements where names are replacement values and values are one or more patterns to match
 #'   - Unnamed elements where one or more patterns are replaced with `default_replacement`
+#'   This parameter is combined with the global option `getOption("anon.pattern_list")`.
 #' @param default_replacement Value to use as the default replacement value when no specific replacement
-#' is provided. Default is `"**REDACTED**"`.
+#' is provided. Default is `getOption("anon.default_replacement", default = "\[REDACTED\]")`.
 #' @param check_approximate Logical indicating whether to check for approximate
 #'   matches using string distance. Default is `TRUE`.
 #' @param max_distance Maximum string distance for approximate matching when
@@ -19,16 +20,19 @@
 #'   specifying which variable names should be anonymized:
 #'   - Unnamed elements: variables are replaced with `default_replacement`
 #'   - Named elements: variable names are keys, value can be either a replacement value or a function
+#'   This parameter is combined with the global option `getOption("anon.df_variable_names")`.
 #' @param df_classes For data frames, a character vector or named list specifying
 #'   which variable classes should be anonymized:
 #'   - Unnamed elements: variables with matching classes are replaced with `default_replacement`
 #'   - Named elements: class names are keys, value can be either a replacement value or a function
+#'   This parameter is combined with the global option `getOption("anon.df_classes")`.
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels (attributes).
 #'   Default is `TRUE`.
-#' @param .self Logical for internal use in recursive calls. When `TRUE`, warnings
-#'   are collected as attributes instead of being issued immediately. Default is `FALSE`.
+#' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`. 
+#'   When `TRUE`, warnings are collected as attributes instead of being issued immediately
+#'   and global options are ignored and only explicitly provided parameters are used.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
@@ -49,6 +53,24 @@
 #'
 #' The returned object has class `anon_context` which allows it to be combined with other
 #' anonymized objects using `c()`.
+#'
+#' @section Global Options:
+#' The following global options affect function behavior:
+#' 
+#' \describe{
+#'   \item{`anon.default_replacement`}{Default replacement text (default: "\[REDACTED\]").}
+#'   \item{`anon.pattern_list`}{Global patterns to combine with (after) `pattern_list` parameter.}
+#'   \item{`anon.df_variable_names`}{Global variable name specifications to combine with (after) 
+#'         `df_variable_names` parameter.}
+#'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
+#' }
+#' 
+#' To set global options:
+#' ```r
+#' options(anon.pattern_list = list("EMAIL" = "@\\S+"))
+#' options(anon.df_variable_names = c("name", "email"))
+#' options(anon.default_replacement = "[HIDDEN]")
+#' ```
 #'
 #' @examples
 #' # Basic string anonymization
@@ -84,43 +106,61 @@
 #'     )
 #'   )
 #'
+#' # Using global options
+#' options(anon.pattern_list = list("EMAIL" = "@\\S+"))
+#' options(anon.df_variable_names = "name")
+#' anon(df)  # Will anonymize emails and names using global settings
+#'
 #' # Combine anonymized objects
 #' anon_summary <- anon_data_summary(list(df = df))
 #' combined <- c(anon_df, anon_summary)
 #' combined
 #'
 #' @export
-anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
-                 check_approximate = TRUE, max_distance = 2,
-                 df_variable_names = NULL, df_classes = NULL,
-                 check_names = TRUE, check_labels = TRUE, .self = FALSE) {
-  
+anon <- function(
+  x,
+  pattern_list = list(),
+  default_replacement = getOption(
+    "anon.default_replacement",
+    default = "[REDACTED]"
+  ),
+  check_approximate = TRUE,
+  max_distance = 2,
+  df_variable_names = NULL,
+  df_classes = NULL,
+  check_names = TRUE,
+  check_labels = TRUE,
+  .self = FALSE
+) {
   # Combine user arguments with global options
   if (!.self) {
     option_pattern_list <- getOption("anon.pattern_list", default = list())
-    option_df_variable_names <- getOption("anon.df_variable_names", default = NULL)
+    option_df_variable_names <- getOption(
+      "anon.df_variable_names",
+      default = NULL
+    )
     option_df_classes <- getOption("anon.df_classes", default = NULL)
-    
+
     # Combine pattern_list with option
-    if (length(option_pattern_list) > 0 && !isFALSE(pattern_list)) {
-      pattern_list <- c(option_pattern_list, pattern_list)
+    if (length(option_pattern_list) > 0) {
+      pattern_list <- c(pattern_list, option_pattern_list)
     }
 
     # Combine df_variable_names with option
-    if (!is.null(option_df_variable_names) && !isFALSE(df_variable_names)) {
+    if (!is.null(option_df_variable_names)) {
       if (is.null(df_variable_names)) {
         df_variable_names <- option_df_variable_names
       } else {
-        df_variable_names <- c(option_df_variable_names, df_variable_names)
+        df_variable_names <- c(df_variable_names, option_df_variable_names)
       }
     }
-  
+
     # Combine df_classes with option
-    if (!is.null(option_df_classes) && !isFALSE(df_classes)) {
+    if (!is.null(option_df_classes)) {
       if (is.null(df_classes)) {
         df_classes <- option_df_classes
       } else {
-        df_classes <- c(option_df_classes, df_classes)
+        df_classes <- c(df_classes, option_df_classes)
       }
     }
   }
@@ -133,7 +173,12 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
   # Track warnings at the anon() level
   approximate_warnings <- character(0)
 
-  apply_patterns <- function(text, pattern_replacements, check_approximate, max_distance) {
+  apply_patterns <- function(
+    text,
+    pattern_replacements,
+    check_approximate,
+    max_distance
+  ) {
     result <- text
 
     for (i in seq_along(pattern_replacements)) {
@@ -150,13 +195,20 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
         pattern <- pattern_replacements[[i]][[1]]
 
         # Use the helper function for approximate matching
-        match_results <- compute_approximate_distances(result, pattern, max_distance)
+        match_results <- compute_approximate_distances(
+          result,
+          pattern,
+          max_distance
+        )
 
         if (length(match_results$matching_strings) > 0) {
-          warning_msgs <- paste0("Potential approximate match: '",
-                                 match_results$matching_strings,
-                                 "' is similar to pattern '",
-                                 pattern, "'")
+          warning_msgs <- paste0(
+            "Potential approximate match: '",
+            match_results$matching_strings,
+            "' is similar to pattern '",
+            pattern,
+            "'"
+          )
           # Add to parent scope warnings instead of warning immediately
           approximate_warnings <<- c(approximate_warnings, warning_msgs)
         }
@@ -182,8 +234,15 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
   }
 
   # Helper function to get replacement value for a variable name
-  get_variable_replacement <- function(col_name, col_data, df_variable_names, default_replacement) {
-    if (is.null(df_variable_names)) return(NULL)
+  get_variable_replacement <- function(
+    col_name,
+    col_data,
+    df_variable_names,
+    default_replacement
+  ) {
+    if (is.null(df_variable_names)) {
+      return(NULL)
+    }
 
     if (is.null(names(df_variable_names))) {
       # Unnamed vector - check if variable name is in the list
@@ -207,7 +266,9 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
 
   # Helper function to get replacement value for a variable class
   get_class_replacement <- function(var, df_classes, default_replacement) {
-    if (is.null(df_classes)) return(NULL)
+    if (is.null(df_classes)) {
+      return(NULL)
+    }
 
     var_classes <- class(var)
 
@@ -226,7 +287,10 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
       }
       # Also check unnamed elements for backward compatibility
       unnamed_elements <- df_classes[names(df_classes) == ""]
-      if (length(unnamed_elements) > 0 && any(tolower(var_classes) %in% tolower(unnamed_elements))) {
+      if (
+        length(unnamed_elements) > 0 &&
+          any(tolower(var_classes) %in% tolower(unnamed_elements))
+      ) {
         return(default_replacement)
       }
     }
@@ -236,26 +300,49 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
   # Dispatch based on object type (using the inner apply_patterns function)
   if (is.character(x) || is.factor(x)) {
     if (is.factor(x)) {
-      levels(x) <- apply_patterns(levels(x), pattern_replacements, check_approximate, max_distance)
+      levels(x) <- apply_patterns(
+        levels(x),
+        pattern_replacements,
+        check_approximate,
+        max_distance
+      )
       result <- x
     } else {
-      result <- apply_patterns(x, pattern_replacements, check_approximate, max_distance)
+      result <- apply_patterns(
+        x,
+        pattern_replacements,
+        check_approximate,
+        max_distance
+      )
     }
-
   } else if (is.data.frame(x)) {
     result <- x
 
     # Process each column
     for (col_name in names(result)) {
       # Check if this variable should be anonymized and get replacement values
-      var_name_replacement <- get_variable_replacement(col_name, result[[col_name]], df_variable_names, default_replacement)
-      var_class_replacement <- get_class_replacement(result[[col_name]], df_classes, default_replacement)
+      var_name_replacement <- get_variable_replacement(
+        col_name,
+        result[[col_name]],
+        df_variable_names,
+        default_replacement
+      )
+      var_class_replacement <- get_class_replacement(
+        result[[col_name]],
+        df_classes,
+        default_replacement
+      )
 
       # Anonymize column-level label only if check_labels is TRUE
       if (isTRUE(check_labels)) {
         col_label <- attr(result[[col_name]], "label", exact = TRUE)
         if (!is.null(col_label)) {
-          attr(result[[col_name]], "label") <- apply_patterns(col_label, pattern_replacements, check_approximate, max_distance)
+          attr(result[[col_name]], "label") <- apply_patterns(
+            col_label,
+            pattern_replacements,
+            check_approximate,
+            max_distance
+          )
         }
       }
 
@@ -266,21 +353,26 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
         result[[col_name]] <- var_class_replacement
       } else {
         # Use .self = TRUE for recursive calls to collect warnings
-        recursive_result <- anon(result[[col_name]],
-                                 pattern_list = pattern_list,
-                                 default_replacement = default_replacement,
-                                 check_approximate = check_approximate,
-                                 max_distance = max_distance,
-                                 df_variable_names = NULL,  # Don't pass these down to avoid recursion
-                                 df_classes = NULL,
-                                 check_names = check_names,
-                                 check_labels = check_labels,
-                                 .self = TRUE)
+        recursive_result <- anon(
+          result[[col_name]],
+          pattern_list = pattern_list,
+          default_replacement = default_replacement,
+          check_approximate = check_approximate,
+          max_distance = max_distance,
+          df_variable_names = NULL, # Don't pass these down to avoid recursion
+          df_classes = NULL,
+          check_names = check_names,
+          check_labels = check_labels,
+          .self = TRUE
+        )
 
         # If recursive call has warnings, collect them
         if (!is.null(attr(recursive_result, "approximate_warnings"))) {
-          approximate_warnings <- c(approximate_warnings, attr(recursive_result, "approximate_warnings"))
-          attr(recursive_result, "approximate_warnings") <- NULL  # Remove the attribute
+          approximate_warnings <- c(
+            approximate_warnings,
+            attr(recursive_result, "approximate_warnings")
+          )
+          attr(recursive_result, "approximate_warnings") <- NULL # Remove the attribute
         }
 
         result[[col_name]] <- recursive_result
@@ -289,49 +381,80 @@ anon <- function(x, pattern_list = list(), default_replacement = "**REDACTED**",
 
     # Anonymize column names only if check_names is TRUE
     if (isTRUE(check_names) && !is.null(names(result))) {
-      names(result) <- apply_patterns(names(result), pattern_replacements, check_approximate, max_distance)
+      names(result) <- apply_patterns(
+        names(result),
+        pattern_replacements,
+        check_approximate,
+        max_distance
+      )
     }
 
     # Anonymize row names only if check_names is TRUE
-    if (isTRUE(check_names) && !is.null(rownames(result)) && !identical(rownames(result), as.character(seq_len(nrow(result))))) {
-      rownames(result) <- apply_patterns(rownames(result), pattern_replacements, check_approximate, max_distance)
+    if (
+      isTRUE(check_names) &&
+        !is.null(rownames(result)) &&
+        !identical(rownames(result), as.character(seq_len(nrow(result))))
+    ) {
+      rownames(result) <- apply_patterns(
+        rownames(result),
+        pattern_replacements,
+        check_approximate,
+        max_distance
+      )
     }
 
     # Anonymize data frame level label only if check_labels is TRUE
     if (isTRUE(check_labels)) {
       df_label <- attr(result, "label", exact = TRUE)
       if (!is.null(df_label)) {
-        attr(result, "label") <- apply_patterns(df_label, pattern_replacements, check_approximate, max_distance)
+        attr(result, "label") <- apply_patterns(
+          df_label,
+          pattern_replacements,
+          check_approximate,
+          max_distance
+        )
       }
     }
-
   } else if (is.list(x)) {
-    result <- purrr::map(x, ~ {
-      # Use .self = TRUE for recursive calls to collect warnings
-      recursive_result <- anon(.x, pattern_list = pattern_list,
-                               default_replacement = default_replacement,
-                               check_approximate = check_approximate,
-                               max_distance = max_distance,
-                               df_variable_names = df_variable_names,
-                               df_classes = df_classes,
-                               check_names = check_names,
-                               check_labels = check_labels,
-                               .self = TRUE)
+    result <- purrr::map(
+      x,
+      ~ {
+        # Use .self = TRUE for recursive calls to collect warnings
+        recursive_result <- anon(
+          .x,
+          pattern_list = pattern_list,
+          default_replacement = default_replacement,
+          check_approximate = check_approximate,
+          max_distance = max_distance,
+          df_variable_names = df_variable_names,
+          df_classes = df_classes,
+          check_names = check_names,
+          check_labels = check_labels,
+          .self = TRUE
+        )
 
-      # If recursive call has warnings, collect them
-      if (!is.null(attr(recursive_result, "approximate_warnings"))) {
-        approximate_warnings <<- c(approximate_warnings, attr(recursive_result, "approximate_warnings"))
-        attr(recursive_result, "approximate_warnings") <- NULL  # Remove the attribute
+        # If recursive call has warnings, collect them
+        if (!is.null(attr(recursive_result, "approximate_warnings"))) {
+          approximate_warnings <<- c(
+            approximate_warnings,
+            attr(recursive_result, "approximate_warnings")
+          )
+          attr(recursive_result, "approximate_warnings") <- NULL # Remove the attribute
+        }
+
+        recursive_result
       }
-
-      recursive_result
-    })
+    )
 
     # Anonymize list names only if check_names is TRUE
     if (isTRUE(check_names) && !is.null(names(result))) {
-      names(result) <- apply_patterns(names(result), pattern_replacements, check_approximate, max_distance)
+      names(result) <- apply_patterns(
+        names(result),
+        pattern_replacements,
+        check_approximate,
+        max_distance
+      )
     }
-
   } else {
     result <- x
   }
@@ -398,8 +521,8 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
 }
 
 with_default_replacements <- function(
-    pattern_list = list(),
-    default_replacement = "**REDACTED**"
+    pattern_list,
+    default_replacement
 ) {
   if (!is.list(pattern_list)) {
     pattern_list <- list(pattern_list)
@@ -412,7 +535,7 @@ with_default_replacements <- function(
     element_value <- pattern_list[[i]]
 
     if (!is.null(element_name) && element_name != "") {
-      # Named element: use new structure (replacement_value -> pattern_key)
+      # Named element: use structure (replacement_value -> pattern_key)
       if (length(element_value) == 1) {
         result[[length(result) + 1]] <- c(element_value, element_name)
       } else {

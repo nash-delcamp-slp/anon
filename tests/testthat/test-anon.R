@@ -3,7 +3,7 @@ test_that("anon() works with character vectors", {
 
   # Basic pattern matching
   result <- anon(text, pattern_list = c("John Smith", "@\\S+", "\\d{3}-\\d{4}"))
-  expect_equal(as.character(result), c("**REDACTED**", "jane.doe**REDACTED**", "Call **REDACTED**"))
+  expect_equal(as.character(result), c("[REDACTED]", "jane.doe[REDACTED]", "Call [REDACTED]"))
 
   # Named patterns with custom replacements
   result2 <- anon(text, pattern_list = list("PERSON" = "John Smith",
@@ -15,15 +15,15 @@ test_that("anon() works with character vectors", {
   result3 <- anon(text, pattern_list = list("FIRST" = c("John", "Jane"),
                                             "EMAIL" = "@\\S+",
                                             "\\d{3}-\\d{4}"))
-  expect_equal(as.character(result3), c("FIRST Smith", "FIRST.doeEMAIL", "Call **REDACTED**"))
+  expect_equal(as.character(result3), c("FIRST Smith", "FIRST.doeEMAIL", "Call [REDACTED]"))
 })
 
 test_that("anon() works with factors", {
   factor_data <- factor(c("Alice", "Bob", "Alice", "Charlie"))
 
   result <- anon(factor_data, pattern_list = c("Alice", "Bob"))
-  expect_equal(levels(result), c("**REDACTED**", "Charlie"))
-  expect_equal(as.character(result), c("**REDACTED**", "**REDACTED**", "**REDACTED**", "Charlie"))
+  expect_equal(levels(result), c("[REDACTED]", "Charlie"))
+  expect_equal(as.character(result), c("[REDACTED]", "[REDACTED]", "[REDACTED]", "Charlie"))
 })
 
 test_that("anon() works with data frames - basic functionality", {
@@ -35,8 +35,8 @@ test_that("anon() works with data frames - basic functionality", {
 
   # Pattern-based anonymization
   result <- anon(df, pattern_list = c("Alice", "@test\\.com"))
-  expect_equal(as.character(result$name), c("**REDACTED**", "Bob"))
-  expect_equal(as.character(result$email), c("**REDACTED****REDACTED**", "bob**REDACTED**"))
+  expect_equal(as.character(result$name), c("[REDACTED]", "Bob"))
+  expect_equal(as.character(result$email), c("[REDACTED][REDACTED]", "bob[REDACTED]"))
   expect_equal(result$score, c(95, 87))
 })
 
@@ -49,8 +49,8 @@ test_that("anon() works with df_variable_names parameter", {
 
   # Anonymize specific columns by name
   result <- anon(df, df_variable_names = c("name", "email"))
-  expect_equal(as.character(result$name), rep("**REDACTED**", 2))
-  expect_equal(as.character(result$email), rep("**REDACTED**", 2))
+  expect_equal(as.character(result$name), rep("[REDACTED]", 2))
+  expect_equal(as.character(result$email), rep("[REDACTED]", 2))
   expect_equal(result$score, c(95, 87))
 
   # Named replacements
@@ -61,7 +61,7 @@ test_that("anon() works with df_variable_names parameter", {
 
   # combination of replacements
   result3 <- anon(df, df_variable_names = list("name", "email" = "ADDRESS"))
-  expect_equal(as.character(result3$name), rep("**REDACTED**", 2))
+  expect_equal(as.character(result3$name), rep("[REDACTED]", 2))
   expect_equal(as.character(result3$email), rep("ADDRESS", 2))
   expect_equal(result3$score, c(95, 87))
 })
@@ -75,8 +75,8 @@ test_that("anon() works with df_classes parameter", {
 
   # Anonymize by class
   result <- anon(df, df_classes = "character")
-  expect_equal(as.character(result$name), rep("**REDACTED**", 2))
-  expect_equal(as.character(result$email), rep("**REDACTED**", 2))
+  expect_equal(as.character(result$name), rep("[REDACTED]", 2))
+  expect_equal(as.character(result$email), rep("[REDACTED]", 2))
   expect_equal(result$score, c(95, 87))
 
   # Named class replacements
@@ -89,7 +89,7 @@ test_that("anon() works with df_classes parameter", {
   result3 <- anon(df, df_classes = list("character" = "HIDDEN", "numeric"))
   expect_equal(as.character(result3$name), rep("HIDDEN", 2))
   expect_equal(as.character(result3$email), rep("HIDDEN", 2))
-  expect_equal(as.character(result3$score), rep("**REDACTED**", 2))
+  expect_equal(as.character(result3$score), rep("[REDACTED]", 2))
 })
 
 test_that("anon() works with function replacements", {
@@ -116,10 +116,10 @@ test_that("anon() works with lists", {
   )
 
   result <- anon(test_list, pattern_list = c("Alice", "@\\S+"))
-  expect_equal(as.character(result$names), c("**REDACTED**", "Bob"))
-  expect_equal(as.character(result$emails), c("**REDACTED****REDACTED**", "bob**REDACTED**"))
+  expect_equal(as.character(result$names), c("[REDACTED]", "Bob"))
+  expect_equal(as.character(result$emails), c("[REDACTED][REDACTED]", "bob[REDACTED]"))
   expect_equal(as.character(result$nested$person), "Charlie")
-  expect_equal(as.character(result$nested$contact), "charlie**REDACTED**")
+  expect_equal(as.character(result$nested$contact), "charlie[REDACTED]")
 })
 
 test_that("anon() handles names and labels correctly", {
@@ -134,10 +134,10 @@ test_that("anon() handles names and labels correctly", {
 
   # With name and label checking enabled (default)
   result <- anon(df, pattern_list = c("sensitive"))
-  expect_true(grepl("\\*\\*REDACTED\\*\\*", colnames(result)[1]))
-  expect_true(grepl("\\*\\*REDACTED\\*\\*", rownames(result)[1]))
-  expect_true(grepl("\\*\\*REDACTED\\*\\*", attr(result, "label")))
-  expect_true(grepl("\\*\\*REDACTED\\*\\*", attr(result$score, "label")))
+  expect_true(grepl("\\[REDACTED\\]", colnames(result)[1]))
+  expect_true(grepl("\\[REDACTED\\]", rownames(result)[1]))
+  expect_true(grepl("\\[REDACTED\\]", attr(result, "label")))
+  expect_true(grepl("\\[REDACTED\\]", attr(result$score, "label")))
 
   # With name checking disabled
   result2 <- anon(df, pattern_list = c("sensitive"), check_names = FALSE)
@@ -178,13 +178,13 @@ test_that("anon() approximate matching works", {
     result <- anon(text, pattern_list = c("Alice"), check_approximate = TRUE, max_distance = 2),
     "Potential approximate match.*Alise.*similar to pattern.*Alice"
   )
-  expect_equal(as.character(result), c("Jon Smith", "**REDACTED**", "Alise"))
+  expect_equal(as.character(result), c("Jon Smith", "[REDACTED]", "Alise"))
 
   # With approximate matching disabled, should not warn
   expect_silent(
     result2 <- anon(text, pattern_list = c("Alice"), check_approximate = FALSE)
   )
-  expect_equal(as.character(result2), c("Jon Smith", "**REDACTED**", "Alise"))
+  expect_equal(as.character(result2), c("Jon Smith", "[REDACTED]", "Alise"))
 })
 
 test_that("anon() custom default replacement works", {
@@ -198,7 +198,7 @@ test_that("anon() case insensitive matching works", {
   text <- c("alice", "ALICE", "Alice", "Bob")
 
   result <- anon(text, pattern_list = c("Alice"))
-  expect_equal(as.character(result), c(rep("**REDACTED**", 3), "Bob"))
+  expect_equal(as.character(result), c(rep("[REDACTED]", 3), "Bob"))
 })
 
 test_that("anon() with mixed named and unnamed patterns", {
@@ -210,7 +210,7 @@ test_that("anon() with mixed named and unnamed patterns", {
                    "Bob",                       # Unnamed - replace with default
                    "EMAIL" = "@\\S+"            # Named - replace with "EMAIL"
                  ))
-  expect_equal(as.character(result), c("PERSON", "**REDACTED**", "secretEMAIL", "public info"))
+  expect_equal(as.character(result), c("PERSON", "[REDACTED]", "secretEMAIL", "public info"))
 })
 
 test_that("with_default_replacements helper works correctly", {

@@ -70,18 +70,24 @@
 #'
 #' @seealso [anon()] for the underlying anonymization function
 #' @export
-anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
-                              default_replacement = "**REDACTED**",
-                              check_approximate = TRUE, max_distance = 2) {
-
+anon_data_summary <- function(
+  envir = globalenv(),
+  pattern_list = list(),
+  default_replacement = getOption(
+    "anon.default_replacement",
+    default = "[REDACTED]"
+  ),
+  check_approximate = TRUE,
+  max_distance = 2
+) {
   name <- type <- NULL
 
   # Combine user arguments with global options
   option_pattern_list <- getOption("anon.pattern_list", default = list())
-  
+
   # Combine pattern_list with option
   if (length(option_pattern_list) > 0) {
-    pattern_list <- c(option_pattern_list, pattern_list)
+    pattern_list <- c(pattern_list, option_pattern_list)
   }
 
   pattern_replacements <- with_default_replacements(
@@ -90,17 +96,17 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
   )
 
   # when envir is passed as a list, name elements that are unnamed.
-  if(!is.environment(envir)) {
-    if(is.list(envir)) {
+  if (!is.environment(envir)) {
+    if (is.list(envir)) {
       # ideally, the content of the envir argument as a language object will
       # resolve to the length of the envir list. otherwise, will use indexed names.
       names_for_nameless <- as.character(sys.calls()[[1]]["envir"][[1]])[-1]
-      if(length(names_for_nameless) != length(envir)) {
+      if (length(names_for_nameless) != length(envir)) {
         names_for_nameless <- paste0("x", 1:length(envir))
       }
 
       # name elements that are not named.
-      if(is.null(names(envir))) {
+      if (is.null(names(envir))) {
         names(envir) <- names_for_nameless
       } else {
         missing_names_lgl <- names(envir) == ""
@@ -111,10 +117,13 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
 
   obj_names <- objects(envir)
 
-  summaries <- purrr::map(obj_names, ~ {
-    obj <- envir[[.x]]
-    get_object_summary(.x, obj)
-  }) |>
+  summaries <- purrr::map(
+    obj_names,
+    ~ {
+      obj <- envir[[.x]]
+      get_object_summary(.x, obj)
+    }
+  ) |>
     purrr::set_names(obj_names)
 
   data_frames <- summaries |>
@@ -128,7 +137,7 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
   if (length(data_frames) > 0) {
     result$data_frames <- list(
       structure = purrr::map_dfr(data_frames, "structure"),
-      variables = purrr::map(data_frames, "variables")  # Keep as separate list elements
+      variables = purrr::map(data_frames, "variables") # Keep as separate list elements
     )
   }
 
@@ -141,15 +150,23 @@ anon_data_summary <- function(envir = globalenv(), pattern_list = list(),
     total_objects = length(summaries),
     data_frames = length(data_frames),
     other_objects = length(other_objects),
-    total_memory = format(sum(purrr::map_dbl(obj_names, ~ utils::object.size(envir[[.x]]))), units = "auto")
+    total_memory = format(
+      sum(purrr::map_dbl(obj_names, ~ utils::object.size(envir[[.x]]))),
+      units = "auto"
+    )
   )
 
   # anonymize summaries.
-  result <- anon(result, pattern_list = pattern_list,
-                 default_replacement = default_replacement,
-                 check_approximate = check_approximate, max_distance = max_distance,
-                 df_variable_names = FALSE, df_classes = FALSE,
-                 check_names = FALSE)
+  result <- anon(
+    result,
+    pattern_list = pattern_list,
+    default_replacement = default_replacement,
+    check_approximate = check_approximate,
+    max_distance = max_distance,
+    df_variable_names = FALSE,
+    df_classes = FALSE,
+    check_names = FALSE
+  )
 
   class(result) <- c("anon_data_summary", "anon_context", "list")
   result
