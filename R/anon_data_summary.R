@@ -300,7 +300,7 @@ print.anon_data_summary <- function(x, ...) {
     }
     if (!is.null(x$data_frames$variables)) {
       purrr::iwalk(x$data_frames$variables, ~ {
-        cat(glue::glue("\nVariable Details ({.y}):\n\n"))
+        cat(sprintf("\nVariable Details (%s):\n\n", .y))
         cat(strrep("-", nchar(.y) + 18), "\n")
         print(as.data.frame(.x))
         cat("\n")
