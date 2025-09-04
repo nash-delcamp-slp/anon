@@ -37,18 +37,18 @@ library(anon)
 
 ## Examples
 
-The below examples demonstrate some of the anonymization functions found in `anon_fns`.
+The below examples demonstrate some of the anonymization functions that operate on vectors.
 ```{r}
-anon_fns$id_chr_sequence(c("John", "Paul", "John", "Keith"))
+anon_id_chr_sequence(c("John", "Paul", "John", "Keith"))
 
 library(dplyr)
 data("starwars", package = "dplyr")
 glimpse(starwars)
-anon_fns$id_num_sequence(starwars$name) |> 
+anon_id_num_sequence(starwars$name) |> 
   head()
-anon_fns$num_preserve_distribution(starwars$height) |> 
+anon_num_preserve_distribution(starwars$height) |> 
   head()
-anon_fns$num_range(starwars$mass, n_breaks = 10) |> 
+anon_num_range(starwars$mass, n_breaks = 10) |> 
   head()
 ```
 
@@ -61,12 +61,12 @@ anon_starwars <- starwars |>
       LIGHT = c("jedi", "rebels?")
     ),
     df_variable_names = list(
-      name = anon_fns$id_chr_sequence,
-      homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+      name = anon_id_chr_sequence,
+      homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
     ),
     df_classes = list(
-      integer = ~ anon_fns$num_range(.x, n_breaks = 10),
-      numeric = anon_fns$num_preserve_distribution
+      integer = ~ anon_num_range(.x, n_breaks = 10),
+      numeric = anon_num_preserve_distribution
     )
   )
 glimpse(anon_starwars)
@@ -101,12 +101,12 @@ options(
     LIGHT = c("jedi", "rebels?")
   ),
   anon.df_variable_names = list(
-    name = anon_fns$id_chr_sequence,
-    homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+    name = anon_id_chr_sequence,
+    homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
   ),
   anon.df_classes = list(
-    integer = ~ anon_fns$num_range(.x, n_breaks = 10),
-    numeric = anon_fns$num_preserve_distribution
+    integer = ~ anon_num_range(.x, n_breaks = 10),
+    numeric = anon_num_preserve_distribution
   )
 )
 ```

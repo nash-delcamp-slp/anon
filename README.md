@@ -29,11 +29,11 @@ library(anon)
 
 ## Examples
 
-The below examples demonstrate some of the anonymization functions found
-in `anon_fns`.
+The below examples demonstrate some of the anonymization functions that
+operate on vectors.
 
 ``` r
-anon_fns$id_chr_sequence(c("John", "Paul", "John", "Keith"))
+anon_id_chr_sequence(c("John", "Paul", "John", "Keith"))
 #> [1] "ID 1" "ID 2" "ID 1" "ID 3"
 
 library(dplyr)
@@ -63,13 +63,13 @@ glimpse(starwars)
 #> $ films      <list> <"A New Hope", "The Empire Strikes Back", "Return of the J…
 #> $ vehicles   <list> <"Snowspeeder", "Imperial Speeder Bike">, <>, <>, <>, "Imp…
 #> $ starships  <list> <"X-wing", "Imperial shuttle">, <>, <>, "TIE Advanced x1",…
-anon_fns$id_num_sequence(starwars$name) |> 
+anon_id_num_sequence(starwars$name) |> 
   head()
 #> [1] 1 2 3 4 5 6
-anon_fns$num_preserve_distribution(starwars$height) |> 
+anon_num_preserve_distribution(starwars$height) |> 
   head()
 #> [1] 183.0 174.0 138.0  66.0 189.5 177.5
-anon_fns$num_range(starwars$mass, n_breaks = 10) |> 
+anon_num_range(starwars$mass, n_breaks = 10) |> 
   head()
 #> [1] "[0,100)"   "[0,100)"   "[0,100)"   "[100,200)" "[0,100)"   "[100,200)"
 ```
@@ -84,12 +84,12 @@ anon_starwars <- starwars |>
       LIGHT = c("jedi", "rebels?")
     ),
     df_variable_names = list(
-      name = anon_fns$id_chr_sequence,
-      homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+      name = anon_id_chr_sequence,
+      homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
     ),
     df_classes = list(
-      integer = ~ anon_fns$num_range(.x, n_breaks = 10),
-      numeric = anon_fns$num_preserve_distribution
+      integer = ~ anon_num_range(.x, n_breaks = 10),
+      numeric = anon_num_preserve_distribution
     )
   )
 glimpse(anon_starwars)
@@ -121,11 +121,9 @@ starwars |>
   )) |> 
   glimpse()
 #> Warning: Potential approximate match: 'blond' is similar to pattern 'blonde'
-#> Potential approximate match: 'blue' is similar to pattern 'bleu'
-#> Potential approximate match: 'Imperial Speeder Bike' is similar to pattern
-#> 'imperials'
-#> Potential approximate match: 'Imperial shuttle' is similar to pattern
-#> 'imperials'
+#> • Potential approximate match: 'blue' is similar to pattern 'bleu'
+#> • Potential approximate match: 'Imperial Speeder Bike' is similar to pattern 'imperials'
+#> • Potential approximate match: 'Imperial shuttle' is similar to pattern 'imperials'
 #> Rows: 87
 #> Columns: 14
 #> $ name       <chr> "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or…
@@ -197,12 +195,12 @@ options(
     LIGHT = c("jedi", "rebels?")
   ),
   anon.df_variable_names = list(
-    name = anon_fns$id_chr_sequence,
-    homeworld = ~ anon_fns$id_chr_sequence(.x, start = "Planet ")
+    name = anon_id_chr_sequence,
+    homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
   ),
   anon.df_classes = list(
-    integer = ~ anon_fns$num_range(.x, n_breaks = 10),
-    numeric = anon_fns$num_preserve_distribution
+    integer = ~ anon_num_range(.x, n_breaks = 10),
+    numeric = anon_num_preserve_distribution
   )
 )
 ```
