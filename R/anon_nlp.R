@@ -28,6 +28,29 @@
 #'   \item \code{anon_nlp_people()}: Anonymize person names
 #' }
 #'
+#' @section Global Options:
+#' The following global options affect the default replacement values used by 
+#' these functions when no `default_replacement` is explicitly provided:
+#' 
+#' \describe{
+#'   \item{`anon.default_replacement_date`}{Default replacement for dates (default: "\[DATE\]").}
+#'   \item{`anon.default_replacement_location`}{Default replacement for locations (default: "\[PLACE\]").}
+#'   \item{`anon.default_replacement_money`}{Default replacement for monetary amounts (default: "\[$\]").}
+#'   \item{`anon.default_replacement_organization`}{Default replacement for organizations (default: "\[ORGANIZATION\]").}
+#'   \item{`anon.default_replacement_percentage`}{Default replacement for percentages (default: "\[%\]").}
+#'   \item{`anon.default_replacement_person`}{Default replacement for person names (default: "\[NAME\]").}
+#'   \item{`anon.default_replacement`}{General fallback default replacement if kind-specific options are not set.}
+#' }
+#' 
+#' Options are checked in priority order: kind-specific option, general option, then built-in defaults.
+#' 
+#' To set entity-specific replacement options:
+#' ```r
+#' options(anon.default_replacement_person = "[INDIVIDUAL]")
+#' options(anon.default_replacement_organization = "[COMPANY]") 
+#' options(anon.default_replacement_date = "[WHEN]")
+#' ```
+#'
 #' @examples
 #' text <- c("John Smith works at Microsoft in Seattle.",
 #'           "The deal was worth $1.2 million in 2023.")
@@ -37,6 +60,12 @@
 #'
 #' # Anonymize organizations with custom replacement
 #' anon_nlp_organizations(text, default_replacement = "[COMPANY]")
+#'
+#' # Set global options for consistent replacements
+#' options(anon.default_replacement_person = "[INDIVIDUAL]")
+#' options(anon.default_replacement_organization = "[CORP]")
+#' anon_nlp_people(text)      # Uses "[INDIVIDUAL]"
+#' anon_nlp_organizations(text) # Uses "[CORP]"
 #'
 #' @seealso
 #' \code{\link{nlp_get_people}}, \code{\link{more_patterns}}, \code{\link{anon}}
