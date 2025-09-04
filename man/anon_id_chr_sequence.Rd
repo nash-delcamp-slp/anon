@@ -24,10 +24,9 @@ anon_id_chr_sequence(
 \item{padding_chr}{Character used for padding (default: "0")}
 }
 \description{
-Converts unique identifiers to sequential character IDs.
+Convert unique identifiers to sequential character IDs
 }
 \examples{
-# Character ID sequence
 ids <- c("A123", "B456", "A123", "C789")
 anon_id_chr_sequence(ids)
 

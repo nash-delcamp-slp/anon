@@ -12,5 +12,5 @@ anon_id_num_sequence(x, scramble = FALSE)
 \item{scramble}{Logical, whether to randomize the assignment order of generated results}
 }
 \description{
-Converts unique identifiers to sequential numeric IDs.
+Convert unique identifiers to sequential numeric IDs
 }

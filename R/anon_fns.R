@@ -92,12 +92,11 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
 #'
 #' Anonymizes email addresses by replacing them with sequential fake emails.
 #'
-#' @param x A vector to anonymize
+#' @param x A character vector to anonymize
 #' @param start Character prefix for generated results (default: "user")
 #' @param domain Domain for generated emails (default: "domain.com")
 #'
 #' @examples
-#' # Email anonymization
 #' emails <- c("john@company.com", "not_an_email", "jane at work dot org")
 #' anon_email(emails)
 #'
@@ -139,8 +138,6 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
 
 #' Convert unique identifiers to sequential character IDs
 #'
-#' Converts unique identifiers to sequential character IDs.
-#'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
 #' @param start Character prefix for generated results (default: "ID ")
@@ -148,7 +145,6 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
 #' @param padding_chr Character used for padding (default: "0")
 #'
 #' @examples
-#' # Character ID sequence
 #' ids <- c("A123", "B456", "A123", "C789")
 #' anon_id_chr_sequence(ids)
 #'
@@ -180,8 +176,6 @@ anon_id_chr_sequence <- function(
 
 #' Convert unique identifiers to sequential numeric IDs
 #'
-#' Converts unique identifiers to sequential numeric IDs.
-#'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
 #'
@@ -203,7 +197,7 @@ anon_id_num_sequence <- function(x, scramble = FALSE) {
 #' Anonymizes numeric data while preserving distributional properties using 
 #' various transformation methods.
 #'
-#' @param x A vector to anonymize
+#' @param x A numeric vector to anonymize
 #' @param method Transformation method: "rank", "noise", or "quantile"
 #' @param noise_sd Standard deviation for noise method (used when method = "noise") (default: NULL resulting in standard deviation being calculated)
 #' @param quantile_dist_family Distribution family for quantile method: "normal", "uniform", "exponential" (used when method = "quantile")
@@ -295,7 +289,6 @@ anon_num_preserve_distribution <- function(
 #' @param keep_values Logical, whether to keep actual range values or use generic labels
 #'
 #' @examples
-#' # Numeric range categorization
 #' values <- c(150, 165, 180, 175, 160, 190)
 #' anon_num_range(values, n_breaks = 3)
 #'

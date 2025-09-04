@@ -31,7 +31,6 @@ Converts numeric values into range categories, either preserving actual
 ranges or creating anonymized range labels.
 }
 \examples{
-# Numeric range categorization
 values <- c(150, 165, 180, 175, 160, 190)
 anon_num_range(values, n_breaks = 3)
 

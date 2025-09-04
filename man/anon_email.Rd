@@ -7,7 +7,7 @@
 anon_email(x, start = "user", domain = "domain.com")
 }
 \arguments{
-\item{x}{A vector to anonymize}
+\item{x}{A character vector to anonymize}
 
 \item{start}{Character prefix for generated results (default: "user")}
 
@@ -17,7 +17,6 @@ anon_email(x, start = "user", domain = "domain.com")
 Anonymizes email addresses by replacing them with sequential fake emails.
 }
 \examples{
-# Email anonymization
 emails <- c("john@company.com", "not_an_email", "jane at work dot org")
 anon_email(emails)
 

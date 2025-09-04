@@ -18,7 +18,6 @@ Shifts dates to a new time period while preserving relative relationships
 between dates. Supports Date and POSIXct objects.
 }
 \examples{
-# Date shifting
 dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))
 anon_date_shift(dates, center_date = "2024-06-01")
 

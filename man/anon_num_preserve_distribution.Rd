@@ -12,7 +12,7 @@ anon_num_preserve_distribution(
 )
 }
 \arguments{
-\item{x}{A vector to anonymize}
+\item{x}{A numeric vector to anonymize}
 
 \item{method}{Transformation method: "rank", "noise", or "quantile"}
 
