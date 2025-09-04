@@ -160,6 +160,7 @@ nlp_get_kind <- function(
       entities <- trimws(entities)
       entities <- entities[entities != ""]
       entities <- unique(entities)
+      entities <- escape_regex_chars(entities)
 
       return(entities)
     },
@@ -169,4 +170,14 @@ nlp_get_kind <- function(
       return(character(0))
     }
   )
+}
+
+# Helper function to escape special regex characters
+escape_regex_chars <- function(x) {
+  # Escape special regex characters
+  # These are: \ . ^ $ * + ? { } [ ] | ( )
+  for (chr in c("\\", ".", "^", "$", "*", "+", "?", "{", "}", "[", "]", "|", "(", ")")) {
+     x <- gsub(chr, paste0("\\", chr), x, fixed = TRUE)
+  }
+  x
 }
