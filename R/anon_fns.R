@@ -125,7 +125,7 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
     x_to_anonymize <- x_clean[is_email_like]
     x_unique <- unique(x_to_anonymize)
     x_key <- paste0(start, sprintf("%03d", seq_along(x_unique)), "@", domain) |>
-      setNames(x_unique)
+      stats::setNames(x_unique)
 
     result[is_email_like] <- unname(x_key[x_to_anonymize])
   }
@@ -169,7 +169,7 @@ anon_id_chr_sequence <- function(
   }
 
   x_key <- paste0(start, x_key) |>
-    setNames(x_unique)
+    stats::setNames(x_unique)
 
   unname(x_key[x])
 }
@@ -187,7 +187,7 @@ anon_id_num_sequence <- function(x, scramble = FALSE) {
   }
 
   x_key <- seq_along(x_unique) |>
-    setNames(x_unique)
+    stats::setNames(x_unique)
 
   unname(x_key[x])
 }
@@ -228,7 +228,7 @@ anon_num_preserve_distribution <- function(
       sorted_values <- sort(x_clean)
       scrambled_values <- sample(sorted_values)
       # Interpolate for tied ranks
-      approx(
+      stats::approx(
         seq_along(scrambled_values),
         scrambled_values,
         xout = ranks,
@@ -238,9 +238,9 @@ anon_num_preserve_distribution <- function(
     "noise" = {
       # Add calibrated noise to preserve mean and variance
       if (is.null(noise_sd)) {
-        noise_sd <- sd(x_clean) * 0.1
+        noise_sd <- stats::sd(x_clean) * 0.1
       }
-      x_clean + rnorm(length(x_clean), mean = 0, sd = noise_sd)
+      x_clean + stats::rnorm(length(x_clean), mean = 0, sd = noise_sd)
     },
     "quantile" = {
       # Quantile-based transformation using theoretical distribution
@@ -255,17 +255,17 @@ anon_num_preserve_distribution <- function(
 
       switch(
         quantile_dist_family,
-        "normal" = qnorm(
+        "normal" = stats::qnorm(
           quantiles_to_use,
           mean = mean(x_clean),
-          sd = sd(x_clean)
+          sd = stats::sd(x_clean)
         ),
-        "uniform" = qunif(
+        "uniform" = stats::qunif(
           quantiles_to_use,
           min = min(x_clean),
           max = max(x_clean)
         ),
-        "exponential" = qexp(quantiles_to_use, rate = 1 / mean(x_clean))
+        "exponential" = stats::qexp(quantiles_to_use, rate = 1 / mean(x_clean))
       )
     }
   )
@@ -326,7 +326,7 @@ anon_num_range <- function(
     # equal_count
     if (clean_breaks) {
       # Get quantile breaks then make them prettier
-      quantile_breaks <- quantile(
+      quantile_breaks <- stats::quantile(
         x_clean,
         probs = seq(0, 1, length.out = n_breaks + 1)
       )
@@ -340,7 +340,7 @@ anon_num_range <- function(
         breaks <- c(min(x_clean), max(x_clean))
       }
     } else {
-      breaks <- quantile(x_clean, probs = seq(0, 1, length.out = n_breaks + 1))
+      breaks <- stats::quantile(x_clean, probs = seq(0, 1, length.out = n_breaks + 1))
     }
   }
 
@@ -364,7 +364,7 @@ anon_num_range <- function(
 
     # Create mapping from original ranges to anonymized ranges
     anon_labels <- paste0("Range_", sprintf("%02d", range_indices))
-    range_mapping <- setNames(anon_labels, unique_ranges)
+    range_mapping <- stats::setNames(anon_labels, unique_ranges)
 
     # Apply the mapping
     result <- as.character(range_mapping[as.character(ranges)])
@@ -416,7 +416,7 @@ anon_phone_number <- function(x) {
     )
 
     x_key <- anonymous_phones |>
-      setNames(x_unique)
+      stats::setNames(x_unique)
 
     result[is_phone_like] <- unname(x_key[x_to_anonymize])
   }
