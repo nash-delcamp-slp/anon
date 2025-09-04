@@ -4,13 +4,24 @@
 \alias{more_patterns}
 \title{Create expanded pattern vector for text matching}
 \usage{
-more_patterns(patterns)
+more_patterns(
+  patterns,
+  original = TRUE,
+  spaces_to_flexible = TRUE,
+  individual = TRUE
+)
 }
 \arguments{
 \item{patterns}{Character vector of patterns to expand}
+
+\item{original}{Logical. Whether to include original patterns (default: TRUE)}
+
+\item{spaces_to_flexible}{Logical. Whether to include space-flexible patterns (default: TRUE)}
+
+\item{individual}{Logical. Whether to include individual words (default: TRUE)}
 }
 \value{
-Character vector with original patterns, space-flexible patterns, and individual words
+Character vector with selected pattern expansions
 }
 \description{
 Accepts a character vector of patterns and returns an expanded vector containing:
@@ -28,4 +39,5 @@ while taking additional efforts to anonymize all sensitive information.
 \examples{
 people <- c("John Smith", "Mary Jane Watson")
 more_patterns(people)
+more_patterns(people, individual = FALSE)
 }
