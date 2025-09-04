@@ -12,6 +12,9 @@ Imports:
     cli,
     dplyr,
     glue,
+    NLP,
+    openNLP,
+    openNLPmodels.en,
     purrr,
     rlang,
     stringr,
@@ -19,4 +22,5 @@ Imports:
     utils
 Suggests: 
     testthat (>= 3.0.0)
+Remotes: datacube.wu.ac.at::openNLPmodels.en
 Config/testthat/edition: 3
