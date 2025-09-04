@@ -22,5 +22,5 @@ Imports:
     utils
 Suggests: 
     testthat (>= 3.0.0)
-Remotes: url::https://datacube.wu.ac.at/src/contrib/openNLPmodels.en
+Remotes: openNLPmodels.en=url::https://datacube.wu.ac.at/src/contrib/openNLPmodels.en
 Config/testthat/edition: 3
