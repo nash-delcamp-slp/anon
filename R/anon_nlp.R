@@ -125,15 +125,13 @@ anon_nlp_kind <- function(
     # Check for kind-specific option first
     kind_specific_option <- paste0("anon.default_replacement_", kind)
     kind_specific_replacement <- getOption(kind_specific_option, default = NULL)
+    # Just in case someone sets a people option instead of person
+    people_option <- getOption("anon.default_replacement_people", default = NULL)
     
     if (!is.null(kind_specific_replacement)) {
       args$default_replacement <- kind_specific_replacement
-    } else if (kind == "person") {
-      # Just in case someone sets a people option instead of person
-      people_option <- getOption("anon.default_replacement_people", default = NULL)
-      if (!is.null(!is.null(people_option))) {
-        args$default_replacement <- people_option
-      }
+    } else if (kind == "person" && !is.null(people_option)) {
+      args$default_replacement <- people_option
     } else {
       # Fall back to general default replacement option
       general_replacement <- getOption("anon.default_replacement", default = NULL)
@@ -142,10 +140,11 @@ anon_nlp_kind <- function(
       }
     }
     # If none of the above options are set, use defaults based on kind.
-    if (!"default_replacement" %in% names(args)) {
-      args$default_replacement <- switch(kind,
+    if (is.null(args$default_replacement)) {
+      args$default_replacement <- switch(
+        kind,
         "date" = "[DATE]",
-        "location" = "[PLACE]", 
+        "location" = "[PLACE]",
         "money" = "[$]",
         "organization" = "[ORGANIZATION]",
         "percentage" = "[%]",
