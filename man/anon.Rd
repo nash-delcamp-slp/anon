@@ -14,6 +14,7 @@ anon(
   df_classes = NULL,
   check_names = TRUE,
   check_labels = TRUE,
+  nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE
 )
 }
@@ -57,6 +58,10 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 
 \item{check_labels}{Logical indicating whether to anonymize labels (attributes).
 Default is \code{TRUE}.}
+
+\item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
+generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
+This argument overrides the global option.}
 
 \item{.self}{Logical for internal use only. Used in recursive calls. Default is \code{FALSE}.
 When \code{TRUE}, warnings are collected as attributes instead of being issued immediately
@@ -103,6 +108,8 @@ The following global options affect function behavior:
 \item{\code{anon.df_variable_names}}{Global variable name specifications to combine with (after)
 \code{df_variable_names} parameter.}
 \item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
+\item{\code{anon.nlp_auto}}{List of logical values indicating which NLP entity types should be
+automatically anonymized. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
 }
 
 To set global options:
@@ -110,6 +117,7 @@ To set global options:
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{options(anon.pattern_list = list("EMAIL" = "@\\\\S+"))
 options(anon.df_variable_names = c("name", "email"))
 options(anon.default_replacement = "[HIDDEN]")
+options(anon.nlp_auto = nlp_auto(person = TRUE))
 }\if{html}{\out{</div>}}
 }
 

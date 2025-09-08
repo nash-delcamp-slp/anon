@@ -31,7 +31,7 @@ anon_nlp_people(x, ...)
 anon_nlp_places(x, ...)
 }
 \arguments{
-\item{x}{A character vector to anonymize}
+\item{x}{The object to anonymize. Can be a character vector, factor, data frame, or list.}
 
 \item{entity_types}{Character vector of entity types to extract.
 Entity types are: "PERSON", "NORP", "FAC", "ORG", "GPE", "LOC", "PRODUCT",

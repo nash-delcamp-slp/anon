@@ -4,7 +4,7 @@
 #' different types of named entities from text. Each function combines NLP
 #' entity extraction with pattern expansion and anonymization.
 #'
-#' @param x A character vector to anonymize
+#' @inheritParams anon
 #' @inheritParams nlp_get_entities
 #' @param ... Additional arguments passed to \code{\link{anon}}
 #'
@@ -57,74 +57,16 @@
 #' @name anon_nlp_entities
 #' @export
 anon_nlp_entities <- function(x, entity_types = nlp_entity_sets$all, ...) {
-  if (!is.character(x)) {
-    stop("x must be a character vector")
-  }
   entity_types <- unique(entity_types)
 
   # Get default replacement(s) from arguments or options
   args <- list(...)
-  nlp_replacements <- vector("list", length = length(entity_types))
-  names(nlp_replacements) <- entity_types
-  if ("default_replacement" %in% names(args)) {
-    nlp_replacements <- rep(
-      as.list(args$default_replacement),
-      times = length(nlp_replacements)
-    )
-    names(nlp_replacements) <- entity_types
-  } else {
-    for (entity in names(nlp_replacements)) {
-      nlp_replacements[[entity]] <- get_nlp_default_replacement(entity)
-    }
-  }
 
-  if ("PROPN" %in% entity_types) {
-    propn_entities <- list(PROPN = nlp_get_proper_nouns(x))
-  } else {
-    propn_entities <- NULL
-  }
+  pattern_list <- extract_nlp_patterns(x, entity_types)
 
-  if (length(entity_types) > 0) {
-    # Collect all entities at once, grouped by entity_type.
-    all_entities <- nlp_get_entities(
-      x,
-      entity_types = setdiff(entity_types, "PROPN"),
-      return_list = TRUE
-    )
-  } else {
-    all_entities <- NULL
-  }
-
-  all_entities <- c(all_entities, propn_entities)[entity_types]
-
-  # Build pattern_list for anon() where names are replacement values and values are patterns.
-  pattern_list <- list()
-
-  for (entity in entity_types) {
-    i <- length(pattern_list) + 1
-    entities <- all_entities[[entity]]
-    replacement <- nlp_replacements[[entity]]
-
-    if (length(entities) > 0) {
-      if (is.character(replacement)) {
-        if (length(replacement) > 1) {
-          # Sample the replacement values as replacements for each individual entity
-          entity_replacements <- lapply(entities, more_patterns)
-          names(entity_replacements) <- sample(
-            replacement,
-            size = length(entity_replacements),
-            replace = length(entities) > length(replacement)
-          )
-          pattern_list <- c(pattern_list, entity_replacements)
-        } else {
-          expanded_patterns <- more_patterns(entities)
-          pattern_list[[i]] <- expanded_patterns
-          names(pattern_list)[[i]] <- replacement
-        }
-      } else {
-        stop("Issue with replacement value for ", entity)
-      }
-    }
+  if (!is.null(args$default_replacement)) {
+    pattern_list <- list(unlist(pattern_list))
+    names(pattern_list) <- args$default_replacement
   }
 
   # Remove the default_replacement from args since we're handling it via pattern_list
@@ -134,17 +76,17 @@ anon_nlp_entities <- function(x, entity_types = nlp_entity_sets$all, ...) {
   if (length(pattern_list) > 0) {
     x <- do.call(
       anon,
-      c(list(x = x, pattern_list = pattern_list), args)
+      c(list(x = x, pattern_list = pattern_list, nlp_auto = FALSE), args)
     )
   }
 
-  x
+  new_anon_context(x)
 }
 
 #' @rdname anon_nlp_entities
 #' @export
 anon_nlp_proper_nouns <- function(x, ...) {
-  anon_nlp_entities(x, "PROPN")
+  anon_nlp_entities(x, "PROPN", ...)
 }
 
 #' @rdname anon_nlp_entities
@@ -187,4 +129,91 @@ anon_nlp_people <- function(x, ...) {
 #' @export
 anon_nlp_places <- function(x, ...) {
   anon_nlp_entities(x, nlp_entity_sets$places, ...)
+}
+
+
+# Helper function to extract NLP patterns for automatic anonymization
+extract_nlp_patterns <- function(x, entity_types) {
+  if (length(entity_types) == 0) {
+    return(list())
+  }
+
+  # Only process character vectors and factors directly
+  # For complex objects, the entities will be extracted during recursive processing
+  text_to_process <- character(0)
+
+  if (is.character(x)) {
+    text_to_process <- x
+  } else if (is.factor(x)) {
+    text_to_process <- levels(x)
+  } else if (is.data.frame(x)) {
+    # Extract text from character and factor columns
+    char_cols <- sapply(x, function(col) is.character(col) || is.factor(col))
+    if (any(char_cols)) {
+      text_data <- x[char_cols]
+      text_to_process <- unlist(
+        lapply(text_data, function(col) {
+          if (is.factor(col)) {
+            return(levels(col))
+          } else {
+            return(col)
+          }
+        }),
+        use.names = FALSE
+      )
+    }
+  } else if (is.list(x)) {
+    # Recursively extract text from list elements
+    text_to_process <- unlist(
+      lapply(x, function(elem) {
+        if (is.character(elem)) {
+          return(elem)
+        } else if (is.factor(elem)) {
+          return(levels(elem))
+        }
+        return(character(0))
+      }),
+      use.names = FALSE
+    )
+  }
+
+  if (length(text_to_process) == 0) {
+    return(list())
+  }
+
+  # Get entities by type
+  pattern_list <- list()
+
+  # Handle proper nouns separately
+  if ("PROPN" %in% entity_types) {
+    propn_entities <- nlp_get_proper_nouns(text_to_process)
+    if (length(propn_entities) > 0) {
+      replacement <- get_nlp_default_replacement("PROPN")
+      expanded_patterns <- more_patterns(propn_entities)
+      pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
+      names(pattern_list)[length(pattern_list)] <- replacement
+    }
+  }
+
+  # Handle other NLP entities
+  other_entities <- setdiff(entity_types, "PROPN")
+  if (length(other_entities) > 0) {
+    all_entities <- nlp_get_entities(
+      text_to_process,
+      entity_types = other_entities,
+      return_list = TRUE
+    )
+
+    for (entity_type in other_entities) {
+      entities <- all_entities[[entity_type]]
+      if (length(entities) > 0) {
+        replacement <- get_nlp_default_replacement(entity_type)
+        expanded_patterns <- more_patterns(entities)
+        pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
+        names(pattern_list)[length(pattern_list)] <- replacement
+      }
+    }
+  }
+
+  return(pattern_list)
 }

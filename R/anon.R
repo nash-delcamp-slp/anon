@@ -30,6 +30,9 @@
 #'   (column names, row names, list names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels (attributes).
 #'   Default is `TRUE`.
+#' @param nlp_auto List of logical values with names corresponding to entity names. Can be
+#'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
+#'   This argument overrides the global option.
 #' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`.
 #'   When `TRUE`, warnings are collected as attributes instead of being issued immediately
 #'   and global options are ignored and only explicitly provided parameters are used.
@@ -63,6 +66,8 @@
 #'   \item{`anon.df_variable_names`}{Global variable name specifications to combine with (after)
 #'         `df_variable_names` parameter.}
 #'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
+#'   \item{`anon.nlp_auto`}{List of logical values indicating which NLP entity types should be
+#'         automatically anonymized. Use [`nlp_auto()`] to generate this list. Override the option by setting the `nlp_auto` argument.}
 #' }
 #'
 #' To set global options:
@@ -70,6 +75,7 @@
 #' options(anon.pattern_list = list("EMAIL" = "@\\S+"))
 #' options(anon.df_variable_names = c("name", "email"))
 #' options(anon.default_replacement = "[HIDDEN]")
+#' options(anon.nlp_auto = nlp_auto(person = TRUE))
 #' ```
 #'
 #' @examples
@@ -130,6 +136,7 @@ anon <- function(
   df_classes = NULL,
   check_names = TRUE,
   check_labels = TRUE,
+  nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE
 ) {
   # Combine user arguments with global options
@@ -164,7 +171,6 @@ anon <- function(
       }
     }
   }
-
   pattern_replacements <- with_default_replacements(
     pattern_list,
     default_replacement = default_replacement
@@ -295,6 +301,16 @@ anon <- function(
       }
     }
     return(NULL)
+  }
+
+  # Handle automatic/provided NLP anonymization
+  enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
+  if (length(enabled_nlp_entities) > 0) {
+    # Extract NLP entities and add to pattern_list for processing
+    nlp_pattern_list <- extract_nlp_patterns(x, enabled_nlp_entities)
+    if (length(nlp_pattern_list) > 0) {
+      pattern_list <- c(pattern_list, nlp_pattern_list)
+    }
   }
 
   # Dispatch based on object type (using the inner apply_patterns function)
