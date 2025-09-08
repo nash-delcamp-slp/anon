@@ -30,7 +30,7 @@
 #'   (column names, row names, list names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels (attributes).
 #'   Default is `TRUE`.
-#' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`. 
+#' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`.
 #'   When `TRUE`, warnings are collected as attributes instead of being issued immediately
 #'   and global options are ignored and only explicitly provided parameters are used.
 #'
@@ -56,15 +56,15 @@
 #'
 #' @section Global Options:
 #' The following global options affect function behavior:
-#' 
+#'
 #' \describe{
 #'   \item{`anon.default_replacement`}{Default replacement text (default: "\[REDACTED\]").}
 #'   \item{`anon.pattern_list`}{Global patterns to combine with (after) `pattern_list` parameter.}
-#'   \item{`anon.df_variable_names`}{Global variable name specifications to combine with (after) 
+#'   \item{`anon.df_variable_names`}{Global variable name specifications to combine with (after)
 #'         `df_variable_names` parameter.}
 #'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
 #' }
-#' 
+#'
 #' To set global options:
 #' ```r
 #' options(anon.pattern_list = list("EMAIL" = "@\\S+"))
@@ -255,7 +255,7 @@ anon <- function(
         replacement <- df_variable_names[[col_name]]
         return(apply_replacement(replacement, col_data))
       }
-      # Also check unnamed elements for backward compatibility
+      # Also check unnamed elements
       unnamed_elements <- df_variable_names[names(df_variable_names) == ""]
       if (length(unnamed_elements) > 0 && col_name %in% unnamed_elements) {
         return(default_replacement)
@@ -285,7 +285,7 @@ anon <- function(
           return(apply_replacement(replacement, var))
         }
       }
-      # Also check unnamed elements for backward compatibility
+      # Also check unnamed elements
       unnamed_elements <- df_classes[names(df_classes) == ""]
       if (
         length(unnamed_elements) > 0 &&
@@ -483,7 +483,11 @@ anon <- function(
 # Helper function for approximate distance matching
 compute_approximate_distances <- function(text, pattern, max_distance = 2) {
   if (nchar(pattern) == 0) {
-    return(list(distances = integer(0), matches = integer(0), matching_strings = character(0)))
+    return(list(
+      distances = integer(0),
+      matches = integer(0),
+      matching_strings = character(0)
+    ))
   }
 
   text_lengths <- nchar(text)
@@ -491,16 +495,24 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
 
   # First check with fixed (non-partial) where the candidates are x and the pattern is y and insertions are
   # more costly.
-  distances1 <- utils::adist(tolower(text), tolower(pattern),
-                            fixed = TRUE, ignore.case = TRUE,
-                            costs = c(insertions = 2, deletions = 1, substitutions = 1))
-  
+  distances1 <- utils::adist(
+    tolower(text),
+    tolower(pattern),
+    fixed = TRUE,
+    ignore.case = TRUE,
+    costs = c(insertions = 2, deletions = 1, substitutions = 1)
+  )
+
   # Second check with partial matches where x and y are reverse of above and insertions are less
   # costly.
-  distances2 <- utils::adist(tolower(pattern), tolower(text),
-                            partial = TRUE, ignore.case = TRUE,
-                            costs = c(insertions = 1, deletions = 5, substitutions = 5))
-  
+  distances2 <- utils::adist(
+    tolower(pattern),
+    tolower(text),
+    partial = TRUE,
+    ignore.case = TRUE,
+    costs = c(insertions = 1, deletions = 5, substitutions = 5)
+  )
+
   # Take minimum distance for each pattern (transpose distances2 since matrix is flipped)
   distances <- pmin(distances1, t(distances2))
 
@@ -512,7 +524,7 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
   } else {
     character(0)
   }
-  
+
   list(
     distances = distances,
     matches = matches,
@@ -521,8 +533,8 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
 }
 
 with_default_replacements <- function(
-    pattern_list,
-    default_replacement
+  pattern_list,
+  default_replacement
 ) {
   if (!is.list(pattern_list)) {
     pattern_list <- list(pattern_list)

@@ -7,6 +7,7 @@
 more_patterns(
   patterns,
   original = TRUE,
+  escape_regex = TRUE,
   spaces_to_flexible = TRUE,
   individual = TRUE
 )
@@ -15,6 +16,8 @@ more_patterns(
 \item{patterns}{Character vector of patterns to expand}
 
 \item{original}{Logical. Whether to include original patterns (default: TRUE)}
+
+\item{escape_regex}{Logical. Whether to include original patterns with special characters escaped (default: TRUE)}
 
 \item{spaces_to_flexible}{Logical. Whether to include space-flexible patterns (default: TRUE)}
 
@@ -27,6 +30,7 @@ Character vector with selected pattern expansions
 Accepts a character vector of patterns and returns an expanded vector containing:
 \enumerate{
 \item Original items
+\item Original items with special characters escaped
 \item Patterns with spaces replaced with a pattern of any number of spaces and any
 one character between words.
 \item Individual words from each item, split by spaces and punctuation

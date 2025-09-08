@@ -9,16 +9,14 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Imports: 
+    cleanNLP,
     dplyr,
-    NLP,
-    openNLP,
-    openNLPmodels.en,
     purrr,
     rlang,
     stringr,
     tibble,
     utils
 Suggests: 
+    reticulate,
     testthat (>= 3.0.0)
-Remotes: openNLPmodels.en=url::https://datacube.wu.ac.at/src/contrib/openNLPmodels.en_1.5-1.tar.gz
 Config/testthat/edition: 3
