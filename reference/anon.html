@@ -49,13 +49,14 @@ anonymization based on variable names or classes and warnings about approximate 
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon</span><span class="op">(</span></span>
 <span>  <span class="va">x</span>,</span>
 <span>  pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
-<span>  default_replacement <span class="op">=</span> <span class="st">"**REDACTED**"</span>,</span>
+<span>  default_replacement <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.default_replacement"</span>, default <span class="op">=</span> <span class="st">"[REDACTED]"</span><span class="op">)</span>,</span>
 <span>  check_approximate <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  max_distance <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>  df_variable_names <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  df_classes <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  check_names <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  check_labels <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  nlp_auto <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.nlp_auto"</span><span class="op">)</span>,</span>
 <span>  .self <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -70,13 +71,14 @@ anonymization based on variable names or classes and warnings about approximate 
 
 <dt id="arg-pattern-list">pattern_list<a class="anchor" aria-label="anchor" href="#arg-pattern-list"></a></dt>
 <dd><p>A list of patterns to search for and replace. Can include:</p><ul><li><p>Named elements where names are replacement values and values are one or more patterns to match</p></li>
-<li><p>Unnamed elements where one or more patterns are replaced with <code>default_replacement</code></p></li>
+<li><p>Unnamed elements where one or more patterns are replaced with <code>default_replacement</code>
+This parameter is combined with the global option <code>getOption("anon.pattern_list")</code>.</p></li>
 </ul></dd>
 
 
 <dt id="arg-default-replacement">default_replacement<a class="anchor" aria-label="anchor" href="#arg-default-replacement"></a></dt>
 <dd><p>Value to use as the default replacement value when no specific replacement
-is provided. Default is <code>"**REDACTED**"</code>.</p></dd>
+is provided. Default is <code>getOption("anon.default_replacement", default = "\[REDACTED\]")</code>.</p></dd>
 
 
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
@@ -92,14 +94,16 @@ matches using string distance. Default is <code>TRUE</code>.</p></dd>
 <dt id="arg-df-variable-names">df_variable_names<a class="anchor" aria-label="anchor" href="#arg-df-variable-names"></a></dt>
 <dd><p>For data frames, a character vector or named list
 specifying which variable names should be anonymized:</p><ul><li><p>Unnamed elements: variables are replaced with <code>default_replacement</code></p></li>
-<li><p>Named elements: variable names are keys, value can be either a replacement value or a function</p></li>
+<li><p>Named elements: variable names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option <code>getOption("anon.df_variable_names")</code>.</p></li>
 </ul></dd>
 
 
 <dt id="arg-df-classes">df_classes<a class="anchor" aria-label="anchor" href="#arg-df-classes"></a></dt>
 <dd><p>For data frames, a character vector or named list specifying
 which variable classes should be anonymized:</p><ul><li><p>Unnamed elements: variables with matching classes are replaced with <code>default_replacement</code></p></li>
-<li><p>Named elements: class names are keys, value can be either a replacement value or a function</p></li>
+<li><p>Named elements: class names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option <code>getOption("anon.df_classes")</code>.</p></li>
 </ul></dd>
 
 
@@ -113,9 +117,16 @@ which variable classes should be anonymized:</p><ul><li><p>Unnamed elements: var
 Default is <code>TRUE</code>.</p></dd>
 
 
+<dt id="arg-nlp-auto">nlp_auto<a class="anchor" aria-label="anchor" href="#arg-nlp-auto"></a></dt>
+<dd><p>List of logical values with names corresponding to entity names. Can be
+generated with <code><a href="nlp_auto.html">nlp_auto()</a></code> and can be set as the <code>anon.nlp_auto</code> global option.
+This argument overrides the global option.</p></dd>
+
+
 <dt id="arg--self">.self<a class="anchor" aria-label="anchor" href="#arg--self"></a></dt>
-<dd><p>Logical for internal use in recursive calls. When <code>TRUE</code>, warnings
-are collected as attributes instead of being issued immediately. Default is <code>FALSE</code>.</p></dd>
+<dd><p>Logical for internal use only. Used in recursive calls. Default is <code>FALSE</code>.
+When <code>TRUE</code>, warnings are collected as attributes instead of being issued immediately
+and global options are ignored and only explicitly provided parameters are used.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -136,13 +147,42 @@ If <code>.self</code> is <code>TRUE</code>, warnings are attached as an attribut
 </ul><p>The returned object has class <code>anon_context</code> which allows it to be combined with other
 anonymized objects using <code><a href="https://rdrr.io/r/base/c.html" class="external-link">c()</a></code>.</p>
     </div>
+    <div class="section level2">
+    <h2 id="global-options">Global Options<a class="anchor" aria-label="anchor" href="#global-options"></a></h2>
+
+
+<p>The following global options affect function behavior:</p>
+<dl><dt><code>anon.default_replacement</code></dt>
+<dd><p>Default replacement text (default: "[REDACTED]").</p></dd>
+
+<dt><code>anon.pattern_list</code></dt>
+<dd><p>Global patterns to combine with (after) <code>pattern_list</code> parameter.</p></dd>
+
+<dt><code>anon.df_variable_names</code></dt>
+<dd><p>Global variable name specifications to combine with (after)
+<code>df_variable_names</code> parameter.</p></dd>
+
+<dt><code>anon.df_classes</code></dt>
+<dd><p>Global class specifications to combine with (after) <code>df_classes</code> parameter.</p></dd>
+
+<dt><code>anon.nlp_auto</code></dt>
+<dd><p>List of logical values indicating which NLP entity types should be
+automatically anonymized. Use <code><a href="nlp_auto.html">nlp_auto()</a></code> to generate this list. Override the option by setting the <code>nlp_auto</code> argument.</p></dd>
+
+
+</dl><p>To set global options:</p>
+<p></p><div class="sourceCode r"><pre><code><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"EMAIL"</span> <span class="op">=</span> <span class="st">"@\\S+"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.df_variable_names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"name"</span>, <span class="st">"email"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.default_replacement <span class="op">=</span> <span class="st">"[HIDDEN]"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.nlp_auto <span class="op">=</span> <span class="fu"><a href="../reference/nlp_auto.html">nlp_auto</a></span><span class="op">(</span>person <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span></code></pre><p></p></div>
+    </div>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># Basic string anonymization</span></span></span>
 <span class="r-in"><span><span class="va">text</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"John Smith"</span>, <span class="st">"jane.doe@email.com"</span>, <span class="st">"Call 555-1234"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">anon</span><span class="op">(</span><span class="va">text</span>, pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"John Smith"</span>, <span class="st">"@\\S+"</span>, <span class="st">"\\d{3}-\\d{4}"</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "**REDACTED**"         "jane.doe**REDACTED**" "Call **REDACTED**"   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "[REDACTED]"         "jane.doe[REDACTED]" "Call [REDACTED]"   </span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Using named patterns for specific replacements</span></span></span>
 <span class="r-in"><span><span class="fu">anon</span><span class="op">(</span><span class="va">text</span>, pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"PERSON"</span> <span class="op">=</span> <span class="st">"John Smith"</span>,</span></span>
@@ -159,9 +199,9 @@ anonymized objects using <code><a href="https://rdrr.io/r/base/c.html" class="ex
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize specific columns by name</span></span></span>
 <span class="r-in"><span><span class="fu">anon</span><span class="op">(</span><span class="va">df</span>, df_variable_names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"name"</span>, <span class="st">"email"</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>           name        email score</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1 **REDACTED** **REDACTED**    95</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2 **REDACTED** **REDACTED**    87</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         name      email score</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 [REDACTED] [REDACTED]    95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2 [REDACTED] [REDACTED]    87</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize columns by class with custom replacements</span></span></span>
 <span class="r-in"><span><span class="fu">anon</span><span class="op">(</span><span class="va">df</span>, df_classes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"character"</span> <span class="op">=</span> <span class="st">"HIDDEN"</span><span class="op">)</span><span class="op">)</span></span></span>
@@ -183,15 +223,23 @@ anonymized objects using <code><a href="https://rdrr.io/r/base/c.html" class="ex
 <span class="r-in"><span>    <span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Using global options</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"EMAIL"</span> <span class="op">=</span> <span class="st">"@\\S+"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.df_variable_names <span class="op">=</span> <span class="st">"name"</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="fu">anon</span><span class="op">(</span><span class="va">df</span><span class="op">)</span>  <span class="co"># Will anonymize emails and names using global settings</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         name      email score</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 [REDACTED] aliceEMAIL    95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2 [REDACTED]   bobEMAIL    87</span>
+<span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Combine anonymized objects</span></span></span>
 <span class="r-in"><span><span class="va">anon_summary</span> <span class="op">&lt;-</span> <span class="fu"><a href="anon_data_summary.html">anon_data_summary</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>df <span class="op">=</span> <span class="va">df</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">combined</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">anon_df</span>, <span class="va">anon_summary</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">combined</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> === ANONYMIZED DATA CONTEXT ===</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       name        email score</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1 Person 1 **REDACTED**    95</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2 Person 2 **REDACTED**    87</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>       name      email score</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 Person 1 [REDACTED]    95</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2 Person 2 [REDACTED]    87</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Environment Data Summary</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ========================</span>
@@ -201,10 +249,12 @@ anonymized objects using <code><a href="https://rdrr.io/r/base/c.html" class="ex
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Data Frames:</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ------------</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   name       type n_rows n_cols memory_size</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1   df data.frame      2      3      1.2 Kb</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         name       type n_rows n_cols memory_size</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 [REDACTED] data.frame      2      3      1.2 Kb</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Variable Details (df):</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> -------------------- </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   variable data_type n_distinct n_missing n_total pct_missing label</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 1     name character          2         0       2           0  &lt;NA&gt;</span>

@@ -10,7 +10,7 @@
 <url><loc>/reference/anon_email.html</loc></url>
 <url><loc>/reference/anon_id_chr_sequence.html</loc></url>
 <url><loc>/reference/anon_id_num_sequence.html</loc></url>
-<url><loc>/reference/anon_nlp.html</loc></url>
+<url><loc>/reference/anon_nlp_entities.html</loc></url>
 <url><loc>/reference/anon_num_preserve_distribution.html</loc></url>
 <url><loc>/reference/anon_num_range.html</loc></url>
 <url><loc>/reference/anon_phone_number.html</loc></url>
@@ -18,7 +18,10 @@
 <url><loc>/reference/index.html</loc></url>
 <url><loc>/reference/more_patterns.html</loc></url>
 <url><loc>/reference/new_anon_context.html</loc></url>
-<url><loc>/reference/nlp_get.html</loc></url>
+<url><loc>/reference/nlp_auto.html</loc></url>
+<url><loc>/reference/nlp_default_replacements.html</loc></url>
+<url><loc>/reference/nlp_entity_sets.html</loc></url>
+<url><loc>/reference/nlp_get_entities.html</loc></url>
 <url><loc>/reference/print.anon_context.html</loc></url>
 <url><loc>/reference/print.anon_context_collection.html</loc></url>
 <url><loc>/reference/print.anon_data_summary.html</loc></url>

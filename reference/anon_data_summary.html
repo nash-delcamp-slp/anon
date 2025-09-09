@@ -52,7 +52,7 @@ information through pattern-based redaction.</p>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon_data_summary</span><span class="op">(</span></span>
 <span>  envir <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/environment.html" class="external-link">globalenv</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
-<span>  default_replacement <span class="op">=</span> <span class="st">"**REDACTED**"</span>,</span>
+<span>  default_replacement <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.default_replacement"</span>, default <span class="op">=</span> <span class="st">"[REDACTED]"</span><span class="op">)</span>,</span>
 <span>  check_approximate <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  max_distance <span class="op">=</span> <span class="fl">2</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -70,13 +70,14 @@ or indexed as "x1", "x2", etc.). Default is <code><a href="https://rdrr.io/r/bas
 
 <dt id="arg-pattern-list">pattern_list<a class="anchor" aria-label="anchor" href="#arg-pattern-list"></a></dt>
 <dd><p>A list of patterns to search for and replace. Can include:</p><ul><li><p>Named elements where names are replacement values and values are one or more patterns to match</p></li>
-<li><p>Unnamed elements where one or more patterns are replaced with <code>default_replacement</code></p></li>
+<li><p>Unnamed elements where one or more patterns are replaced with <code>default_replacement</code>
+This parameter is combined with the global option <code>getOption("anon.pattern_list")</code>.</p></li>
 </ul></dd>
 
 
 <dt id="arg-default-replacement">default_replacement<a class="anchor" aria-label="anchor" href="#arg-default-replacement"></a></dt>
 <dd><p>Value to use as the default replacement value when no specific replacement
-is provided. Default is <code>"**REDACTED**"</code>.</p></dd>
+is provided. Default is <code>getOption("anon.default_replacement", default = "\[REDACTED\]")</code>.</p></dd>
 
 
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
@@ -157,10 +158,12 @@ readable format while maintaining the anonymization.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Data Frames:</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ------------</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>            name       type n_rows n_cols memory_size</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1 study_results data.frame      3      6      1.7 Kb</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         name       type n_rows n_cols memory_size</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 [REDACTED] data.frame      3      6      1.7 Kb</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Variable Details (study_results):</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ------------------------------- </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>           variable data_type n_distinct n_missing n_total pct_missing label</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 1   participant_id character          3         0       3           0  &lt;NA&gt;</span>
@@ -173,8 +176,8 @@ readable format while maintaining the anonymization.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Other Objects:</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> --------------</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       name type length element_types memory_size</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1 metadata list      4     character        1 Kb</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>         name type length element_types memory_size</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1 [REDACTED] list      4     character        1 Kb</span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>
