@@ -171,10 +171,6 @@ anon <- function(
       }
     }
   }
-  pattern_replacements <- with_default_replacements(
-    pattern_list,
-    default_replacement = default_replacement
-  )
 
   # Track warnings at the anon() level
   approximate_warnings <- character(0)
@@ -312,6 +308,11 @@ anon <- function(
       pattern_list <- c(pattern_list, nlp_pattern_list)
     }
   }
+
+  pattern_replacements <- with_default_replacements(
+    pattern_list,
+    default_replacement = default_replacement
+  )
 
   # Dispatch based on object type (using the inner apply_patterns function)
   if (is.character(x) || is.factor(x)) {
