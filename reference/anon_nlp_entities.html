@@ -119,30 +119,25 @@ provided. See <code><a href="nlp_default_replacements.html">nlp_default_replacem
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize all entities</span></span></span>
 <span class="r-in"><span><span class="fu">anon_nlp_entities</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith works at Microsoft in Seattle."                         </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [2] "The deal was worth $1.2 million in 2023."                          </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [3] "He was the first employee to make 100% of his 3rd quarter targets."</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "[PROPN] [PROPN] works at [PROPN] in [PROPN]."                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [2] "The deal was worth [MONEY] in [DATE]."                             </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [3] "He was the [ORDINAL] employee to make [PERCENT] of [DATE] targets."</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize person names</span></span></span>
 <span class="r-in"><span><span class="fu">anon_nlp_people</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith works at Microsoft in Seattle."                         </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "[PERSON] works at Microsoft in Seattle."                           </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [2] "The deal was worth $1.2 million in 2023."                          </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [3] "He was the first employee to make 100% of his 3rd quarter targets."</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize organizations with custom replacement</span></span></span>
 <span class="r-in"><span><span class="fu">anon_nlp_organizations</span><span class="op">(</span><span class="va">text</span>, default_replacement <span class="op">=</span> <span class="st">"[COMPANY]"</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith works at Microsoft in Seattle."                         </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith works at [COMPANY] in Seattle."                         </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [2] "The deal was worth $1.2 million in 2023."                          </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [3] "He was the first employee to make 100% of his 3rd quarter targets."</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Anonymize specific entity types</span></span></span>
 <span class="r-in"><span><span class="fu">anon_nlp_entities</span><span class="op">(</span><span class="va">text</span>, entity_types <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"PERSON"</span>, <span class="st">"ORG"</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith works at Microsoft in Seattle."                         </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "[PERSON] works at [ORG] in Seattle."                               </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [2] "The deal was worth $1.2 million in 2023."                          </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [3] "He was the first employee to make 100% of his 3rd quarter targets."</span>
 <span class="r-in"><span></span></span>

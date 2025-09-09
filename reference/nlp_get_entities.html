@@ -112,41 +112,33 @@ provided inspiration for these functions.</p></div>
 <span class="r-in"><span>          <span class="st">"He was the first employee to make 100% of his 3rd quarter targets."</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "2023"            "his 3rd quarter" "Seattle"         "$1.2 million"   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [5] "first"           "Microsoft"       "100%"            "John Smith"     </span>
 <span class="r-in"><span><span class="fu">nlp_get_people</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith"</span>
 <span class="r-in"><span><span class="fu">nlp_get_organizations</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Microsoft"</span>
 <span class="r-in"><span><span class="fu">nlp_get_places</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Seattle"</span>
 <span class="r-in"><span><span class="fu">nlp_get_numbers</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "$1.2 million" "first"        "100%"        </span>
 <span class="r-in"><span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">text</span>, <span class="st">"MONEY"</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "$1.2 million"</span>
 <span class="r-in"><span><span class="fu">nlp_get_dates</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "2023"            "his 3rd quarter"</span>
 <span class="r-in"><span><span class="fu">nlp_get_proper_nouns</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> character(0)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John"      "Smith"     "Microsoft" "Seattle"  </span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Get entities grouped by type</span></span></span>
 <span class="r-in"><span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">text</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"PERSON"</span>, <span class="st">"ORG"</span>, <span class="st">"MONEY"</span><span class="op">)</span>, return_list <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cleanNLP initialization or processing failed: model en_core_web_sm not found; use cnlp_download_spacy("en_core_web_sm") to install</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> $PERSON</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> NULL</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith"</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> $ORG</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> NULL</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Microsoft"</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> $MONEY</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> NULL</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "$1.2 million"</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
