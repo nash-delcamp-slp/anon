@@ -19,7 +19,7 @@ set.seed(1234)
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of anon is to anonymize sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors.
+The anon package provides comprehensive tools for anonymizing sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.
 
 ## Installation
 
@@ -30,76 +30,114 @@ You can install the development version of anon from [GitHub](https://github.com
 pak::pak("nash-delcamp-slp/anon")
 ```
 
-Load it with:
+## Loading the Package
+
 ```{r}
 library(anon)
 ```
 
-## Examples
+Example data:
 
-The below examples demonstrate some of the anonymization functions that operate on vectors.
 ```{r}
-anon_id_chr_sequence(c("John", "Paul", "John", "Keith"))
-
 library(dplyr)
 data("starwars", package = "dplyr")
-glimpse(starwars)
+
+a_new_hope_intro <- c(
+  "It is a period of civil war.", 
+  "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire.",
+  "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, the DEATH STAR, an armored space station with enough power to destroy an entire planet.",
+  "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+)
+```
+
+## Core Anonymization with `anon()`
+
+The main `anon()` function and helper `anon_*()` support anonymization of various R objects.
+
+### Vector Anonymization
+
+```{r}
+# Character sequence anonymization - preserves unique mappings
+names_vector <- c("John", "Paul", "John", "Keith")
+anon_id_chr_sequence(names_vector)
+
+# Numeric sequence anonymization
 anon_id_num_sequence(starwars$name) |> 
   head()
+
+# Preserve distribution while anonymizing values
 anon_num_preserve_distribution(starwars$height) |> 
   head()
+
+# Group numeric values into ranges
 anon_num_range(starwars$mass, n_breaks = 10) |> 
   head()
 ```
 
-This example demonstrates how to anonymize a data frame with `anon()`.
+### Data Frame Anonymization
+
 ```{r}
 anon_starwars <- starwars |> 
   anon(
+    # Pattern-based text replacement
     pattern_list = list(
       DARK = c("empire", "imperials?", "sith"),
       LIGHT = c("jedi", "rebels?")
     ),
+    # Column-specific anonymization rules
     df_variable_names = list(
       name = anon_id_chr_sequence,
       homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
     ),
+    # Class-based anonymization rules
     df_classes = list(
       integer = ~ anon_num_range(.x, n_breaks = 10),
       numeric = anon_num_preserve_distribution
     )
   )
+
 glimpse(anon_starwars)
 ```
 
-When `check_approximate = TRUE`, warnings will be reported when an approximate match is detected.
-```{r}
-starwars |> 
-  anon(list(
-    "blonde", "bleu", "imperials"
-  )) |> 
-  glimpse()
-```
+## Global Options System
 
-This example demonstrates the `anon_data_summary()` function which summarizes the data in an environment.
-```{r}
-anon_data_summary(
-  pattern_list = list(
-    DARK = c("empire", "imperials?", "sith"),
-    LIGHT = c("jedi", "rebels?")
-  )
-)
-```
+Many functions in the anon package reference global options that make it easy to configure default behaviors for anonymization across workflows.
 
-## Default Options
+### Setting Default Patterns & Replacements
 
-Default values can be provided to `options()` to automatically include patterns and variable rules to use in `anon()` and `anon_data_summary()`.
+Set the `anon.pattern_list` global option to define patterns that should always be replaced.
+
 ```{r}
 options(
   anon.pattern_list = list(
     DARK = c("empire", "imperials?", "sith"),
     LIGHT = c("jedi", "rebels?")
-  ),
+  )
+)
+anon(a_new_hope_intro)
+```
+
+The default options are applied after provided arguments.
+
+```{r}
+anon(
+  a_new_hope_intro, 
+  pattern_list = list("good guy" = "rebel")
+)
+```
+
+Reset the option:
+
+```{r}
+options(anon.pattern_list = NULL)
+```
+
+### Setting Default Data Frame Behavior
+
+Set the `anon.df_variable_names` and `anon.df_classes` to automatically replace content with a constant or result of a function.
+
+```{r}
+options(
   anon.df_variable_names = list(
     name = anon_id_chr_sequence,
     homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
@@ -109,11 +147,133 @@ options(
     numeric = anon_num_preserve_distribution
   )
 )
+
+starwars |> 
+  anon() |> 
+  glimpse()
 ```
 
+Reset the options:
+
 ```{r}
-c(
-  starwars = anon(starwars),
-  anon_data_summary()
+options(
+  anon.df_variable_names = NULL, 
+  anon.df_classes = NULL
 )
+```
+
+### Setting Default Replacements
+
+Set the `anon.default_replacement` global option to define a fallback replacement.
+
+```{r}
+options(anon.default_replacement = "[HIDDEN]")
+
+anon(
+  a_new_hope_intro,
+  pattern_list = list("empire", "imperials?", "sith", "jedi", "rebels?")
+)
+```
+
+Reset the option:
+
+```{r}
+options(anon.default_replacement = NULL)
+```
+
+### Setting Default NLP Entity Replacements
+
+Set the `anon.nlp_default_replacements` global option to define replacement values for different entity types.
+Use `nlp_default_replacements()` to create the list input for the option.
+
+```{r}
+# View the default replacement values for all entity types
+str(nlp_default_replacements())
+
+# Customize specific replacements
+my_replacements <- nlp_default_replacements(
+  person = "[NAME]",
+  org = "[GROUP]", 
+  gpe = "[LOCATION]",
+  propn = "[PROPER_NOUN]"
+)
+
+options(anon.nlp_default_replacements = my_replacements)
+
+anon_nlp_entities(a_new_hope_intro)
+```
+
+Reset the option:
+
+```{r}
+options(anon.nlp_default_replacements = NULL)
+```
+
+### Enabling Automatic NLP Entity Anonymization
+
+Set the `anon.nlp_auto` global option to control which entity types are automatically anonymized.
+Use `nlp_auto()` to create the list input for the option. 
+
+```{r}
+# View default auto-anonymization settings (all FALSE by default)
+str(nlp_auto())
+
+# Enable all entity types
+str(nlp_auto(default = TRUE))
+
+# Enable only specific entity types
+my_auto_settings <- nlp_auto(person = TRUE, org = TRUE, gpe = TRUE, propn = TRUE)
+options(anon.nlp_auto = my_auto_settings)
+
+anon(a_new_hope_intro)
+```
+
+Reset the option:
+
+```{r}
+options(anon.nlp_auto = NULL)
+```
+
+## Automatic NLP-Powered Anonymization
+
+The anon package includes powerful NLP functions that can automatically detect and anonymize different types of named entities in text.
+
+### Individual NLP Functions
+
+The package provides specific functions for different entity types:
+
+- `anon_nlp_entities()`: Detect and anonymize select entities. By default, all entities.
+- `anon_nlp_people()`: Detect and anonymize person names
+- `anon_nlp_organizations()`: Detect and anonymize organization names
+- `anon_nlp_places()`: Detect and anonymize locations (cities, countries, etc.)
+- `anon_nlp_dates()`: Detect and anonymize dates
+- `anon_nlp_numbers()`: Detect and anonymize monetary amounts and percentages
+
+```{r}
+anon_nlp_entities(a_new_hope_intro)
+anon_nlp_people(a_new_hope_intro)
+anon_nlp_organizations(a_new_hope_intro)
+anon_nlp_places(a_new_hope_intro)
+anon_nlp_dates(a_new_hope_intro)
+anon_nlp_numbers(a_new_hope_intro)
+```
+
+## Data Environment Summary
+
+The `anon_data_summary()` function provides an anonymized overview of the data in your environment:
+
+```{r}
+anon_data_summary()
+```
+
+## Pattern Detection Warnings
+
+When using pattern-based anonymization, anon will detect potential matches and report warnings unless `check_approxmiate = FALSE`.
+
+```{r}
+starwars |> 
+  anon(list(
+    "blonde", "bleu", "imperials"
+  )) |> 
+  glimpse()
 ```
