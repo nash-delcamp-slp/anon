@@ -7,10 +7,10 @@
 \format{
 A named list with the following elements:
 \describe{
-\item{all}{All available entity types: "CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW", "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PERSON", "PRODUCT", "QUANTITY", "TIME", "WORK_OF_ART"}
+\item{all}{All available entity types: "CARDINAL", "DATE", "EVENT", "FAC", "GPE", "LANGUAGE", "LAW", "LOC", "MONEY", "NORP", "ORDINAL", "ORG", "PERCENT", "PERSON", "PRODUCT", "QUANTITY", "TIME", "WORK_OF_ART", "PROPN"}
 \item{cultural_artifacts}{Language, laws, products, and works of art: "LANGUAGE", "LAW", "PRODUCT", "WORK_OF_ART"}
 \item{date_and_time}{"DATE", "TIME"}
-\item{named}{Named entities: "EVENT", "FAC", "GPE", "LOC", "NORP", "ORG", "PERSON", "PRODUCT"}
+\item{named}{Named entities: "EVENT", "FAC", "GPE", "LOC", "NORP", "ORG", "PERSON", "PRODUCT", "PROPN"}
 \item{numbers}{Numeric and quantitative entities: "CARDINAL", "MONEY", "ORDINAL", "PERCENT", "QUANTITY"}
 \item{organizations}{Organizational entities: "NORP", "ORG"}
 \item{places}{Location and place entities: "FAC", "GPE", "LOC"}
@@ -45,6 +45,7 @@ The entity types follow the OntoNotes 5.0 annotation scheme:
 \item \strong{QUANTITY}: Measurements, as of weight or distance
 \item \strong{TIME}: Times smaller than a day
 \item \strong{WORK_OF_ART}: Titles of books, songs, etc.
+\item \strong{PROPN}: Proper nouns
 }
 }
 \examples{

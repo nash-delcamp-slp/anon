@@ -33,7 +33,7 @@ Accepts a character vector of patterns and returns an expanded vector containing
 \item Original items with special characters escaped
 \item Patterns with spaces replaced with a pattern of any number of spaces and any
 one character between words.
-\item Individual words from each item, split by spaces and punctuation
+\item Individual words from each item, split by spaces and punctuation, not including stop words.
 }
 }
 \details{
