@@ -5,7 +5,7 @@
 #' 2. Original items with special characters escaped
 #' 3. Patterns with spaces replaced with a pattern of any number of spaces and any
 #'    one character between words.
-#' 4. Individual words from each item, split by spaces and punctuation
+#' 4. Individual words from each item, split by spaces and punctuation, not including stop words.
 #'
 #' The intention of the order is to replace phrases with as few replacements as possible
 #' while taking additional efforts to anonymize all sensitive information.
@@ -67,11 +67,12 @@ more_patterns <- function(
     for (pattern in patterns_clean) {
       # Split on whitespace and punctuation, keep only alphabetic words
       words <- unlist(strsplit(pattern, c("\\s+", "[:punct:]+")))
-      # Filter out empty strings
-      words <- words[words != ""]
       individual_words <- c(individual_words, words)
     }
-
+    # Remove empty strings and stopwords
+    individual_words <- individual_words[
+      !tolower(individual_words) %in% c("", stopwords::stopwords())
+    ]
     # Remove duplicates from individual words while preserving order
     individual_words <- unique(individual_words)
     result <- c(result, individual_words)

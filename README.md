@@ -274,14 +274,10 @@ my_replacements <- nlp_default_replacements(
 options(anon.nlp_default_replacements = my_replacements)
 
 anon_nlp_entities(a_new_hope_intro)
-#> Warning: Potential approximate match: 'During [GROUP] battle, [PROPER_NOUN]
-#> spies managed to steal secret plans to [GROUP] [PROPER_NOUN]'s ultimate weapon,
-#> [GROUP] [PROPER_NOUN] [PROPER_NOUN], an armored space station with enough power
-#> to destroy an entire planet.' is similar to pattern 'the'
-#> [1] "It is a period of civil war."                                                                                                                                                                                                     
-#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won [GROUP]ir [ORDINAL] victory against [GROUP] evil [PROPER_NOUN] [PROPER_NOUN]."                                                                                    
-#> [3] "During [GROUP] battle, [PROPER_NOUN] spies managed to steal secret plans to [GROUP] [PROPER_NOUN]'s ultimate weapon, [GROUP] [PROPER_NOUN] [PROPER_NOUN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by [GROUP] [PROPER_NOUN]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [PROPER_NOUN]ship, custodian of [GROUP] stolen plans that can save her people and restore freedom to [GROUP] galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                                                         
+#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPER_NOUN] [PROPER_NOUN]."                                                                                
+#> [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [PROPER_NOUN]'s ultimate weapon, the [PROPER_NOUN] [PROPER_NOUN], an armored space station with enough power to destroy an entire planet."
+#> [4] "Pursued by the [PROPER_NOUN]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [PROPER_NOUN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -348,14 +344,10 @@ my_auto_settings <- nlp_auto(person = TRUE, org = TRUE, gpe = TRUE, propn = TRUE
 options(anon.nlp_auto = my_auto_settings)
 
 anon(a_new_hope_intro)
-#> Warning: Potential approximate match: 'During [ORG] battle, [PROPN] spies
-#> managed to steal secret plans to [ORG] [PROPN]'s ultimate weapon, [ORG] [PROPN]
-#> [PROPN], an armored space station with enough power to destroy an entire
-#> planet.' is similar to pattern 'the'
-#> [1] "It is a period of civil war."                                                                                                                                                                       
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won [ORG]ir first victory against [ORG] evil [PROPN] [PROPN]."                                                                                
-#> [3] "During [ORG] battle, [PROPN] spies managed to steal secret plans to [ORG] [PROPN]'s ultimate weapon, [ORG] [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by [ORG] [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of [ORG] stolen plans that can save her people and restore freedom to [ORG] galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                                 
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                              
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
+#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -385,28 +377,20 @@ The package provides specific functions for different entity types:
 
 ``` r
 anon_nlp_entities(a_new_hope_intro)
-#> Warning: Potential approximate match: 'During [ORG] battle, [PROPN] spies
-#> managed to steal secret plans to [ORG] [PROPN]'s ultimate weapon, [ORG] [PROPN]
-#> [PROPN], an armored space station with enough power to destroy an entire
-#> planet.' is similar to pattern 'the'
-#> [1] "It is a period of civil war."                                                                                                                                                                       
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won [ORG]ir [ORDINAL] victory against [ORG] evil [PROPN] [PROPN]."                                                                            
-#> [3] "During [ORG] battle, [PROPN] spies managed to steal secret plans to [ORG] [PROPN]'s ultimate weapon, [ORG] [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by [ORG] [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of [ORG] stolen plans that can save her people and restore freedom to [ORG] galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                                 
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPN] [PROPN]."                                                                          
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
+#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_people(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                         
 #> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                        
 #> [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, the DEATH STAR, an armored space station with enough power to destroy an entire planet."
 #> [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_organizations(a_new_hope_intro)
-#> Warning: Potential approximate match: 'During [ORG] battle, Rebel spies managed
-#> to steal secret plans to [ORG] Empire's ultimate weapon, [ORG], an armored
-#> space station with enough power to destroy an entire planet.' is similar to
-#> pattern 'the'
-#> [1] "It is a period of civil war."                                                                                                                                                              
-#> [2] "Rebel spaceships, striking from a hidden base, have won [ORG]ir first victory against [ORG] evil Galactic Empire."                                                                         
-#> [3] "During [ORG] battle, Rebel spies managed to steal secret plans to [ORG] Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."          
-#> [4] "Pursued by [ORG] Empire's sinister agents, Princess Leia races home aboard her [ORG]ship, custodian of [ORG] stolen plans that can save her people and restore freedom to [ORG] galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                        
+#> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                       
+#> [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
+#> [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_places(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                        
 #> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil [LOC]."                                                                                 
@@ -466,7 +450,7 @@ anon_data_summary()
 ## Pattern Detection Warnings
 
 When using pattern-based anonymization, anon will detect potential
-matches and report warnings unless `check_approxmiate = FALSE`.
+matches and report warnings unless `check_approximate = FALSE`.
 
 ``` r
 starwars |> 

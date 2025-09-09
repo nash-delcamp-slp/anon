@@ -268,7 +268,7 @@ anon_data_summary()
 
 ## Pattern Detection Warnings
 
-When using pattern-based anonymization, anon will detect potential matches and report warnings unless `check_approxmiate = FALSE`.
+When using pattern-based anonymization, anon will detect potential matches and report warnings unless `check_approximate = FALSE`.
 
 ```{r}
 starwars |> 
