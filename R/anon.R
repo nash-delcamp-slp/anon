@@ -499,7 +499,7 @@ anon <- function(
 
 # Helper function for approximate distance matching
 compute_approximate_distances <- function(text, pattern, max_distance = 2) {
-  if (nchar(pattern) == 0) {
+  if (nchar(pattern) <= 3) {
     return(list(
       distances = integer(0),
       matches = integer(0),
