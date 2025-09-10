@@ -197,7 +197,7 @@ extract_nlp_patterns <- function(x, entity_types) {
       entities <- all_entities[[entity_type]]
       if (length(entities) > 0) {
         replacement <- get_nlp_default_replacement(entity_type)
-        expanded_patterns <- more_patterns(entities)
+        expanded_patterns <- more_patterns(entities, original = FALSE)
         pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
         names(pattern_list)[length(pattern_list)] <- replacement
       }
@@ -209,7 +209,7 @@ extract_nlp_patterns <- function(x, entity_types) {
     propn_entities <- nlp_get_proper_nouns(text_to_process)
     if (length(propn_entities) > 0) {
       replacement <- get_nlp_default_replacement("PROPN")
-      expanded_patterns <- more_patterns(propn_entities)
+      expanded_patterns <- more_patterns(propn_entities, original = FALSE)
       pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
       names(pattern_list)[length(pattern_list)] <- replacement
     }

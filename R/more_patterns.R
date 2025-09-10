@@ -43,8 +43,8 @@ more_patterns <- function(
   result <- character(0)
 
   # 1. Original items
+  original_items <- patterns_clean
   if (original) {
-    original_items <- patterns_clean
     result <- c(result, original_items)
   }
 
@@ -58,6 +58,7 @@ more_patterns <- function(
   if (spaces_to_flexible) {
     # Replace spaces with regex that matches any single character or any amount of whitespace
     space_flexible_patterns <- gsub("\\s+", "\\\\s*.\\\\s*", patterns_clean)
+    space_flexible_patterns <- setdiff(space_flexible_patterns, original_items)
     result <- c(result, space_flexible_patterns)
   }
 
@@ -67,6 +68,7 @@ more_patterns <- function(
     for (pattern in patterns_clean) {
       # Split on whitespace and punctuation, keep only alphabetic words
       words <- unlist(strsplit(pattern, c("\\s+", "[:punct:]+")))
+      words <- setdiff(words, original_items)
       individual_words <- c(individual_words, words)
     }
     # Remove empty strings and stopwords
