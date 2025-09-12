@@ -128,7 +128,7 @@ nlp_get_entities <- function(
 
   # Check if cleanNLP is available and spacy backend is initialized
   if (!requireNamespace("cleanNLP", quietly = TRUE)) {
-    warning(
+    stop(
       "cleanNLP package is required for entity extraction",
       call. = FALSE
     )
@@ -183,7 +183,7 @@ nlp_get_entities <- function(
             }
           },
           error = function(e) {
-            warning(
+            stop(
               paste("cleanNLP processing failed for text", i, ":", e$message),
               call. = FALSE
             )
@@ -212,7 +212,7 @@ nlp_get_entities <- function(
       }
     },
     error = function(e) {
-      warning(
+      stop(
         paste("cleanNLP initialization or processing failed:", e$message),
         call. = FALSE
       )
@@ -243,7 +243,7 @@ nlp_get_proper_nouns <- function(x) {
 
   # Check if cleanNLP is available and spacy backend is initialized
   if (!requireNamespace("cleanNLP", quietly = TRUE)) {
-    warning(
+    stop(
       "cleanNLP package is required for proper noun extraction",
       call. = FALSE
     )
@@ -285,7 +285,7 @@ nlp_get_proper_nouns <- function(x) {
             }
           },
           error = function(e) {
-            warning(
+            stop(
               paste("cleanNLP processing failed for text", i, ":", e$message),
               call. = FALSE
             )
@@ -302,7 +302,7 @@ nlp_get_proper_nouns <- function(x) {
       unique(all_proper_nouns)
     },
     error = function(e) {
-      warning(
+      stop(
         paste("cleanNLP initialization or processing failed:", e$message),
         call. = FALSE
       )
