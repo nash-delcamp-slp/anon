@@ -189,7 +189,19 @@ anon <- function(
       protected_token <- digest::digest(replacement)
 
       # Do the replacement with protected token
-      result <- stringr::str_replace_all(text, patterns, protected_token)
+      result <- tryCatch(
+        {
+          stringr::str_replace_all(text, patterns, protected_token)
+        },
+        error = function(e) {
+          # If regex fails, try with fixed string matching
+          stringr::str_replace_all(
+            text,
+            stringr::fixed(as.character(patterns)),
+            protected_token
+          )
+        }
+      )
 
       # Store mapping for final cleanup
       attr(result, "protected_mappings") <- c(
