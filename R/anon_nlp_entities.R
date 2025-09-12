@@ -215,5 +215,15 @@ extract_nlp_patterns <- function(x, entity_types) {
     }
   }
 
+  # Remove entities with less than 2 characters
+  if (length(pattern_list) > 0) {
+    pattern_list <- lapply(pattern_list, function(patterns) {
+      patterns[nchar(patterns) >= 2]
+    })
+
+    # Remove empty pattern lists
+    pattern_list <- pattern_list[lengths(pattern_list) > 0]
+  }
+
   return(pattern_list)
 }
