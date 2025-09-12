@@ -1,6 +1,6 @@
 #' Shift dates to a new time period
 #'
-#' Shifts dates to a new time period while preserving relative relationships 
+#' Shifts dates to a new time period while preserving relative relationships
 #' between dates. Supports Date and POSIXct objects.
 #'
 #' @param x A Date or POSIXct vector to anonymize
@@ -110,24 +110,55 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
     return(x)
   }
 
-  # Identify email-like patterns: @ symbol OR "at ... dot" pattern
-  has_at_symbol <- grepl("@", x_clean)
-  has_at_dot_pattern <- grepl(
-    "\\bat\\b.*\\bdot\\b",
+  # Define email patterns
+  at_symbol_pattern <- "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"
+  at_dot_pattern <- "\\b\\S+\\s+at\\s+\\S+\\s+dot\\s+\\S+\\b"
+
+  # Find all unique email patterns across all strings
+  all_emails <- character(0)
+
+  # Extract emails with @ symbol
+  at_emails <- regmatches(
     x_clean,
-    ignore.case = TRUE
+    gregexpr(at_symbol_pattern, x_clean, ignore.case = TRUE)
   )
-  is_email_like <- has_at_symbol | has_at_dot_pattern
+  all_emails <- c(all_emails, unlist(at_emails))
 
-  # Only anonymize email-like strings
+  # Extract "at ... dot" patterns
+  dot_emails <- regmatches(
+    x_clean,
+    gregexpr(at_dot_pattern, x_clean, ignore.case = TRUE)
+  )
+  all_emails <- c(all_emails, unlist(dot_emails))
+
+  # Get unique emails and create mapping
+  unique_emails <- unique(all_emails)
+
+  if (length(unique_emails) == 0) {
+    # No emails found, return original
+    final_result <- rep(NA_character_, length(x))
+    final_result[!na_idx] <- x_clean
+    return(final_result)
+  }
+
+  # Create anonymized emails
+  anon_emails <- paste0(
+    start,
+    sprintf("%03d", seq_along(unique_emails)),
+    "@",
+    domain
+  )
+  email_mapping <- stats::setNames(anon_emails, unique_emails)
+
+  # Replace emails in each string
   result <- x_clean
-  if (any(is_email_like)) {
-    x_to_anonymize <- x_clean[is_email_like]
-    x_unique <- unique(x_to_anonymize)
-    x_key <- paste0(start, sprintf("%03d", seq_along(x_unique)), "@", domain) |>
-      stats::setNames(x_unique)
-
-    result[is_email_like] <- unname(x_key[x_to_anonymize])
+  for (i in seq_along(result)) {
+    # Replace @ symbol emails
+    for (email in names(email_mapping)) {
+      if (grepl(email, result[i], fixed = TRUE)) {
+        result[i] <- gsub(email, email_mapping[email], result[i], fixed = TRUE)
+      }
+    }
   }
 
   # Restore missing values
@@ -194,7 +225,7 @@ anon_id_num_sequence <- function(x, scramble = FALSE) {
 
 #' Anonymize numeric data while preserving distribution
 #'
-#' Anonymizes numeric data while preserving distributional properties using 
+#' Anonymizes numeric data while preserving distributional properties using
 #' various transformation methods.
 #'
 #' @param x A numeric vector to anonymize
@@ -278,7 +309,7 @@ anon_num_preserve_distribution <- function(
 
 #' Convert numeric values into range categories
 #'
-#' Converts numeric values into range categories, either preserving actual 
+#' Converts numeric values into range categories, either preserving actual
 #' ranges or creating anonymized range labels.
 #'
 #' @param x A vector to anonymize
@@ -340,7 +371,10 @@ anon_num_range <- function(
         breaks <- c(min(x_clean), max(x_clean))
       }
     } else {
-      breaks <- stats::quantile(x_clean, probs = seq(0, 1, length.out = n_breaks + 1))
+      breaks <- stats::quantile(
+        x_clean,
+        probs = seq(0, 1, length.out = n_breaks + 1)
+      )
     }
   }
 
@@ -378,12 +412,17 @@ anon_num_range <- function(
 
 #' Anonymize phone numbers
 #'
-#' Anonymizes phone numbers with sequential fake numbers.
+#' Anonymizes phone numbers by replacing them with sequential fake numbers.
 #'
-#' @param x A vector to anonymize
+#' @param x A character vector to anonymize
+#' @param start Character prefix for generated results (default: "555-000")
+#'
+#' @examples
+#' phones <- c("Call me at 123-456-7890", "1234567890", "(123) 456-7890")
+#' anon_phone_number(phones)
 #'
 #' @export
-anon_phone_number <- function(x) {
+anon_phone_number <- function(x, start = "555-000") {
   # Handle missing values
   na_idx <- is.na(x)
   x_clean <- x[!na_idx]
@@ -392,33 +431,51 @@ anon_phone_number <- function(x) {
     return(x)
   }
 
-  # Pattern to match phone numbers: 7-11 digits with optional formatting
-  # Allows hyphens, dots, spaces, parentheses between digit groups
-  phone_pattern <- "\\b(?:\\+?1[-\\s\\.]?)?(?:\\(?[0-9]{3}\\)?[-\\s\\.]?)?[0-9]{3}[-\\s\\.][0-9]{4}\\b|\\b[0-9]{7,11}\\b"
-  is_phone_like <- grepl(phone_pattern, x_clean)
+  # Define phone number patterns (more comprehensive)
+  patterns <- c(
+    # 10 digits with various formatting
+    "\\b\\d{3}[-.]\\d{3}[-.]\\d{4}\\b", # 123-456-7890 or 123.456.7890
+    "\\(\\d{3}\\)\\s?\\d{3}[-.]?\\d{4}\\b", # (123) 456-7890 or (123)456-7890
+    "\\b\\d{3}\\s\\d{3}\\s\\d{4}\\b", # 123 456 7890
+    "\\b\\d{10}\\b", # 1234567890
+    # 9 digits with formatting
+    "\\b\\d{3}[-.]\\d{3}[-.]\\d{3}\\b", # 123-456-789
+    "\\b\\d{9}\\b" # 123456789
+  )
 
-  # Only anonymize phone-like strings
-  result <- x_clean
-  if (any(is_phone_like)) {
-    x_to_anonymize <- x_clean[is_phone_like]
-    x_unique <- unique(x_to_anonymize)
+  # Find all unique phone numbers across all strings
+  all_phones <- character(0)
 
-    # Generate sequential anonymous phone numbers
-    base_number <- 5550001 # Start with 555-0001
-    phone_numbers <- base_number + seq_along(x_unique) - 1
-
-    # Format as phone numbers (555-0001, 555-0002, etc.)
-    anonymous_phones <- sprintf(
-      "%03d-%03d-%04d",
-      phone_numbers %/% 10000,
-      (phone_numbers %% 10000) %/% 10,
-      phone_numbers %% 10
+  for (pattern in patterns) {
+    phone_matches <- regmatches(
+      x_clean,
+      gregexpr(pattern, x_clean)
     )
+    all_phones <- c(all_phones, unlist(phone_matches))
+  }
 
-    x_key <- anonymous_phones |>
-      stats::setNames(x_unique)
+  # Get unique phone numbers
+  unique_phones <- unique(all_phones)
 
-    result[is_phone_like] <- unname(x_key[x_to_anonymize])
+  if (length(unique_phones) == 0) {
+    # No phone numbers found, return original
+    final_result <- rep(NA_character_, length(x))
+    final_result[!na_idx] <- x_clean
+    return(final_result)
+  }
+
+  # Create anonymized phone numbers
+  anon_phones <- paste0(start, "-", sprintf("%04d", seq_along(unique_phones)))
+  phone_mapping <- stats::setNames(anon_phones, unique_phones)
+
+  # Replace phone numbers in each string
+  result <- x_clean
+  for (i in seq_along(result)) {
+    for (phone in names(phone_mapping)) {
+      if (grepl(phone, result[i], fixed = TRUE)) {
+        result[i] <- gsub(phone, phone_mapping[phone], result[i], fixed = TRUE)
+      }
+    }
   }
 
   # Restore missing values

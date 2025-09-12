@@ -4,11 +4,18 @@
 \alias{anon_phone_number}
 \title{Anonymize phone numbers}
 \usage{
-anon_phone_number(x)
+anon_phone_number(x, start = "555-000")
 }
 \arguments{
-\item{x}{A vector to anonymize}
+\item{x}{A character vector to anonymize}
+
+\item{start}{Character prefix for generated results (default: "555-000")}
 }
 \description{
-Anonymizes phone numbers with sequential fake numbers.
+Anonymizes phone numbers by replacing them with sequential fake numbers.
+}
+\examples{
+phones <- c("Call me at 123-456-7890", "1234567890", "(123) 456-7890")
+anon_phone_number(phones)
+
 }
