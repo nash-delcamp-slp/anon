@@ -288,10 +288,10 @@
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.nlp_default_replacements <span class="op">=</span> <span class="va">my_replacements</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_entities</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                                         </span></span>
-<span><span class="co">#&gt; [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPER_NOUN] [PROPER_NOUN]."                                                                                </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [PROPER_NOUN]'s ultimate weapon, the [PROPER_NOUN] [PROPER_NOUN], an armored space station with enough power to destroy an entire planet."</span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [PROPER_NOUN]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [PROPER_NOUN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                       </span></span>
+<span><span class="co">#&gt; [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                    </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."              </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [GROUP]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
 <p>Reset the option:</p>
 <div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.nlp_default_replacements <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
@@ -352,10 +352,10 @@
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.nlp_auto <span class="op">=</span> <span class="va">my_auto_settings</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/anon.html">anon</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                 </span></span>
-<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                              </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."</span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                           </span></span>
+<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                        </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
 <p>Reset the option:</p>
 <div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.nlp_auto <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
@@ -385,10 +385,10 @@
 </ul>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_entities</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                 </span></span>
-<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPN] [PROPN]."                                                                          </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."</span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                         </span></span>
+<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                            </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_people</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                         </span></span>
 <span><span class="co">#&gt; [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                        </span></span>
