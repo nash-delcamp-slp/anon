@@ -138,44 +138,7 @@ extract_nlp_patterns <- function(x, entity_types) {
     return(list())
   }
 
-  # Only process character vectors and factors directly
-  # For complex objects, the entities will be extracted during recursive processing
-  text_to_process <- character(0)
-
-  if (is.character(x)) {
-    text_to_process <- x
-  } else if (is.factor(x)) {
-    text_to_process <- levels(x)
-  } else if (is.data.frame(x)) {
-    # Extract text from character and factor columns
-    char_cols <- sapply(x, function(col) is.character(col) || is.factor(col))
-    if (any(char_cols)) {
-      text_data <- x[char_cols]
-      text_to_process <- unlist(
-        lapply(text_data, function(col) {
-          if (is.factor(col)) {
-            return(levels(col))
-          } else {
-            return(col)
-          }
-        }),
-        use.names = FALSE
-      )
-    }
-  } else if (is.list(x)) {
-    # Recursively extract text from list elements
-    text_to_process <- unlist(
-      lapply(x, function(elem) {
-        if (is.character(elem)) {
-          return(elem)
-        } else if (is.factor(elem)) {
-          return(levels(elem))
-        }
-        return(character(0))
-      }),
-      use.names = FALSE
-    )
-  }
+  text_to_process <- collect_text(x)
 
   if (length(text_to_process) == 0) {
     return(list())

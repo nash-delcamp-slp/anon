@@ -5,7 +5,7 @@
 #' Entity types follow the OntoNotes 5.0 annotation scheme as implemented
 #' in spaCy models.
 #'
-#' @param x A character vector
+#' @param x A character vector, factor, data frame, or list containing text data
 #' @param entity_types Character vector of entity types to extract.
 #'   Entity types are: "PERSON", "NORP", "FAC", "ORG", "GPE", "LOC", "PRODUCT",
 #'   "EVENT", "WORK_OF_ART", "LAW", "LANGUAGE", "DATE", "TIME", "PERCENT",
@@ -54,65 +54,13 @@
 #'
 #' @name nlp_get_entities
 #' @export
-nlp_get_dates <- function(x) {
-  nlp_get_entities(x, "DATE")
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_dates_and_times <- function(x) {
-  nlp_get_entities(x, nlp_entity_sets$date_and_time)
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_named <- function(x) {
-  nlp_get_entities(x, nlp_entity_sets$named)
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_numbers <- function(x) {
-  nlp_get_entities(x, nlp_entity_sets$numbers)
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_organizations <- function(x) {
-  nlp_get_entities(x, nlp_entity_sets$organizations)
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_people <- function(x) {
-  nlp_get_entities(x, "PERSON")
-}
-
-#' @rdname nlp_get_entities
-#' @export
-nlp_get_places <- function(x) {
-  nlp_get_entities(x, nlp_entity_sets$places)
-}
-
-#' @rdname nlp_get_entities
-#' @export
 nlp_get_entities <- function(
   x,
   entity_types = nlp_entity_sets$all,
   return_list = FALSE
 ) {
-  # Handle missing values and empty input
-  if (length(x) == 0 || all(is.na(x))) {
-    if (return_list) {
-      result <- vector("list", length(entity_types))
-      names(result) <- entity_types
-      return(result)
-    }
-    return(character(0))
-  }
-
-  # Remove NA values for processing
-  text_clean <- x[!is.na(x)]
+  # Extract text from different data types
+  text_clean <- collect_text(x)
 
   if (length(text_clean) == 0) {
     if (return_list) {
@@ -160,9 +108,32 @@ nlp_get_entities <- function(
             # Extract entities
             entities <- doc$entity
 
+            if ("PROPN" %in% entity_types) {
+              # Extract tokens with POS tags
+              tokens <- doc$token
+
+              if (nrow(tokens) > 0) {
+                # Filter for proper nouns (PROPN in spacy, NNP/NNPS in other models)
+                proper_nouns <- tokens[
+                  tokens$upos %in% c("PROPN", "NNP", "NNPS"),
+                ]
+
+                if (nrow(proper_nouns) > 0) {
+                  # Get the actual words
+                  words <- proper_nouns$token
+                  words <- trimws(words)
+                  words <- words[words != "" & !is.na(words)]
+                  all_entities[["PROPN"]] <- c(
+                    all_entities[["PROPN"]],
+                    words
+                  )
+                }
+              }
+            }
+
             if (nrow(entities) > 0) {
               # Group entities by type
-              for (entity_type in entity_types) {
+              for (entity_type in setdiff(entity_types, "PROPN")) {
                 target_entities <- entities[
                   entities$entity_type == entity_type,
                 ]
@@ -226,87 +197,48 @@ nlp_get_entities <- function(
 
 #' @rdname nlp_get_entities
 #' @export
+nlp_get_dates <- function(x) {
+  nlp_get_entities(x, "DATE")
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_dates_and_times <- function(x) {
+  nlp_get_entities(x, nlp_entity_sets$date_and_time)
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_named <- function(x) {
+  nlp_get_entities(x, nlp_entity_sets$named)
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_numbers <- function(x) {
+  nlp_get_entities(x, nlp_entity_sets$numbers)
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_organizations <- function(x) {
+  nlp_get_entities(x, nlp_entity_sets$organizations)
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_people <- function(x) {
+  nlp_get_entities(x, "PERSON")
+}
+
+#' @rdname nlp_get_entities
+#' @export
+nlp_get_places <- function(x) {
+  nlp_get_entities(x, nlp_entity_sets$places)
+}
+
+#' @rdname nlp_get_entities
+#' @export
 nlp_get_proper_nouns <- function(x) {
-  # Handle missing values and empty input
-  if (length(x) == 0 || all(is.na(x))) {
-    return(character(0))
-  }
-
-  # Remove NA values for processing
-  text_clean <- x[!is.na(x)]
-
-  if (length(text_clean) == 0) {
-    return(character(0))
-  }
-
-  all_proper_nouns <- character(0)
-
-  # Check if cleanNLP is available and spacy backend is initialized
-  if (!requireNamespace("cleanNLP", quietly = TRUE)) {
-    stop(
-      "cleanNLP package is required for proper noun extraction",
-      call. = FALSE
-    )
-    return(character(0))
-  }
-
-  tryCatch(
-    {
-      # Initialize spacy backend if not already done
-      # This will check if spacy is available and set it up
-      cleanNLP::cnlp_init_spacy()
-
-      # Process each text element
-      for (i in seq_along(text_clean)) {
-        single_text <- trimws(text_clean[i])
-
-        # Skip if text is too short
-        if (nchar(single_text) < 2) {
-          next
-        }
-
-        tryCatch(
-          {
-            # Annotate the text with cleanNLP
-            doc <- cleanNLP::cnlp_annotate(single_text)
-
-            # Extract tokens with POS tags
-            tokens <- doc$token
-
-            # Filter for proper nouns (PROPN in spacy, NNP/NNPS in other models)
-            proper_nouns <- tokens[tokens$upos %in% c("PROPN", "NNP", "NNPS"), ]
-
-            if (nrow(proper_nouns) > 0) {
-              # Get the actual words
-              words <- proper_nouns$token
-              words <- trimws(words)
-              words <- words[words != "" & !is.na(words)]
-              all_proper_nouns <- c(all_proper_nouns, words)
-            }
-          },
-          error = function(e) {
-            stop(
-              paste("cleanNLP processing failed for text", i, ":", e$message),
-              call. = FALSE
-            )
-          }
-        )
-      }
-
-      # Clean up results
-      if (length(all_proper_nouns) == 0) {
-        return(character(0))
-      }
-
-      # Return unique proper nouns
-      unique(all_proper_nouns)
-    },
-    error = function(e) {
-      stop(
-        paste("cleanNLP initialization or processing failed:", e$message),
-        call. = FALSE
-      )
-      return(character(0))
-    }
-  )
+  nlp_get_entities(x, "PROPN")
 }

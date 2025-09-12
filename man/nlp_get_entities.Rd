@@ -12,6 +12,8 @@
 \alias{nlp_get_proper_nouns}
 \title{Extract Named Entities from Text}
 \usage{
+nlp_get_entities(x, entity_types = nlp_entity_sets$all, return_list = FALSE)
+
 nlp_get_dates(x)
 
 nlp_get_dates_and_times(x)
@@ -26,12 +28,10 @@ nlp_get_people(x)
 
 nlp_get_places(x)
 
-nlp_get_entities(x, entity_types = nlp_entity_sets$all, return_list = FALSE)
-
 nlp_get_proper_nouns(x)
 }
 \arguments{
-\item{x}{A character vector}
+\item{x}{A character vector, factor, data frame, or list containing text data}
 
 \item{entity_types}{Character vector of entity types to extract.
 Entity types are: "PERSON", "NORP", "FAC", "ORG", "GPE", "LOC", "PRODUCT",
