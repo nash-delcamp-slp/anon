@@ -43,7 +43,9 @@ in spaCy models.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nlp_get_dates</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">x</span>, entity_types <span class="op">=</span> <span class="va">nlp_entity_sets</span><span class="op">$</span><span class="va">all</span>, return_list <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu">nlp_get_dates</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">nlp_get_dates_and_times</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
 <span></span>
@@ -57,8 +59,6 @@ in spaCy models.</p>
 <span></span>
 <span><span class="fu">nlp_get_places</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">x</span>, entity_types <span class="op">=</span> <span class="va">nlp_entity_sets</span><span class="op">$</span><span class="va">all</span>, return_list <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
 <span><span class="fu">nlp_get_proper_nouns</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -67,7 +67,7 @@ in spaCy models.</p>
 
 
 <dl><dt id="arg-x">x<a class="anchor" aria-label="anchor" href="#arg-x"></a></dt>
-<dd><p>A character vector</p></dd>
+<dd><p>A character vector, factor, data frame, or list containing text data</p></dd>
 
 
 <dt id="arg-entity-types">entity_types<a class="anchor" aria-label="anchor" href="#arg-entity-types"></a></dt>
@@ -112,8 +112,9 @@ provided inspiration for these functions.</p></div>
 <span class="r-in"><span>          <span class="st">"He was the first employee to make 100% of his 3rd quarter targets."</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">nlp_get_entities</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "2023"            "his 3rd quarter" "Seattle"         "$1.2 million"   </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [5] "first"           "Microsoft"       "100%"            "John Smith"     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [1] "2023"            "his 3rd quarter" "Seattle"         "$1.2 million"   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [5] "first"           "Microsoft"       "100%"            "John Smith"     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [9] "John"            "Smith"          </span>
 <span class="r-in"><span><span class="fu">nlp_get_people</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] "John Smith"</span>
 <span class="r-in"><span><span class="fu">nlp_get_organizations</span><span class="op">(</span><span class="va">text</span><span class="op">)</span></span></span>
