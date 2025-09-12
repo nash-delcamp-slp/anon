@@ -154,7 +154,8 @@ anon <- function(
     }
 
     # Combine df_variable_names with option
-    if (!is.null(option_df_variable_names)) {
+    # Internally, df_variable_names might be passed as FALSE to ignore the option.
+    if (!is.null(option_df_variable_names) && !isFALSE(df_variable_names)) {
       if (is.null(df_variable_names)) {
         df_variable_names <- option_df_variable_names
       } else {
@@ -163,7 +164,8 @@ anon <- function(
     }
 
     # Combine df_classes with option
-    if (!is.null(option_df_classes)) {
+    # Internally, df_classes might be passed as FALSE to ignore the option.
+    if (!is.null(option_df_classes) && !isFALSE(df_classes)) {
       if (is.null(df_classes)) {
         df_classes <- option_df_classes
       } else {
