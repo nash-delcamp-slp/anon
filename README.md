@@ -274,10 +274,10 @@ my_replacements <- nlp_default_replacements(
 options(anon.nlp_default_replacements = my_replacements)
 
 anon_nlp_entities(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                                                         
-#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPER_NOUN] [PROPER_NOUN]."                                                                                
-#> [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [PROPER_NOUN]'s ultimate weapon, the [PROPER_NOUN] [PROPER_NOUN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by the [PROPER_NOUN]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [PROPER_NOUN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                                       
+#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                    
+#> [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."              
+#> [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [GROUP]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -344,10 +344,10 @@ my_auto_settings <- nlp_auto(person = TRUE, org = TRUE, gpe = TRUE, propn = TRUE
 options(anon.nlp_auto = my_auto_settings)
 
 anon(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                                 
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                              
-#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                           
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                        
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
+#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -377,10 +377,10 @@ The package provides specific functions for different entity types:
 
 ``` r
 anon_nlp_entities(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                                 
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [PROPN] [PROPN]."                                                                          
-#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, the [PROPN] [PROPN], an armored space station with enough power to destroy an entire planet."
-#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [PROPN]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                         
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                            
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
+#> [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_people(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                         
 #> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                        
