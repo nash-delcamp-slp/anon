@@ -181,15 +181,52 @@ anon <- function(
     check_approximate,
     max_distance
   ) {
+    protected_replacements <- function(text, patterns, replacement) {
+      # Collect existing protected mappings
+      text_protected_mappings <- attr(text, "protected_mappings")
+
+      # Use a format that's very unlikely to include patterns that are being replaced
+      protected_token <- digest::digest(replacement)
+
+      # Do the replacement with protected token
+      result <- stringr::str_replace_all(text, patterns, protected_token)
+
+      # Store mapping for final cleanup
+      attr(result, "protected_mappings") <- c(
+        text_protected_mappings,
+        setNames(replacement, protected_token)
+      )
+
+      return(result)
+    }
+
+    finalize_replacements <- function(text) {
+      mappings <- attr(text, "protected_mappings")
+      if (!is.null(mappings)) {
+        for (i in seq_along(mappings)) {
+          text <- stringr::str_replace_all(
+            text,
+            stringr::fixed(names(mappings)[i]),
+            mappings[i]
+          )
+        }
+      }
+      return(text)
+    }
+
     result <- text
 
     for (i in seq_along(pattern_replacements)) {
-      result <- stringr::str_replace_all(
+      result <- protected_replacements(
         result,
-        stringr::regex(pattern_replacements[[i]][[1]], ignore_case = TRUE),
-        pattern_replacements[[i]][[2]]
+        patterns = stringr::regex(
+          pattern_replacements[[i]][[1]],
+          ignore_case = TRUE
+        ),
+        replacement = pattern_replacements[[i]][[2]]
       )
     }
+    result <- finalize_replacements(result)
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
