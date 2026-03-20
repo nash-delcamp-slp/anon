@@ -18,6 +18,13 @@ test_that("anon() works with character vectors", {
   expect_equal(as.character(result3), c("FIRST Smith", "FIRST.doeEMAIL", "Call [REDACTED]"))
 })
 
+test_that("anon() performs basic replacements without runtime dependency failures", {
+  result <- anon(c("Alice", "Bob"), pattern_list = c("Alice"))
+
+  expect_s3_class(result, "anon_context")
+  expect_equal(as.character(result), c("[REDACTED]", "Bob"))
+})
+
 test_that("anon() works with factors", {
   factor_data <- factor(c("Alice", "Bob", "Alice", "Charlie"))
 
