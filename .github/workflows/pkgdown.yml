@@ -94,12 +94,12 @@ jobs:
           mkdir -p "$tmp_dir/bench"
           rsync -a --delete bench/site/ "$tmp_dir/bench/"
           cd "$tmp_dir"
-          if git diff --quiet -- bench; then
+          git add bench
+          if git diff --cached --quiet -- bench; then
             echo "No benchmark site changes to publish."
             exit 0
           fi
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-          git add bench
           git commit -m "Update benchmark site"
           git push origin HEAD:gh-pages
