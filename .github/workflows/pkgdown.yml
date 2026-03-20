@@ -52,9 +52,11 @@ jobs:
         run: |
           mkdir -p bench/results
           git fetch origin gh-pages || true
-          if git show origin/gh-pages:bench/history.csv > bench/results/history.csv 2>/dev/null; then
+          if git show origin/gh-pages:bench/history.csv > bench/results/history.csv.tmp 2>/dev/null; then
+            mv bench/results/history.csv.tmp bench/results/history.csv
             echo "Restored benchmark history from gh-pages."
           else
+            rm -f bench/results/history.csv.tmp bench/results/history.csv
             echo "No benchmark history found on gh-pages."
           fi
 

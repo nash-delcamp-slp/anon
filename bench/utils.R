@@ -477,7 +477,7 @@ collect_benchmark_results <- function(iterations = 5, check = FALSE) {
 }
 
 read_history <- function(path) {
-  if (!file.exists(path)) {
+  if (!file.exists(path) || isTRUE(file.info(path)$size == 0)) {
     return(data.frame(stringsAsFactors = FALSE))
   }
 
