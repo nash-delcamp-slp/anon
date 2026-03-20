@@ -23,10 +23,19 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
 
   # Check if input is POSIXct (date-time)
   is_datetime <- inherits(x_clean, "POSIXct")
+  datetime_tz <- NULL
+  if (is_datetime) {
+    datetime_tz <- attr(x_clean, "tzone", exact = TRUE)
+    if (is.null(datetime_tz) || length(datetime_tz) == 0) {
+      datetime_tz <- ""
+    } else {
+      datetime_tz <- datetime_tz[[1]]
+    }
+  }
 
   # Convert to Date for centering calculation, preserving original class info
   if (is_datetime) {
-    x_dates <- as.Date(x_clean)
+    x_dates <- as.Date(x_clean, tz = datetime_tz)
   } else if (!inherits(x_clean, "Date")) {
     x_dates <- as.Date(x_clean)
   } else {
@@ -58,7 +67,7 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
     # Optionally scramble while preserving intervals
     if (scramble) {
       # Calculate intervals from the shifted center (convert center to POSIXct)
-      center_datetime <- as.POSIXct(paste(center_date, "00:00:00"))
+      center_datetime <- as.POSIXct(center_date, tz = datetime_tz)
       intervals <- as.numeric(result - center_datetime)
       # Scramble the intervals but keep the same set of values
       scrambled_intervals <- sample(intervals)
@@ -80,7 +89,11 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
 
   # Restore missing values with appropriate NA type
   if (is_datetime) {
-    final_result <- rep(as.POSIXct(NA), length(x))
+    final_result <- as.POSIXct(
+      rep(NA_real_, length(x)),
+      origin = "1970-01-01",
+      tz = datetime_tz
+    )
   } else {
     final_result <- rep(as.Date(NA), length(x))
   }
@@ -250,6 +263,12 @@ anon_num_preserve_distribution <- function(
     return(x)
   }
 
+  if (length(x_clean) <= 1 || length(unique(x_clean)) <= 1) {
+    final_result <- rep(NA_real_, length(x))
+    final_result[!na_idx] <- as.numeric(x_clean)
+    return(final_result)
+  }
+
   result <- switch(
     method,
     "rank" = {
@@ -342,6 +361,23 @@ anon_num_range <- function(
     return(x)
   }
 
+  build_single_range_result <- function(values, keep_values) {
+    if (keep_values) {
+      value_label <- format(values[[1]], trim = TRUE, scientific = FALSE)
+      rep(paste0("[", value_label, ",", value_label, "]"), length(values))
+    } else {
+      rep("Range_01", length(values))
+    }
+  }
+
+  if (min(x_clean) == max(x_clean)) {
+    result <- build_single_range_result(x_clean, keep_values)
+
+    final_result <- rep(NA_character_, length(x))
+    final_result[!na_idx] <- result
+    return(final_result)
+  }
+
   # Create breaks based on method
   if (method == "equal_width") {
     if (clean_breaks) {
@@ -376,6 +412,15 @@ anon_num_range <- function(
         probs = seq(0, 1, length.out = n_breaks + 1)
       )
     }
+  }
+
+  breaks <- unique(as.numeric(breaks))
+  if (length(breaks) < 2) {
+    result <- build_single_range_result(x_clean, keep_values)
+
+    final_result <- rep(NA_character_, length(x))
+    final_result[!na_idx] <- result
+    return(final_result)
   }
 
   # Cut the data into ranges
