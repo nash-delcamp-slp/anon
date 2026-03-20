@@ -78,15 +78,23 @@ recent_run_rows <- make_table_rows(
 # -- ggplot history chart -----------------------------------------------------
 chart_html <- ""
 if (requireNamespace("ggplot2", quietly = TRUE)) {
-  plot_data <- history[, c("timestamp_posix", "expression", "median_sec")]
+  plot_data <- history[, c("run_id", "timestamp_posix", "expression", "median_sec")]
   plot_data$expression <- sub("^anon_", "", plot_data$expression)
 
+  # Use run order as a discrete x-axis so runs are evenly spaced
+  run_labels <- unique(plot_data$run_id)
+  run_timestamps <- vapply(run_labels, function(rid) {
+    format(plot_data$timestamp_posix[plot_data$run_id == rid][1], "%b %d %H:%M")
+  }, character(1))
+  plot_data$run_id <- factor(plot_data$run_id, levels = run_labels)
+
   p <- ggplot2::ggplot(plot_data, ggplot2::aes(
-    x = timestamp_posix, y = median_sec,
+    x = run_id, y = median_sec,
     colour = expression, group = expression
   )) +
     ggplot2::geom_line(linewidth = 0.8) +
     ggplot2::geom_point(size = 2.5) +
+    ggplot2::scale_x_discrete(labels = run_timestamps) +
     ggplot2::scale_colour_brewer(palette = "Set2") +
     ggplot2::labs(
       x = NULL, y = "Median time (seconds)",
@@ -96,7 +104,8 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
     ggplot2::theme(
       legend.position = "bottom",
       panel.grid.minor = ggplot2::element_blank(),
-      plot.background = ggplot2::element_rect(fill = "white", colour = NA)
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
     )
 
   chart_path <- file.path(site_dir, "history.png")
