@@ -244,12 +244,14 @@ anon <- function(
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
+      approximate_text <- unique(result[!is.na(result)])
+
       for (i in seq_along(pattern_replacements)) {
         pattern <- pattern_replacements[[i]][[1]]
 
         # Use the helper function for approximate matching
         match_results <- compute_approximate_distances(
-          result,
+          approximate_text,
           pattern,
           max_distance
         )
@@ -550,7 +552,7 @@ anon <- function(
 
 # Helper function for approximate distance matching
 compute_approximate_distances <- function(text, pattern, max_distance = 2) {
-  if (nchar(pattern) <= 3) {
+  if (length(text) == 0 || is.na(pattern) || nchar(pattern) <= 3) {
     return(list(
       distances = integer(0),
       matches = integer(0),
@@ -558,14 +560,31 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
     ))
   }
 
-  text_lengths <- nchar(text)
-  pattern_length <- nchar(pattern)
+  candidate_matches <- agrepl(
+    pattern,
+    text,
+    max.distance = max_distance,
+    ignore.case = TRUE,
+    fixed = TRUE
+  )
+
+  matches <- which(candidate_matches)
+
+  if (length(matches) == 0) {
+    return(list(
+      distances = integer(0),
+      matches = integer(0),
+      matching_strings = character(0)
+    ))
+  }
+
+  candidate_text <- text[matches]
 
   # First check with fixed (non-partial) where the candidates are x and the pattern is y and insertions are
   # more costly.
   distances1 <- utils::adist(
-    tolower(text),
-    tolower(pattern),
+    candidate_text,
+    pattern,
     fixed = TRUE,
     ignore.case = TRUE,
     costs = c(insertions = 2, deletions = 1, substitutions = 1)
@@ -574,17 +593,18 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
   # Second check with partial matches where x and y are reverse of above and insertions are less
   # costly.
   distances2 <- utils::adist(
-    tolower(pattern),
-    tolower(text),
+    pattern,
+    candidate_text,
     partial = TRUE,
     ignore.case = TRUE,
     costs = c(insertions = 1, deletions = 5, substitutions = 5)
   )
 
   # Take minimum distance for each pattern (transpose distances2 since matrix is flipped)
-  distances <- pmin(distances1, t(distances2))
+  distances <- pmin(as.vector(distances1), as.vector(distances2))
 
-  matches <- which(distances <= max_distance)
+  keep <- which(distances <= max_distance)
+  matches <- matches[keep]
 
   # Extract the actual matching strings
   matching_strings <- if (length(matches) > 0) {
@@ -594,7 +614,7 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
   }
 
   list(
-    distances = distances,
+    distances = distances[keep],
     matches = matches,
     matching_strings = matching_strings
   )
