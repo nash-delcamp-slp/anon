@@ -90,23 +90,17 @@ test_that("anon_data_summary() works with mixed object types", {
   expect_equal(result$data_frames$structure$name, "my_df")
 })
 
-test_that("anon_data_summary() works with globalenv()", {
-  # Clean up any existing variables first
-  rm(list = ls(envir = globalenv()), envir = globalenv())
+test_that("anon_data_summary() works with environments", {
+  test_env <- new.env(parent = emptyenv())
+  assign("test_df", data.frame(a = 1:2, b = c("x", "y")), envir = test_env)
+  assign("test_vec", c("hello", "world"), envir = test_env)
 
-  # Create test data in globalenv
-  assign("test_df", data.frame(a = 1:2, b = c("x", "y")), envir = globalenv())
-  assign("test_vec", c("hello", "world"), envir = globalenv())
-
-  result <- anon_data_summary()
+  result <- anon_data_summary(test_env)
 
   expect_s3_class(result, "anon_data_summary")
   expect_equal(result$summary$total_objects, 2)
   expect_equal(result$summary$data_frames, 1)
   expect_equal(result$summary$other_objects, 1)
-
-  # Clean up
-  rm("test_df", "test_vec", envir = globalenv())
 })
 
 test_that("anon_data_summary() handles empty environments", {
