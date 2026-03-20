@@ -67,7 +67,7 @@ more_patterns <- function(
     individual_words <- character(0)
     for (pattern in patterns_clean) {
       # Split on whitespace and punctuation, keep only alphabetic words
-      words <- unlist(strsplit(pattern, c("\\s+", "[:punct:]+")))
+      words <- unlist(strsplit(pattern, "[[:space:][:punct:]]+"))
       words <- setdiff(words, original_items)
       individual_words <- c(individual_words, words)
     }
