@@ -46,6 +46,7 @@ recent_runs <- unique(history[order(history$timestamp_posix, decreasing = TRUE),
   "git_ref", "r_version", "system", "system_release", "cpu_model"
 )])
 recent_runs <- head(recent_runs, 20)
+recent_runs$git_sha_short <- substr(recent_runs$git_sha, 1, 7)
 
 latest_meta <- latest[1, c(
   "run_id", "timestamp_utc", "run_context", "machine_label", "git_sha",
@@ -70,9 +71,42 @@ recent_metric_rows <- make_table_rows(
 )
 
 recent_run_rows <- make_table_rows(
-  recent_runs[, c("timestamp_utc", "machine_label", "git_ref", "git_sha", "r_version", "cpu_model")],
-  c("timestamp_utc", "machine_label", "git_ref", "git_sha", "r_version", "cpu_model")
+  recent_runs[, c("timestamp_utc", "machine_label", "git_ref", "git_sha_short", "r_version", "cpu_model")],
+  c("timestamp_utc", "machine_label", "git_ref", "git_sha_short", "r_version", "cpu_model")
 )
+
+# -- ggplot history chart -----------------------------------------------------
+chart_html <- ""
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  plot_data <- history[, c("timestamp_posix", "expression", "median_sec")]
+  plot_data$expression <- sub("^anon_", "", plot_data$expression)
+
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(
+    x = timestamp_posix, y = median_sec,
+    colour = expression, group = expression
+  )) +
+    ggplot2::geom_line(linewidth = 0.8) +
+    ggplot2::geom_point(size = 2.5) +
+    ggplot2::scale_colour_brewer(palette = "Set2") +
+    ggplot2::labs(
+      x = NULL, y = "Median time (seconds)",
+      colour = "Benchmark"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      legend.position = "bottom",
+      panel.grid.minor = ggplot2::element_blank(),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA)
+    )
+
+  chart_path <- file.path(site_dir, "history.png")
+  ggplot2::ggsave(chart_path, p, width = 9, height = 4.5, dpi = 150, bg = "white")
+  chart_html <- paste0(
+    "<div class='card'><h2>Performance Over Time</h2>",
+    "<img src='history.png' alt='Benchmark history chart' style='width:100%;height:auto;border-radius:8px;'>",
+    "</div>"
+  )
+}
 
 html <- c(
   "<!doctype html>",
@@ -82,9 +116,18 @@ html <- c(
   "<meta name='viewport' content='width=device-width, initial-scale=1'>",
   "<title>anon Benchmark History</title>",
   "<style>",
-  "body{font-family:ui-sans-serif,system-ui,sans-serif;margin:2rem auto;max-width:1100px;padding:0 1rem;color:#1f2937;background:#f8fafc;}",
-  "h1,h2{color:#0f172a;} .card{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:1rem 1.25rem;margin:1rem 0;box-shadow:0 1px 2px rgba(15,23,42,.04);}",
-  "table{width:100%;border-collapse:collapse;font-size:.95rem;} th,td{padding:.55rem .65rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;} th{background:#f1f5f9;font-weight:600;} code{background:#eef2ff;padding:.15rem .3rem;border-radius:4px;} .muted{color:#64748b;} .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.75rem;} .stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.75rem;} ",
+  paste0(
+    "body{font-family:ui-sans-serif,system-ui,sans-serif;margin:2rem auto;max-width:1100px;padding:0 1rem;color:#1f2937;background:#f8fafc;}",
+    "h1,h2{color:#0f172a;}",
+    ".card{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:1rem 1.25rem;margin:1rem 0;box-shadow:0 1px 2px rgba(15,23,42,.04);}",
+    "table{width:100%;border-collapse:collapse;font-size:.95rem;}",
+    "th,td{padding:.55rem .65rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;overflow-wrap:anywhere;word-break:break-all;}",
+    "th{background:#f1f5f9;font-weight:600;}",
+    "code{background:#eef2ff;padding:.15rem .3rem;border-radius:4px;word-break:break-all;}",
+    ".muted{color:#64748b;}",
+    ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.75rem;}",
+    ".stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.75rem;overflow-wrap:anywhere;word-break:break-word;}"
+  ),
   "</style>",
   "</head>",
   "<body>",
@@ -94,10 +137,11 @@ html <- c(
   paste0("<div class='stat'><strong>Latest run</strong><br><code>", html_escape(latest_meta$run_id), "</code></div>"),
   paste0("<div class='stat'><strong>Timestamp</strong><br>", html_escape(latest_meta$timestamp_utc), "</div>"),
   paste0("<div class='stat'><strong>Machine</strong><br>", html_escape(latest_meta$machine_label), "</div>"),
-  paste0("<div class='stat'><strong>Git</strong><br>", html_escape(paste(latest_meta$git_ref, latest_meta$git_sha)), "</div>"),
+  paste0("<div class='stat'><strong>Git</strong><br><code>", html_escape(latest_meta$git_ref), "</code> <code>", html_escape(substr(latest_meta$git_sha, 1, 7)), "</code></div>"),
   paste0("<div class='stat'><strong>R</strong><br>", html_escape(latest_meta$r_version), " on ", html_escape(paste(latest_meta$system, latest_meta$system_release)), "</div>"),
   paste0("<div class='stat'><strong>CPU</strong><br>", html_escape(latest_meta$cpu_model), "</div>"),
   "</div></div>",
+  chart_html,
   "<div class='card'><h2>Latest Results</h2><table><thead><tr><th>Benchmark</th><th>Median</th><th>Itr/sec</th><th>Mem alloc</th><th>GC/sec</th><th>Delta vs previous</th></tr></thead><tbody>",
   latest_rows,
   "</tbody></table></div>",

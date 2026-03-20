@@ -1,4 +1,9 @@
 url: ~
 template:
   bootstrap: 5
+navbar:
+  components:
+    benchmarks:
+      text: Benchmarks
+      href: bench/index.html
 

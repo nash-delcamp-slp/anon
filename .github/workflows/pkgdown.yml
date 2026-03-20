@@ -44,7 +44,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::bench, any::pkgdown, any::pkgload, local::.
+          extra-packages: any::bench, any::ggplot2, any::pkgdown, any::pkgload, local::.
           needs: website
 
       - name: Restore benchmark history
