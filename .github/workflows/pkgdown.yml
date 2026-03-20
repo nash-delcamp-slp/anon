@@ -9,13 +9,18 @@ on:
 
 name: pkgdown
 
+permissions:
+  contents: write
+
 jobs:
   pkgdown:
     runs-on: ubuntu-latest
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: r-lib/actions/setup-pandoc@v2
 
@@ -39,11 +44,60 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::pkgdown, local::.
+          extra-packages: any::bench, any::pkgdown, any::pkgload, local::.
           needs: website
+
+      - name: Restore benchmark history
+        shell: bash
+        run: |
+          mkdir -p bench/results
+          git fetch origin gh-pages || true
+          if git show origin/gh-pages:bench/history.csv > bench/results/history.csv 2>/dev/null; then
+            echo "Restored benchmark history from gh-pages."
+          else
+            echo "No benchmark history found on gh-pages."
+          fi
+
+      - name: Run benchmarks
+        env:
+          BENCH_MACHINE: github-actions | ubuntu-latest
+        run: |
+          Rscript bench/record-results.R --history bench/results/history.csv --latest bench/results/latest.csv --iterations 3
 
       - name: Deploy package
         run: |
           git config --local user.name "$GITHUB_ACTOR"
           git config --local user.email "$GITHUB_ACTOR@users.noreply.github.com"
           Rscript -e 'pkgdown::deploy_to_branch(new_process = FALSE)'
+
+      - name: Rebuild benchmark site
+        shell: bash
+        run: |
+          if [ -f bench/results/history.csv ]; then
+            Rscript bench/render-site.R --history bench/results/history.csv --site-dir bench/site
+          else
+            echo "No benchmark history to republish."
+          fi
+
+      - name: Publish benchmark site
+        shell: bash
+        run: |
+          if [ ! -d bench/site ]; then
+            echo "No benchmark site to publish."
+            exit 0
+          fi
+          git fetch origin gh-pages
+          tmp_dir="$(mktemp -d)"
+          git worktree add -B gh-pages-bench "$tmp_dir" origin/gh-pages
+          mkdir -p "$tmp_dir/bench"
+          rsync -a --delete bench/site/ "$tmp_dir/bench/"
+          cd "$tmp_dir"
+          if git diff --quiet -- bench; then
+            echo "No benchmark site changes to publish."
+            exit 0
+          fi
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git add bench
+          git commit -m "Update benchmark site"
+          git push origin HEAD:gh-pages

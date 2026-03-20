@@ -6,3 +6,5 @@
 .DS_Store
 .quarto
 docs
+bench/results/
+bench/site/

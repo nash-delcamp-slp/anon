@@ -19,6 +19,8 @@ Imports:
     tibble,
     utils
 Suggests: 
+    bench,
+    pkgload,
     reticulate,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
