@@ -183,64 +183,75 @@ anon <- function(
     check_approximate,
     max_distance
   ) {
-    protected_replacements <- function(text, patterns, replacement) {
-      # Collect existing protected mappings
-      text_protected_mappings <- attr(text, "protected_mappings")
+    if (length(pattern_replacements) == 0) return(text)
 
-      # Use a format that's very unlikely to include patterns that are being replaced
-      protected_token <- digest::digest(replacement)
+    # Group patterns by replacement value to minimize str_replace_all calls
+    replacement_groups <- list()
+    for (i in seq_along(pattern_replacements)) {
+      pat <- pattern_replacements[[i]][[1]]
+      repl <- pattern_replacements[[i]][[2]]
+      replacement_groups[[repl]] <- c(replacement_groups[[repl]], pat)
+    }
 
-      # Do the replacement with protected token
+    # Cache digest tokens per unique replacement
+    digest_cache <- vapply(
+      names(replacement_groups),
+      digest::digest,
+      character(1)
+    )
+
+    # Apply replacements: one str_replace_all call per unique replacement
+    result <- text
+    protected_mappings <- character(0)
+
+    for (repl in names(replacement_groups)) {
+      patterns <- replacement_groups[[repl]]
+      protected_token <- digest_cache[[repl]]
+
+      # Combine patterns into single alternation regex
+      combined_pattern <- paste0("(?:", paste(patterns, collapse = "|"), ")")
+
       result <- tryCatch(
         {
-          stringr::str_replace_all(text, patterns, protected_token)
-        },
-        error = function(e) {
-          # If regex fails, try with fixed string matching
           stringr::str_replace_all(
-            text,
-            stringr::fixed(as.character(patterns)),
+            result,
+            stringr::regex(combined_pattern, ignore_case = TRUE),
             protected_token
           )
+        },
+        error = function(e) {
+          # If combined regex fails, fall back to individual fixed replacements
+          for (pat in patterns) {
+            result <<- tryCatch(
+              stringr::str_replace_all(
+                result,
+                stringr::regex(pat, ignore_case = TRUE),
+                protected_token
+              ),
+              error = function(e2) {
+                stringr::str_replace_all(
+                  result,
+                  stringr::fixed(pat),
+                  protected_token
+                )
+              }
+            )
+          }
+          result
         }
       )
 
-      # Store mapping for final cleanup
-      attr(result, "protected_mappings") <- c(
-        text_protected_mappings,
-        setNames(replacement, protected_token)
-      )
-
-      return(result)
+      protected_mappings[protected_token] <- repl
     }
 
-    finalize_replacements <- function(text) {
-      mappings <- attr(text, "protected_mappings")
-      if (!is.null(mappings)) {
-        for (i in seq_along(mappings)) {
-          text <- stringr::str_replace_all(
-            text,
-            stringr::fixed(names(mappings)[i]),
-            mappings[i]
-          )
-        }
-      }
-      return(text)
-    }
-
-    result <- text
-
-    for (i in seq_along(pattern_replacements)) {
-      result <- protected_replacements(
+    # Finalize: replace protected tokens with actual replacement values
+    for (i in seq_along(protected_mappings)) {
+      result <- stringr::str_replace_all(
         result,
-        patterns = stringr::regex(
-          pattern_replacements[[i]][[1]],
-          ignore_case = TRUE
-        ),
-        replacement = pattern_replacements[[i]][[2]]
+        stringr::fixed(names(protected_mappings)[i]),
+        protected_mappings[i]
       )
     }
-    result <- finalize_replacements(result)
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
@@ -249,7 +260,6 @@ anon <- function(
       for (i in seq_along(pattern_replacements)) {
         pattern <- pattern_replacements[[i]][[1]]
 
-        # Use the helper function for approximate matching
         match_results <- compute_approximate_distances(
           approximate_text,
           pattern,
@@ -264,7 +274,6 @@ anon <- function(
             pattern,
             "'"
           )
-          # Add to parent scope warnings instead of warning immediately
           approximate_warnings <<- c(approximate_warnings, warning_msgs)
         }
       }
