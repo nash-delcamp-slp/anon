@@ -20,7 +20,9 @@ Imports:
     utils
 Suggests: 
     bench,
+    bslib,
     pkgload,
     reticulate,
+    shiny,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
