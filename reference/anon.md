@@ -20,7 +20,8 @@ anon(
   check_names = TRUE,
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
-  .self = FALSE
+  .self = FALSE,
+  .pattern_replacements = NULL
 )
 ```
 
@@ -104,6 +105,13 @@ anon(
   `FALSE`. When `TRUE`, warnings are collected as attributes instead of
   being issued immediately and global options are ignored and only
   explicitly provided parameters are used.
+
+- .pattern_replacements:
+
+  List for internal use only. Pre-computed pattern replacement pairs
+  passed down during recursive calls to avoid recomputing them for each
+  column or list element. Default is `NULL`, which triggers normal
+  computation.
 
 ## Value
 
