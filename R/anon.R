@@ -256,26 +256,20 @@ anon <- function(
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
       approximate_text <- unique(result[!is.na(result)])
+      all_patterns <- vapply(
+        pattern_replacements,
+        function(pr) pr[[1]],
+        character(1)
+      )
 
-      for (i in seq_along(pattern_replacements)) {
-        pattern <- pattern_replacements[[i]][[1]]
+      batch_results <- compute_approximate_distances_batch(
+        approximate_text,
+        all_patterns,
+        max_distance
+      )
 
-        match_results <- compute_approximate_distances(
-          approximate_text,
-          pattern,
-          max_distance
-        )
-
-        if (length(match_results$matching_strings) > 0) {
-          warning_msgs <- paste0(
-            "Potential approximate match: '",
-            match_results$matching_strings,
-            "' is similar to pattern '",
-            pattern,
-            "'"
-          )
-          approximate_warnings <<- c(approximate_warnings, warning_msgs)
-        }
+      if (length(batch_results) > 0) {
+        approximate_warnings <<- c(approximate_warnings, batch_results)
       }
     }
 
@@ -627,6 +621,82 @@ compute_approximate_distances <- function(text, pattern, max_distance = 2) {
     matches = matches,
     matching_strings = matching_strings
   )
+}
+
+# Batched approximate distance matching across all patterns at once
+compute_approximate_distances_batch <- function(
+  text,
+  patterns,
+  max_distance = 2
+) {
+  # Filter to usable patterns (non-NA, length > 3)
+  keep_pat <- !is.na(patterns) & nchar(patterns) > 3
+  patterns <- patterns[keep_pat]
+
+  if (length(text) == 0 || length(patterns) == 0) {
+    return(character(0))
+  }
+
+  # Pre-filter: find which text elements are candidates for ANY pattern
+  # Use agrepl per pattern but collect a single logical mask
+  candidate_mask <- logical(length(text))
+  for (pat in patterns) {
+    candidate_mask <- candidate_mask | agrepl(
+      pat,
+      text,
+      max.distance = max_distance,
+      ignore.case = TRUE,
+      fixed = TRUE
+    )
+  }
+
+  candidates_idx <- which(candidate_mask)
+  if (length(candidates_idx) == 0) {
+    return(character(0))
+  }
+
+  candidate_text <- text[candidates_idx]
+
+  # Compute distance matrices for all candidates x all patterns in one call each
+  dist1 <- utils::adist(
+    candidate_text,
+    patterns,
+    fixed = TRUE,
+    ignore.case = TRUE,
+    costs = c(insertions = 2, deletions = 1, substitutions = 1)
+  )
+
+  dist2 <- utils::adist(
+    patterns,
+    candidate_text,
+    partial = TRUE,
+    ignore.case = TRUE,
+    costs = c(insertions = 1, deletions = 5, substitutions = 5)
+  )
+
+  # dist1 is [candidates x patterns], dist2 is [patterns x candidates]
+  # Take element-wise minimum after transposing dist2
+  distances <- pmin(dist1, t(dist2))
+
+  # Collect warnings for any (candidate, pattern) pair within max_distance
+  warning_msgs <- character(0)
+  for (j in seq_along(patterns)) {
+    close <- which(distances[, j] <= max_distance)
+    if (length(close) > 0) {
+      warning_msgs <- c(
+        warning_msgs,
+        paste0(
+          "Potential approximate match: '",
+          candidate_text[close],
+          "' is similar to pattern '",
+          patterns[j],
+          "'"
+        )
+      )
+    }
+  }
+
+  warning_msgs
 }
 
 with_default_replacements <- function(
