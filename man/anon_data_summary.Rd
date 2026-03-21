@@ -6,6 +6,7 @@
 \usage{
 anon_data_summary(
   envir = globalenv(),
+  selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   check_approximate = TRUE,
@@ -16,6 +17,8 @@ anon_data_summary(
 \item{envir}{An environment or list containing the objects to summarize. When passed as a list,
 unnamed elements will automatically be given names (either derived from the function call
 or indexed as "x1", "x2", etc.). Default is \code{globalenv()}.}
+
+\item{selection}{Optional character vector of object names to include in the summary.}
 
 \item{pattern_list}{A list of patterns to search for and replace. Can include:
 \itemize{

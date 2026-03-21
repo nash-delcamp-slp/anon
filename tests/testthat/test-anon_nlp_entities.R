@@ -4,8 +4,12 @@ require_spacy <- function() {
   skip_if_not_installed("reticulate")
 
   # Skip if spaCy backend is not available
+  spacy_available <- suppressWarnings(
+    reticulate::py_module_available("cleannlp")
+  )
+
   skip_if(
-    !reticulate::py_module_available("cleannlp"),
+    !spacy_available,
     "spaCy backend not available for cleanNLP"
   )
 

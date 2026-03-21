@@ -9,6 +9,7 @@
 #' @param envir An environment or list containing the objects to summarize. When passed as a list,
 #'   unnamed elements will automatically be given names (either derived from the function call
 #'   or indexed as "x1", "x2", etc.). Default is `globalenv()`.
+#' @param selection Optional character vector of object names to include in the summary.
 #' @inheritParams anon
 #'
 #' @return An object of class `"anon_data_summary"` containing:
@@ -72,6 +73,7 @@
 #' @export
 anon_data_summary <- function(
   envir = globalenv(),
+  selection = NULL,
   pattern_list = list(),
   default_replacement = getOption(
     "anon.default_replacement",
@@ -95,32 +97,13 @@ anon_data_summary <- function(
     default_replacement = default_replacement
   )
 
-  # when envir is passed as a list, name elements that are unnamed.
-  if (!is.environment(envir)) {
-    if (is.list(envir)) {
-      # ideally, the content of the envir argument as a language object will
-      # resolve to the length of the envir list. otherwise, will use indexed names.
-      names_for_nameless <- as.character(sys.calls()[[1]]["envir"][[1]])[-1]
-      if (length(names_for_nameless) != length(envir)) {
-        names_for_nameless <- paste0("x", 1:length(envir))
-      }
-
-      # name elements that are not named.
-      if (is.null(names(envir))) {
-        names(envir) <- names_for_nameless
-      } else {
-        missing_names_lgl <- names(envir) == ""
-        names(envir)[missing_names_lgl] <- names_for_nameless[missing_names_lgl]
-      }
-    }
-  }
-
-  obj_names <- objects(envir)
+  objects <- normalize_object_source(envir, selection = selection)
+  obj_names <- names(objects)
 
   summaries <- purrr::map(
     obj_names,
     ~ {
-      obj <- envir[[.x]]
+      obj <- objects[[.x]]
       get_object_summary(.x, obj)
     }
   ) |>
@@ -137,7 +120,7 @@ anon_data_summary <- function(
   if (length(data_frames) > 0) {
     result$data_frames <- list(
       structure = purrr::map_dfr(data_frames, "structure"),
-      variables = purrr::map(data_frames, "variables") # Keep as separate list elements
+      variables = purrr::map(data_frames, "variables")
     )
   }
 
@@ -151,7 +134,7 @@ anon_data_summary <- function(
     data_frames = length(data_frames),
     other_objects = length(other_objects),
     total_memory = format(
-      sum(purrr::map_dbl(obj_names, ~ utils::object.size(envir[[.x]]))),
+      sum(purrr::map_dbl(obj_names, ~ utils::object.size(objects[[.x]]))),
       units = "auto"
     )
   )
