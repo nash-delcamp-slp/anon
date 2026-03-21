@@ -36,6 +36,9 @@
 #' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`.
 #'   When `TRUE`, warnings are collected as attributes instead of being issued immediately
 #'   and global options are ignored and only explicitly provided parameters are used.
+#' @param .pattern_replacements List for internal use only. Pre-computed pattern replacement
+#'   pairs passed down during recursive calls to avoid recomputing them for each column or
+#'   list element. Default is `NULL`, which triggers normal computation.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
@@ -137,7 +140,8 @@ anon <- function(
   check_names = TRUE,
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
-  .self = FALSE
+  .self = FALSE,
+  .pattern_replacements = NULL
 ) {
   # Combine user arguments with global options
   if (!.self) {
@@ -355,20 +359,24 @@ anon <- function(
     return(NULL)
   }
 
-  # Handle automatic/provided NLP anonymization
-  enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
-  if (length(enabled_nlp_entities) > 0) {
-    # Extract NLP entities and add to pattern_list for processing
-    nlp_pattern_list <- extract_nlp_patterns(x, enabled_nlp_entities)
-    if (length(nlp_pattern_list) > 0) {
-      pattern_list <- c(pattern_list, nlp_pattern_list)
+  # Use pre-computed pattern_replacements if available (recursive calls)
+  if (!is.null(.pattern_replacements)) {
+    pattern_replacements <- .pattern_replacements
+  } else {
+    # Handle automatic/provided NLP anonymization
+    enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
+    if (length(enabled_nlp_entities) > 0) {
+      nlp_pattern_list <- extract_nlp_patterns(x, enabled_nlp_entities)
+      if (length(nlp_pattern_list) > 0) {
+        pattern_list <- c(pattern_list, nlp_pattern_list)
+      }
     }
-  }
 
-  pattern_replacements <- with_default_replacements(
-    pattern_list,
-    default_replacement = default_replacement
-  )
+    pattern_replacements <- with_default_replacements(
+      pattern_list,
+      default_replacement = default_replacement
+    )
+  }
 
   # Dispatch based on object type (using the inner apply_patterns function)
   if (is.character(x) || is.factor(x)) {
@@ -424,28 +432,44 @@ anon <- function(
         result[[col_name]] <- var_name_replacement
       } else if (!is.null(var_class_replacement)) {
         result[[col_name]] <- var_class_replacement
-      } else {
-        # Use .self = TRUE for recursive calls to collect warnings
+      } else if (is.character(result[[col_name]])) {
+        # Apply patterns directly for character columns (avoid full anon() overhead)
+        result[[col_name]] <- apply_patterns(
+          result[[col_name]],
+          pattern_replacements,
+          check_approximate,
+          max_distance
+        )
+      } else if (is.factor(result[[col_name]])) {
+        # Apply patterns to factor levels directly
+        levels(result[[col_name]]) <- apply_patterns(
+          levels(result[[col_name]]),
+          pattern_replacements,
+          check_approximate,
+          max_distance
+        )
+      } else if (is.list(result[[col_name]])) {
+        # Only recurse into anon() for list columns (need recursive handling)
         recursive_result <- anon(
           result[[col_name]],
           pattern_list = pattern_list,
           default_replacement = default_replacement,
           check_approximate = check_approximate,
           max_distance = max_distance,
-          df_variable_names = NULL, # Don't pass these down to avoid recursion
+          df_variable_names = NULL,
           df_classes = NULL,
           check_names = check_names,
           check_labels = check_labels,
-          .self = TRUE
+          .self = TRUE,
+          .pattern_replacements = pattern_replacements
         )
 
-        # If recursive call has warnings, collect them
         if (!is.null(attr(recursive_result, "approximate_warnings"))) {
           approximate_warnings <- c(
             approximate_warnings,
             attr(recursive_result, "approximate_warnings")
           )
-          attr(recursive_result, "approximate_warnings") <- NULL # Remove the attribute
+          attr(recursive_result, "approximate_warnings") <- NULL
         }
 
         result[[col_name]] <- recursive_result
@@ -503,7 +527,8 @@ anon <- function(
           df_classes = df_classes,
           check_names = check_names,
           check_labels = check_labels,
-          .self = TRUE
+          .self = TRUE,
+          .pattern_replacements = pattern_replacements
         )
 
         # If recursive call has warnings, collect them
