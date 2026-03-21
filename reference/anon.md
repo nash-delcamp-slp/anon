@@ -21,7 +21,8 @@ anon(
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
-  .pattern_replacements = NULL
+  .pattern_replacements = NULL,
+  .compiled = NULL
 )
 ```
 
@@ -112,6 +113,13 @@ anon(
   passed down during recursive calls to avoid recomputing them for each
   column or list element. Default is `NULL`, which triggers normal
   computation.
+
+- .compiled:
+
+  List for internal use only. Pre-compiled pattern groups containing
+  grouped regex objects, digest tokens, and fixed token matchers. Passed
+  down during recursive calls to avoid recompiling patterns. Default is
+  `NULL`.
 
 ## Value
 
