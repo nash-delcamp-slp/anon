@@ -16,7 +16,8 @@ anon(
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
-  .pattern_replacements = NULL
+  .pattern_replacements = NULL,
+  .compiled = NULL
 )
 }
 \arguments{
@@ -71,6 +72,10 @@ and global options are ignored and only explicitly provided parameters are used.
 \item{.pattern_replacements}{List for internal use only. Pre-computed pattern replacement
 pairs passed down during recursive calls to avoid recomputing them for each column or
 list element. Default is \code{NULL}, which triggers normal computation.}
+
+\item{.compiled}{List for internal use only. Pre-compiled pattern groups containing
+grouped regex objects, digest tokens, and fixed token matchers. Passed down during
+recursive calls to avoid recompiling patterns. Default is \code{NULL}.}
 }
 \value{
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive

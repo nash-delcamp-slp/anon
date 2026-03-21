@@ -39,6 +39,9 @@
 #' @param .pattern_replacements List for internal use only. Pre-computed pattern replacement
 #'   pairs passed down during recursive calls to avoid recomputing them for each column or
 #'   list element. Default is `NULL`, which triggers normal computation.
+#' @param .compiled List for internal use only. Pre-compiled pattern groups containing
+#'   grouped regex objects, digest tokens, and fixed token matchers. Passed down during
+#'   recursive calls to avoid recompiling patterns. Default is `NULL`.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
@@ -141,7 +144,8 @@ anon <- function(
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
-  .pattern_replacements = NULL
+  .pattern_replacements = NULL,
+  .compiled = NULL
 ) {
   # Combine user arguments with global options
   if (!.self) {
@@ -181,62 +185,30 @@ anon <- function(
   # Track warnings at the anon() level
   approximate_warnings <- character(0)
 
-  apply_patterns <- function(
-    text,
-    pattern_replacements,
-    check_approximate,
-    max_distance
-  ) {
-    if (length(pattern_replacements) == 0) return(text)
+  apply_patterns <- function(text, compiled, check_approximate, max_distance) {
+    if (length(compiled$groups) == 0) return(text)
 
-    # Group patterns by replacement value to minimize str_replace_all calls
-    replacement_groups <- list()
-    for (i in seq_along(pattern_replacements)) {
-      pat <- pattern_replacements[[i]][[1]]
-      repl <- pattern_replacements[[i]][[2]]
-      replacement_groups[[repl]] <- c(replacement_groups[[repl]], pat)
-    }
-
-    # Cache digest tokens per unique replacement
-    digest_cache <- vapply(
-      names(replacement_groups),
-      digest::digest,
-      character(1)
-    )
-
-    # Apply replacements: one str_replace_all call per unique replacement
     result <- text
-    protected_mappings <- character(0)
 
-    for (repl in names(replacement_groups)) {
-      patterns <- replacement_groups[[repl]]
-      protected_token <- digest_cache[[repl]]
-
-      # Combine patterns into single alternation regex
-      combined_pattern <- paste0("(?:", paste(patterns, collapse = "|"), ")")
+    for (i in seq_along(compiled$groups)) {
+      grp <- compiled$groups[[i]]
 
       result <- tryCatch(
-        {
-          stringr::str_replace_all(
-            result,
-            stringr::regex(combined_pattern, ignore_case = TRUE),
-            protected_token
-          )
-        },
+        stringr::str_replace_all(result, grp$compiled_regex, grp$token),
         error = function(e) {
-          # If combined regex fails, fall back to individual fixed replacements
-          for (pat in patterns) {
+          # If combined regex fails, fall back to individual replacements
+          for (pat in grp$patterns) {
             result <<- tryCatch(
               stringr::str_replace_all(
                 result,
                 stringr::regex(pat, ignore_case = TRUE),
-                protected_token
+                grp$token
               ),
               error = function(e2) {
                 stringr::str_replace_all(
                   result,
                   stringr::fixed(pat),
-                  protected_token
+                  grp$token
                 )
               }
             )
@@ -244,31 +216,24 @@ anon <- function(
           result
         }
       )
-
-      protected_mappings[protected_token] <- repl
     }
 
     # Finalize: replace protected tokens with actual replacement values
-    for (i in seq_along(protected_mappings)) {
+    for (i in seq_along(compiled$token_map)) {
       result <- stringr::str_replace_all(
         result,
-        stringr::fixed(names(protected_mappings)[i]),
-        protected_mappings[i]
+        compiled$fixed_tokens[[i]],
+        compiled$token_map[[i]]
       )
     }
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
       approximate_text <- unique(result[!is.na(result)])
-      all_patterns <- vapply(
-        pattern_replacements,
-        function(pr) pr[[1]],
-        character(1)
-      )
 
       batch_results <- compute_approximate_distances_batch(
         approximate_text,
-        all_patterns,
+        compiled$all_patterns,
         max_distance
       )
 
@@ -378,12 +343,15 @@ anon <- function(
     )
   }
 
+  # Reuse pre-compiled patterns from parent call, or compile once
+  compiled <- if (!is.null(.compiled)) .compiled else compile_patterns(pattern_replacements)
+
   # Dispatch based on object type (using the inner apply_patterns function)
   if (is.character(x) || is.factor(x)) {
     if (is.factor(x)) {
       levels(x) <- apply_patterns(
         levels(x),
-        pattern_replacements,
+        compiled,
         check_approximate,
         max_distance
       )
@@ -391,7 +359,7 @@ anon <- function(
     } else {
       result <- apply_patterns(
         x,
-        pattern_replacements,
+        compiled,
         check_approximate,
         max_distance
       )
@@ -420,7 +388,7 @@ anon <- function(
         if (!is.null(col_label)) {
           attr(result[[col_name]], "label") <- apply_patterns(
             col_label,
-            pattern_replacements,
+            compiled,
             check_approximate,
             max_distance
           )
@@ -436,7 +404,7 @@ anon <- function(
         # Apply patterns directly for character columns (avoid full anon() overhead)
         result[[col_name]] <- apply_patterns(
           result[[col_name]],
-          pattern_replacements,
+          compiled,
           check_approximate,
           max_distance
         )
@@ -444,7 +412,7 @@ anon <- function(
         # Apply patterns to factor levels directly
         levels(result[[col_name]]) <- apply_patterns(
           levels(result[[col_name]]),
-          pattern_replacements,
+          compiled,
           check_approximate,
           max_distance
         )
@@ -461,7 +429,8 @@ anon <- function(
           check_names = check_names,
           check_labels = check_labels,
           .self = TRUE,
-          .pattern_replacements = pattern_replacements
+          .pattern_replacements = pattern_replacements,
+          .compiled = compiled
         )
 
         if (!is.null(attr(recursive_result, "approximate_warnings"))) {
@@ -480,7 +449,7 @@ anon <- function(
     if (isTRUE(check_names) && !is.null(names(result))) {
       names(result) <- apply_patterns(
         names(result),
-        pattern_replacements,
+        compiled,
         check_approximate,
         max_distance
       )
@@ -494,7 +463,7 @@ anon <- function(
     ) {
       rownames(result) <- apply_patterns(
         rownames(result),
-        pattern_replacements,
+        compiled,
         check_approximate,
         max_distance
       )
@@ -506,7 +475,7 @@ anon <- function(
       if (!is.null(df_label)) {
         attr(result, "label") <- apply_patterns(
           df_label,
-          pattern_replacements,
+          compiled,
           check_approximate,
           max_distance
         )
@@ -528,7 +497,8 @@ anon <- function(
           check_names = check_names,
           check_labels = check_labels,
           .self = TRUE,
-          .pattern_replacements = pattern_replacements
+          .pattern_replacements = pattern_replacements,
+          .compiled = compiled
         )
 
         # If recursive call has warnings, collect them
@@ -548,7 +518,7 @@ anon <- function(
     if (isTRUE(check_names) && !is.null(names(result))) {
       names(result) <- apply_patterns(
         names(result),
-        pattern_replacements,
+        compiled,
         check_approximate,
         max_distance
       )
@@ -577,6 +547,57 @@ anon <- function(
 }
 
 # helpers -----------------------------------------------------------------
+
+# Pre-compile pattern groups, digest tokens, and regex objects
+compile_patterns <- function(pattern_replacements) {
+  if (length(pattern_replacements) == 0) {
+    return(list(
+      groups = list(),
+      token_map = character(0),
+      fixed_tokens = list(),
+      all_patterns = character(0)
+    ))
+  }
+
+  # Group patterns by replacement value
+  replacement_groups <- list()
+  all_patterns <- character(0)
+  for (i in seq_along(pattern_replacements)) {
+    pat <- pattern_replacements[[i]][[1]]
+    repl <- pattern_replacements[[i]][[2]]
+    replacement_groups[[repl]] <- c(replacement_groups[[repl]], pat)
+    all_patterns <- c(all_patterns, pat)
+  }
+
+  # Build compiled groups with pre-computed regex and digest tokens
+  groups <- vector("list", length(replacement_groups))
+  token_map <- character(length(replacement_groups))
+  fixed_tokens <- vector("list", length(replacement_groups))
+
+  for (i in seq_along(replacement_groups)) {
+    repl <- names(replacement_groups)[i]
+    patterns <- replacement_groups[[i]]
+    token <- digest::digest(repl, algo = "xxhash64")
+    combined <- paste0("(?:", paste(patterns, collapse = "|"), ")")
+
+    groups[[i]] <- list(
+      replacement = repl,
+      patterns = patterns,
+      token = token,
+      compiled_regex = stringr::regex(combined, ignore_case = TRUE)
+    )
+    token_map[i] <- repl
+    names(token_map)[i] <- token
+    fixed_tokens[[i]] <- stringr::fixed(token)
+  }
+
+  list(
+    groups = groups,
+    token_map = token_map,
+    fixed_tokens = fixed_tokens,
+    all_patterns = all_patterns
+  )
+}
 
 # Helper function for approximate distance matching
 compute_approximate_distances <- function(text, pattern, max_distance = 2) {
