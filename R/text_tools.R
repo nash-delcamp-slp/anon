@@ -76,6 +76,12 @@ parse_pattern_rule_text <- function(x) {
 
   for (line in lines) {
     if (!grepl("=", line, fixed = TRUE)) {
+      patterns <- trimws(strsplit(line, "|", fixed = TRUE)[[1]])
+      patterns <- patterns[patterns != ""]
+
+      if (length(patterns) > 0) {
+        rules[[length(rules) + 1]] <- unique(patterns)
+      }
       next
     }
 
@@ -93,6 +99,37 @@ parse_pattern_rule_text <- function(x) {
   }
 
   rules
+}
+
+format_pattern_rule_text <- function(pattern_list) {
+  if (is.null(pattern_list) || length(pattern_list) == 0) {
+    return("")
+  }
+
+  if (!is.list(pattern_list)) {
+    pattern_list <- as.list(pattern_list)
+  }
+
+  lines <- character(0)
+
+  for (i in seq_along(pattern_list)) {
+    value <- trimws(as.character(pattern_list[[i]]))
+    value <- value[value != ""]
+
+    if (length(value) == 0) {
+      next
+    }
+
+    key <- names(pattern_list)[i]
+
+    if (!is.null(key) && nzchar(key)) {
+      lines <- c(lines, paste0(key, " = ", paste(value, collapse = " | ")))
+    } else {
+      lines <- c(lines, paste(value, collapse = " | "))
+    }
+  }
+
+  paste(lines, collapse = "\n")
 }
 
 format_text_comparison <- function(comparison) {

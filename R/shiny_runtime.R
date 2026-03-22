@@ -18,19 +18,21 @@ run_anon_app <- function(
   initial_selection = NULL
 ) {
   ensure_shiny_runtime_packages()
+  runtime_defaults <- anon_runtime_defaults()
 
   app <- shiny::shinyApp(
-    ui = anon_app_ui(),
+    ui = anon_app_ui(runtime_defaults = runtime_defaults),
     server = anon_app_server(
       envir = envir,
-      initial_selection = initial_selection
+      initial_selection = initial_selection,
+      runtime_defaults = runtime_defaults
     )
   )
 
   shiny::runApp(app, launch.browser = launch.browser)
 }
 
-anon_app_ui <- function() {
+anon_app_ui <- function(runtime_defaults = anon_runtime_defaults()) {
   bslib::page_sidebar(
     title = "anon runtime",
     sidebar = bslib::sidebar(
@@ -54,30 +56,46 @@ anon_app_ui <- function() {
       shiny::textInput(
         inputId = "default_replacement",
         label = "Default replacement",
-        value = "[REDACTED]"
+        value = runtime_defaults$default_replacement
       ),
       shiny::checkboxInput(
         inputId = "check_approximate",
         label = "Check approximate matches",
-        value = FALSE
+        value = runtime_defaults$check_approximate
       ),
       shiny::textAreaInput(
         inputId = "pattern_rules",
         label = "Pattern rules",
         rows = 8,
+        value = runtime_defaults$pattern_rules_text,
         placeholder = paste(
           "One rule per line.",
           "Example: PERSON = Alice | Bob",
           "Example: SITE = Boston Medical Center",
+          "Unnamed lines use the default replacement.",
           sep = "\n"
         )
+      ),
+      shiny::checkboxInput(
+        inputId = "enable_nlp",
+        label = "Enable NLP entity redaction",
+        value = runtime_defaults$enable_nlp
+      ),
+      shiny::selectizeInput(
+        inputId = "nlp_entity_types",
+        label = "NLP entity types",
+        choices = nlp_entity_sets$all,
+        selected = runtime_defaults$nlp_entity_types,
+        multiple = TRUE,
+        options = list(placeholder = "Choose entity types for NLP redaction")
       ),
       shiny::actionButton(
         inputId = "generate_report",
         label = "Generate report"
       ),
       shiny::hr(),
-      shiny::verbatimTextOutput("scan_status")
+      shiny::verbatimTextOutput("scan_status"),
+      shiny::verbatimTextOutput("nlp_status")
     ),
     bslib::layout_column_wrap(
       width = 1,
@@ -139,24 +157,47 @@ anon_app_ui <- function() {
 
 anon_app_server <- function(
   envir = globalenv(),
-  initial_selection = NULL
+  initial_selection = NULL,
+  runtime_defaults = anon_runtime_defaults()
 ) {
   force(envir)
   force(initial_selection)
+  force(runtime_defaults)
 
   function(input, output, session) {
     inventory_data <- shiny::reactiveVal(NULL)
     report_data <- shiny::reactiveVal(NULL)
     cleaned_text_data <- shiny::reactiveVal(NULL)
     comparison_data <- shiny::reactiveVal(NULL)
+    nlp_status_data <- shiny::reactiveVal(get_nlp_runtime_status())
 
     active_rules <- shiny::reactive({
+      if (is.null(input$pattern_rules)) {
+        return(runtime_defaults$pattern_list)
+      }
       parse_pattern_rule_text(input$pattern_rules)
     })
 
     active_default_replacement <- shiny::reactive({
+      if (is.null(input$default_replacement)) {
+        return(runtime_defaults$default_replacement)
+      }
       value <- trimws(input$default_replacement %||% "")
       if (identical(value, "")) "[REDACTED]" else value
+    })
+
+    active_nlp_enabled <- shiny::reactive({
+      if (is.null(input$enable_nlp)) {
+        return(runtime_defaults$enable_nlp)
+      }
+      isTRUE(input$enable_nlp)
+    })
+
+    active_nlp_entity_types <- shiny::reactive({
+      if (is.null(input$nlp_entity_types)) {
+        return(runtime_defaults$nlp_entity_types)
+      }
+      input$nlp_entity_types %||% character(0)
     })
 
     scan_message <- shiny::reactive({
@@ -176,7 +217,12 @@ anon_app_server <- function(
     })
 
     shiny::observeEvent(input$scan_environment, {
-      inventory <- anon_inventory(envir, check_approximate = FALSE)
+      inventory <- anon_inventory(
+        envir,
+        pattern_list = active_rules(),
+        default_replacement = active_default_replacement(),
+        check_approximate = FALSE
+      )
       inventory_data(inventory)
       report_data(NULL)
 
@@ -224,12 +270,45 @@ anon_app_server <- function(
         nlp_auto = FALSE
       )
 
+      if (isTRUE(active_nlp_enabled())) {
+        nlp_status <- nlp_status_data()
+        entity_types <- active_nlp_entity_types()
+
+        if (!isTRUE(nlp_status$available)) {
+          shiny::showNotification(
+            paste("NLP redaction unavailable:", nlp_status$message),
+            type = "warning"
+          )
+        } else if (length(entity_types) > 0) {
+          nlp_args <- list(
+            x = redacted_text,
+            entity_types = entity_types,
+            check_approximate = isTRUE(input$check_approximate)
+          )
+
+          if (!identical(
+            active_default_replacement(),
+            runtime_defaults$default_replacement
+          )) {
+            nlp_args$default_replacement <- active_default_replacement()
+          }
+
+          redacted_text <- do.call(anon_nlp_entities, nlp_args)
+        }
+      }
+
       cleaned_text_data(as.character(redacted_text))
       comparison_data(anon_compare_text(source_text, as.character(redacted_text)))
     }, ignoreNULL = TRUE)
 
     output$scan_status <- shiny::renderText({
       scan_message()
+    })
+
+    output$nlp_status <- shiny::renderText({
+      status <- nlp_status_data()
+      prefix <- if (isTRUE(status$available)) "NLP ready" else "NLP unavailable"
+      paste0(prefix, ": ", status$message)
     })
 
     output$inventory_table <- shiny::renderTable({
@@ -294,6 +373,69 @@ anon_app_server <- function(
       )
     })
   }
+}
+
+anon_runtime_defaults <- function() {
+  option_pattern_list <- getOption("anon.pattern_list", default = list())
+  enabled_nlp_entities <- get_enabled_nlp_entities(getOption("anon.nlp_auto"))
+
+  list(
+    default_replacement = getOption(
+      "anon.default_replacement",
+      default = "[REDACTED]"
+    ),
+    check_approximate = FALSE,
+    pattern_list = option_pattern_list,
+    pattern_rules_text = format_pattern_rule_text(option_pattern_list),
+    enable_nlp = length(enabled_nlp_entities) > 0,
+    nlp_entity_types = if (length(enabled_nlp_entities) > 0) {
+      enabled_nlp_entities
+    } else {
+      nlp_entity_sets$named
+    }
+  )
+}
+
+get_nlp_runtime_status <- function() {
+  if (!requireNamespace("cleanNLP", quietly = TRUE)) {
+    return(list(available = FALSE, message = "cleanNLP is not installed."))
+  }
+
+  if (!requireNamespace("reticulate", quietly = TRUE)) {
+    return(list(available = FALSE, message = "reticulate is not installed."))
+  }
+
+  spacy_available <- tryCatch(
+    suppressWarnings(reticulate::py_module_available("cleannlp")),
+    error = function(e) FALSE
+  )
+
+  if (!isTRUE(spacy_available)) {
+    return(list(
+      available = FALSE,
+      message = "spaCy backend is not available for cleanNLP."
+    ))
+  }
+
+  init_error <- tryCatch(
+    {
+      suppressWarnings(suppressMessages(cleanNLP::cnlp_init_spacy()))
+      NULL
+    },
+    error = function(e) e
+  )
+
+  if (inherits(init_error, "error")) {
+    return(list(
+      available = FALSE,
+      message = paste("spaCy initialization failed:", conditionMessage(init_error))
+    ))
+  }
+
+  list(
+    available = TRUE,
+    message = "cleanNLP and spaCy are available for entity redaction."
+  )
 }
 
 ensure_shiny_runtime_packages <- function() {
