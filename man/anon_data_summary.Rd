@@ -10,7 +10,8 @@ anon_data_summary(
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   check_approximate = TRUE,
-  max_distance = 2
+  max_distance = 2,
+  nlp_auto = getOption("anon.nlp_auto")
 )
 }
 \arguments{
@@ -35,6 +36,10 @@ matches using string distance. Default is \code{TRUE}.}
 
 \item{max_distance}{Maximum string distance for approximate matching when
 \code{check_approximate} is \code{TRUE}. Default is \code{2}.}
+
+\item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
+generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
+This argument overrides the global option.}
 }
 \value{
 An object of class \code{"anon_data_summary"} containing:

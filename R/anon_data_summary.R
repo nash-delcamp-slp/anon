@@ -80,7 +80,8 @@ anon_data_summary <- function(
     default = "[REDACTED]"
   ),
   check_approximate = TRUE,
-  max_distance = 2
+  max_distance = 2,
+  nlp_auto = getOption("anon.nlp_auto")
 ) {
   name <- type <- NULL
 
@@ -148,7 +149,8 @@ anon_data_summary <- function(
     max_distance = max_distance,
     df_variable_names = FALSE,
     df_classes = FALSE,
-    check_names = FALSE
+    check_names = FALSE,
+    nlp_auto = nlp_auto
   )
 
   class(result) <- c("anon_data_summary", "anon_context", "list")
