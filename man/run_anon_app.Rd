@@ -2,7 +2,7 @@
 % Please edit documentation in R/shiny_runtime.R
 \name{run_anon_app}
 \alias{run_anon_app}
-\title{Launch the local \code{anon} Shiny runtime}
+\title{Launch the local \code{anon} Shiny app}
 \usage{
 run_anon_app(
   envir = globalenv(),
@@ -16,13 +16,13 @@ run_anon_app(
 \item{launch.browser}{Passed to \code{\link[shiny:runApp]{shiny::runApp()}}. Defaults to \code{interactive()}.}
 
 \item{initial_selection}{Optional character vector of object names to preselect
-after a scan.}
+after the environment is loaded.}
 }
 \value{
 Invisibly returns the running Shiny app object.
 }
 \description{
-The Shiny runtime provides a local, session-oriented workflow for scanning an
+The \code{anon} Shiny app provides a local, session-oriented workflow for reviewing an
 environment, selecting objects, cleaning text, and generating anonymized
 structural reports suitable for prompt building.
 }

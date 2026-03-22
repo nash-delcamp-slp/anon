@@ -16,7 +16,36 @@ test_that("anon_runtime_defaults() reflects anon options", {
   expect_match(defaults$pattern_rules_text, "secret phrase", fixed = TRUE)
 })
 
-test_that("anon_app_server scans environment and generates a report", {
+test_that("anon_app_initial_state() selects all objects by default", {
+  state <- anon_app_initial_state(list(study = 1:2, notes = "a"))
+
+  expect_equal(state$selected, c("study", "notes"))
+  expect_equal(unname(state$choices), c("study", "notes"))
+})
+
+test_that("resolve_report_selection() defaults to all objects on startup", {
+  expect_equal(
+    resolve_report_selection(c("study", "notes")),
+    c("study", "notes")
+  )
+  expect_equal(
+    resolve_report_selection(
+      raw_names = c("study", "notes"),
+      initial_selection = "study"
+    ),
+    "study"
+  )
+  expect_equal(
+    resolve_report_selection(
+      raw_names = c("study", "notes"),
+      current_selected = "notes",
+      selection_initialized = TRUE
+    ),
+    "notes"
+  )
+})
+
+test_that("anon_app_server loads environment on startup and generates a report", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
 
@@ -28,14 +57,11 @@ test_that("anon_app_server scans environment and generates a report", {
   shiny::testServer(
     app = anon_app_server(envir = env_list, initial_selection = "study"),
     {
-      expect_equal(scan_message(), "Environment not scanned yet.")
-      expect_match(output$nlp_status, "NLP", fixed = TRUE)
-
-      session$setInputs(scan_environment = 1)
       session$flushReact()
 
       expect_equal(nrow(inventory_data()), 2)
-      expect_match(scan_message(), "Scanned 2 objects", fixed = TRUE)
+      expect_match(scan_message(), "Loaded 2 objects", fixed = TRUE)
+      expect_match(output$nlp_status, "NLP", fixed = TRUE)
 
       session$setInputs(pattern_rules = "PERSON = Alice")
       session$setInputs(selected_objects = "study")
@@ -188,6 +214,92 @@ test_that("anon_app_server passes explicit NLP replacement override from the UI"
       expect_false(isTRUE(nlp_call$default_missing))
       expect_equal(nlp_call$default_replacement, "[ENTITY]")
       expect_equal(cleaned_text_data(), "[ENTITY] met [ENTITY]")
+    }
+  )
+})
+
+test_that("anon_app_server uses raw object names for selection and UI NLP settings for reports", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+
+  report_call <- new.env(parent = emptyenv())
+  old <- options(anon.nlp_auto = nlp_auto(default = TRUE))
+  on.exit(options(old), add = TRUE)
+
+  local_mocked_bindings(
+    anon_report = function(
+      envir,
+      selection,
+      pattern_list,
+      default_replacement,
+      check_approximate,
+      nlp_auto
+    ) {
+      report_call$selection <- selection
+      report_call$nlp_auto <- nlp_auto
+
+      structure(
+        list(
+          inventory = tibble::tibble(name = "[PERSON]"),
+          data_summary = structure(
+            list(summary = tibble::tibble(
+              total_objects = 1,
+              data_frames = 1,
+              other_objects = 0,
+              total_memory = "1 Kb"
+            )),
+            class = c("anon_data_summary", "anon_context", "list")
+          )
+        ),
+        class = c("anon_report", "anon_context", "list")
+      )
+    }
+  )
+
+  shiny::testServer(
+    app = anon_app_server(envir = list(Alice = data.frame(x = 1:2))),
+    {
+      session$flushReact()
+      session$setInputs(pattern_rules = "PERSON = Alice")
+      session$setInputs(nlp_entity_types = c("PERSON", "ORG"))
+      session$setInputs(selected_objects = "Alice")
+      session$setInputs(generate_report = 1)
+      session$flushReact()
+
+      expect_equal(report_call$selection, "Alice")
+      expect_equal(report_call$nlp_auto, list(person = TRUE, org = TRUE))
+    }
+  )
+})
+
+test_that("anon_app_server allows clearing all NLP entity types", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+
+  nlp_call <- new.env(parent = emptyenv())
+  old <- options(anon.nlp_auto = nlp_auto(default = TRUE))
+  on.exit(options(old), add = TRUE)
+
+  local_mocked_bindings(
+    get_nlp_runtime_status = function() {
+      list(available = TRUE, message = "mock ready")
+    },
+    anon_nlp_entities = function(x, entity_types, default_replacement, check_approximate) {
+      nlp_call$called <- TRUE
+      x
+    }
+  )
+
+  shiny::testServer(
+    app = anon_app_server(envir = list(study = data.frame(x = 1:2))),
+    {
+      session$setInputs(nlp_entity_types = character(0))
+      session$setInputs(source_text = "John met Acme")
+      session$setInputs(apply_text_tools = 1)
+      session$flushReact()
+
+      expect_false(isTRUE(nlp_call$called))
+      expect_equal(cleaned_text_data(), "John met Acme")
     }
   )
 })

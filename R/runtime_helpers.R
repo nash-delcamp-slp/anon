@@ -85,7 +85,8 @@ anon_report <- function(
       pattern_list = pattern_list,
       default_replacement = default_replacement,
       check_approximate = check_approximate,
-      max_distance = max_distance
+      max_distance = max_distance,
+      nlp_auto = nlp_auto
     )
   )
 

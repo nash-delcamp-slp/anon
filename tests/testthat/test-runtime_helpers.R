@@ -70,3 +70,38 @@ test_that("anon_prompt_bundle() formats report and text", {
   expect_true(grepl("## Redacted Text", bundle, fixed = TRUE))
   expect_true(grepl("PERSON visited the site.", bundle, fixed = TRUE))
 })
+
+test_that("anon_report() forwards nlp_auto to anon_data_summary()", {
+  nlp_call <- new.env(parent = emptyenv())
+
+  local_mocked_bindings(
+    anon_data_summary = function(
+      envir,
+      selection = NULL,
+      pattern_list = list(),
+      default_replacement = "[REDACTED]",
+      check_approximate = TRUE,
+      max_distance = 2,
+      nlp_auto = NULL
+    ) {
+      nlp_call$nlp_auto <- nlp_auto
+      structure(
+        list(summary = tibble::tibble(
+          total_objects = 1,
+          data_frames = 0,
+          other_objects = 1,
+          total_memory = "1 Kb"
+        )),
+        class = c("anon_data_summary", "anon_context", "list")
+      )
+    }
+  )
+
+  report <- anon_report(
+    list(study = "Alice"),
+    nlp_auto = list(person = TRUE, org = TRUE)
+  )
+
+  expect_s3_class(report, "anon_report")
+  expect_equal(nlp_call$nlp_auto, list(person = TRUE, org = TRUE))
+})

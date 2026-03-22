@@ -1,13 +1,13 @@
-#' Launch the local `anon` Shiny runtime
+#' Launch the local `anon` Shiny app
 #'
-#' The Shiny runtime provides a local, session-oriented workflow for scanning an
+#' The `anon` Shiny app provides a local, session-oriented workflow for reviewing an
 #' environment, selecting objects, cleaning text, and generating anonymized
 #' structural reports suitable for prompt building.
 #'
 #' @param envir Environment or list to inspect. Defaults to `globalenv()`.
 #' @param launch.browser Passed to [shiny::runApp()]. Defaults to `interactive()`.
 #' @param initial_selection Optional character vector of object names to preselect
-#'   after a scan.
+#'   after the environment is loaded.
 #'
 #' @return Invisibly returns the running Shiny app object.
 #'
@@ -19,39 +19,57 @@ run_anon_app <- function(
 ) {
   ensure_shiny_runtime_packages()
   runtime_defaults <- anon_runtime_defaults()
+  initial_state <- anon_app_initial_state(
+    envir = envir,
+    pattern_list = runtime_defaults$pattern_list,
+    default_replacement = runtime_defaults$default_replacement,
+    initial_selection = initial_selection
+  )
 
   app <- shiny::shinyApp(
-    ui = anon_app_ui(runtime_defaults = runtime_defaults),
+    ui = anon_app_ui(
+      runtime_defaults = runtime_defaults,
+      initial_state = initial_state
+    ),
     server = anon_app_server(
       envir = envir,
       initial_selection = initial_selection,
-      runtime_defaults = runtime_defaults
+      runtime_defaults = runtime_defaults,
+      initial_state = initial_state
     )
   )
 
   shiny::runApp(app, launch.browser = launch.browser)
 }
 
-anon_app_ui <- function(runtime_defaults = anon_runtime_defaults()) {
+anon_app_ui <- function(
+  runtime_defaults = anon_runtime_defaults(),
+  initial_state = NULL
+) {
+  if (is.null(initial_state)) {
+    initial_state <- anon_app_initial_state(
+      envir = globalenv(),
+      pattern_list = runtime_defaults$pattern_list,
+      default_replacement = runtime_defaults$default_replacement
+    )
+  }
+
   bslib::page_sidebar(
-    title = "anon runtime",
+    title = "anon",
     sidebar = bslib::sidebar(
       width = 340,
-      shiny::tags$p(
-        class = "text-muted",
-        "1. Scan environment  2. Configure rules  3. Generate report / text outputs"
-      ),
       shiny::actionButton(
         inputId = "scan_environment",
-        label = "Scan environment",
+        label = "Refresh environment",
         class = "btn-primary"
       ),
       shiny::selectizeInput(
         inputId = "selected_objects",
         label = "Objects for report",
-        choices = character(0),
+        choices = initial_state$choices,
+        selected = initial_state$selected,
         multiple = TRUE,
-        options = list(placeholder = "Scan first, then choose objects")
+        options = list(placeholder = "Choose objects from the current environment")
       ),
       shiny::textInput(
         inputId = "default_replacement",
@@ -158,18 +176,32 @@ anon_app_ui <- function(runtime_defaults = anon_runtime_defaults()) {
 anon_app_server <- function(
   envir = globalenv(),
   initial_selection = NULL,
-  runtime_defaults = anon_runtime_defaults()
+  runtime_defaults = anon_runtime_defaults(),
+  initial_state = NULL
 ) {
   force(envir)
   force(initial_selection)
   force(runtime_defaults)
 
+  if (is.null(initial_state)) {
+    initial_state <- anon_app_initial_state(
+      envir = envir,
+      pattern_list = runtime_defaults$pattern_list,
+      default_replacement = runtime_defaults$default_replacement,
+      initial_selection = initial_selection
+    )
+  }
+
+  force(initial_state)
+
   function(input, output, session) {
-    inventory_data <- shiny::reactiveVal(NULL)
+    current_objects_data <- shiny::reactiveVal(initial_state$objects)
+    inventory_data <- shiny::reactiveVal(initial_state$inventory)
     report_data <- shiny::reactiveVal(NULL)
     cleaned_text_data <- shiny::reactiveVal(NULL)
     comparison_data <- shiny::reactiveVal(NULL)
     nlp_status_data <- shiny::reactiveVal(get_nlp_runtime_status())
+    nlp_entity_types_touched <- shiny::reactiveVal(FALSE)
 
     active_rules <- shiny::reactive({
       if (is.null(input$pattern_rules)) {
@@ -193,64 +225,74 @@ anon_app_server <- function(
       isTRUE(input$enable_nlp)
     })
 
+    shiny::observeEvent(input$nlp_entity_types, {
+      nlp_entity_types_touched(TRUE)
+    }, ignoreInit = TRUE)
+
     active_nlp_entity_types <- shiny::reactive({
-      if (is.null(input$nlp_entity_types)) {
+      if (!isTRUE(nlp_entity_types_touched()) && is.null(input$nlp_entity_types)) {
         return(runtime_defaults$nlp_entity_types)
       }
       input$nlp_entity_types %||% character(0)
     })
 
+    active_report_nlp_auto <- shiny::reactive({
+      if (!isTRUE(active_nlp_enabled())) {
+        return(FALSE)
+      }
+
+      nlp_auto_from_entity_types(active_nlp_entity_types())
+    })
+
     scan_message <- shiny::reactive({
       inventory <- inventory_data()
 
-      if (is.null(inventory)) {
-        return("Environment not scanned yet.")
-      }
-
       paste0(
-        "Scanned ",
+        "Loaded ",
         nrow(inventory),
         " object",
         if (nrow(inventory) == 1) "" else "s",
-        "."
+        " from environment."
       )
     })
 
     shiny::observeEvent(input$scan_environment, {
-      inventory <- anon_inventory(
-        envir,
+      refreshed_state <- anon_app_initial_state(
+        envir = envir,
         pattern_list = active_rules(),
         default_replacement = active_default_replacement(),
-        check_approximate = FALSE
+        initial_selection = initial_selection,
+        current_selected = input$selected_objects,
+        selection_initialized = TRUE
       )
-      inventory_data(inventory)
-      report_data(NULL)
 
-      available_names <- inventory$name
-      selected <- intersect(initial_selection %||% available_names, available_names)
+      current_objects_data(refreshed_state$objects)
+      inventory_data(refreshed_state$inventory)
+      report_data(NULL)
 
       shiny::updateSelectizeInput(
         session = session,
         inputId = "selected_objects",
-        choices = available_names,
-        selected = selected,
-        server = TRUE
+        choices = refreshed_state$choices,
+        selected = refreshed_state$selected,
+        server = FALSE
       )
-    }, ignoreNULL = TRUE)
+    }, ignoreInit = TRUE)
 
     shiny::observeEvent(input$generate_report, {
-      shiny::req(input$selected_objects)
+      shiny::req(length(input$selected_objects %||% character(0)) > 0)
 
       report <- anon_report(
         envir = envir,
         selection = input$selected_objects,
         pattern_list = active_rules(),
         default_replacement = active_default_replacement(),
-        check_approximate = isTRUE(input$check_approximate)
+        check_approximate = isTRUE(input$check_approximate),
+        nlp_auto = active_report_nlp_auto()
       )
 
       report_data(report)
-    }, ignoreNULL = TRUE)
+    }, ignoreInit = TRUE)
 
     shiny::observeEvent(input$apply_text_tools, {
       source_text <- input$source_text %||% ""
@@ -299,7 +341,7 @@ anon_app_server <- function(
 
       cleaned_text_data(as.character(redacted_text))
       comparison_data(anon_compare_text(source_text, as.character(redacted_text)))
-    }, ignoreNULL = TRUE)
+    }, ignoreInit = TRUE)
 
     output$scan_status <- shiny::renderText({
       scan_message()
@@ -312,9 +354,7 @@ anon_app_server <- function(
     })
 
     output$inventory_table <- shiny::renderTable({
-      inventory <- inventory_data()
-      shiny::req(inventory)
-      as.data.frame(inventory)
+      as.data.frame(inventory_data())
     }, striped = TRUE, bordered = TRUE, spacing = "xs")
 
     output$report_preview <- shiny::renderText({
@@ -396,6 +436,66 @@ anon_runtime_defaults <- function() {
   )
 }
 
+anon_app_initial_state <- function(
+  envir,
+  pattern_list = list(),
+  default_replacement = getOption(
+    "anon.default_replacement",
+    default = "[REDACTED]"
+  ),
+  initial_selection = NULL,
+  current_selected = NULL,
+  selection_initialized = FALSE
+) {
+  objects <- normalize_object_source(envir)
+  inventory <- anon_inventory(
+    objects,
+    pattern_list = pattern_list,
+    default_replacement = default_replacement,
+    check_approximate = FALSE
+  )
+  raw_names <- names(objects)
+  selected <- resolve_report_selection(
+    raw_names = raw_names,
+    initial_selection = initial_selection,
+    current_selected = current_selected,
+    selection_initialized = selection_initialized
+  )
+
+  list(
+    objects = objects,
+    inventory = inventory,
+    raw_names = raw_names,
+    choices = stats::setNames(raw_names, inventory$name),
+    selected = selected
+  )
+}
+
+nlp_auto_from_entity_types <- function(entity_types) {
+  if (is.null(entity_types) || length(entity_types) == 0) {
+    return(FALSE)
+  }
+
+  stats::setNames(as.list(rep(TRUE, length(entity_types))), tolower(entity_types))
+}
+
+resolve_report_selection <- function(
+  raw_names,
+  initial_selection = NULL,
+  current_selected = NULL,
+  selection_initialized = FALSE
+) {
+  if (!isTRUE(selection_initialized)) {
+    if (is.null(initial_selection)) {
+      return(raw_names)
+    }
+
+    return(intersect(initial_selection, raw_names))
+  }
+
+  intersect(current_selected %||% character(0), raw_names)
+}
+
 get_nlp_runtime_status <- function() {
   if (!requireNamespace("cleanNLP", quietly = TRUE)) {
     return(list(available = FALSE, message = "cleanNLP is not installed."))
@@ -444,7 +544,7 @@ ensure_shiny_runtime_packages <- function() {
 
   if (length(missing) > 0) {
     stop(
-      "The anon Shiny runtime requires these packages: ",
+      "The anon Shiny app requires these packages: ",
       paste(missing, collapse = ", "),
       call. = FALSE
     )
