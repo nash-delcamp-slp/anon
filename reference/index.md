@@ -88,6 +88,14 @@
 - [`print(`*`<anon_data_summary>`*`)`](print.anon_data_summary.md) :
   Print method for anonymized environment summary
 
+- [`read_content()`](read_content.md)
+  [`read_content_docx()`](read_content.md)
+  [`read_content_pptx()`](read_content.md)
+  [`read_content_xlsx()`](read_content.md)
+  [`read_content_pdf()`](read_content.md)
+  [`read_content_text()`](read_content.md) : Read content from files as
+  text
+
 - [`run_anon_app()`](run_anon_app.md) :
 
   Launch the local `anon` Shiny app
