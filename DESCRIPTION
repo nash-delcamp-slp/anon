@@ -18,10 +18,13 @@ Imports:
     stringr,
     tibble,
     utils
-Suggests: 
+Suggests:
     bench,
     bslib,
+    officer,
+    pdftools,
     pkgload,
+    readxl,
     reticulate,
     shiny,
     testthat (>= 3.0.0)

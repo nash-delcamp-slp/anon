@@ -133,12 +133,21 @@ anon_app_ui <- function(
           ),
           shiny::tabPanel(
             title = "Text Tools",
+            shiny::fileInput(
+              inputId = "upload_files",
+              label = "Upload files (.docx, .pptx, .xlsx, .pdf, .txt, .csv, ...)",
+              multiple = TRUE,
+              accept = c(
+                ".docx", ".pptx", ".xlsx", ".xls", ".txt", ".csv",
+                ".log", ".md", ".json", ".xml", ".pdf"
+              )
+            ),
             shiny::textAreaInput(
               inputId = "source_text",
               label = "Source text",
               rows = 10,
               width = "100%",
-              placeholder = "Paste text to clean and redact."
+              placeholder = "Paste text here, or upload files above."
             ),
             shiny::checkboxInput(
               inputId = "trim_text",
@@ -292,6 +301,34 @@ anon_app_server <- function(
       )
 
       report_data(report)
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input$upload_files, {
+      files <- input$upload_files
+      shiny::req(nrow(files) > 0)
+
+      result <- tryCatch(
+        read_content(files$datapath, name = files$name),
+        error = function(e) {
+          shiny::showNotification(conditionMessage(e), type = "error")
+          NULL
+        }
+      )
+      shiny::req(result)
+
+      combined <- paste(
+        paste0("--- ", names(result), " ---\n", result),
+        collapse = "\n\n"
+      )
+
+      current <- input$source_text %||% ""
+      new_text <- if (nzchar(trimws(current))) {
+        paste(current, combined, sep = "\n\n")
+      } else {
+        combined
+      }
+
+      shiny::updateTextAreaInput(session, "source_text", value = new_text)
     }, ignoreInit = TRUE)
 
     shiny::observeEvent(input$apply_text_tools, {
