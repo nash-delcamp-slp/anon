@@ -119,6 +119,25 @@ glimpse(anon_starwars)
 #> $ starships  <list> <"X-wing", "DARK shuttle">, <>, <>, "TIE Advanced x1", <>,…
 ```
 
+## Shiny App
+
+`anon` includes a local Shiny app for reviewing the current R
+environment, selecting objects for a report, cleaning text, and building
+anonymized prompt context.
+
+``` r
+library(anon)
+library(dplyr)
+
+starwars <- dplyr::starwars
+run_anon_app()
+```
+
+By default, the app loads the current environment into the inventory and
+starts with all available objects selected for `Objects for report`. The
+`Refresh environment` button is available if the session changes after
+launch.
+
 ## Global Options System
 
 Many functions in the anon package reference global options that make it
@@ -419,12 +438,33 @@ anon_data_summary()
 #> ========================
 #> 
 #>   total_objects data_frames other_objects total_memory
-#> 1             1           1             0        57440
+#> 1             6           2             4       122944
 #> 
 #> Data Frames:
 #> ------------
-#>       name       type n_rows n_cols memory_size
-#> 1 starwars data.frame     87     14     56.1 Kb
+#>            name       type n_rows n_cols memory_size
+#> 1 anon_starwars data.frame     87     14     56.6 Kb
+#> 2      starwars data.frame     87     14     56.1 Kb
+#> 
+#> 
+#> Variable Details (anon_starwars):
+#> 
+#> ------------------------------- 
+#>      variable data_type n_distinct n_missing n_total pct_missing label
+#> 1        name character         87         0      87        0.00  <NA>
+#> 2      height character         10         6      87        6.90  <NA>
+#> 3        mass   numeric         30        28      87       32.18  <NA>
+#> 4  hair_color character         11         5      87        5.75  <NA>
+#> 5  skin_color character         31         0      87        0.00  <NA>
+#> 6   eye_color character         15         0      87        0.00  <NA>
+#> 7  birth_year   numeric         32        44      87       50.57  <NA>
+#> 8         sex character          4         4      87        4.60  <NA>
+#> 9      gender character          2         4      87        4.60  <NA>
+#> 10  homeworld character         48        10      87       11.49  <NA>
+#> 11    species character         37         4      87        4.60  <NA>
+#> 12      films      list         24         0      87        0.00  <NA>
+#> 13   vehicles      list         11         0      87        0.00  <NA>
+#> 14  starships      list         16         0      87        0.00  <NA>
 #> 
 #> 
 #> Variable Details (starwars):
@@ -445,6 +485,20 @@ anon_data_summary()
 #> 12      films      list         24         0      87        0.00  <NA>
 #> 13   vehicles      list         11         0      87        0.00  <NA>
 #> 14  starships      list         16         0      87        0.00  <NA>
+#> 
+#> 
+#> Other Objects:
+#> --------------
+#>               name      type length n_distinct n_missing pct_missing
+#> 1 a_new_hope_intro character      4          4         0           0
+#> 2     names_vector character      4          3         0           0
+#> 3 my_auto_settings      list     19         NA        NA          NA
+#> 4  my_replacements      list     19         NA        NA          NA
+#>   memory_size element_types
+#> 1   800 bytes          <NA>
+#> 2   248 bytes          <NA>
+#> 3      2.6 Kb       logical
+#> 4      3.7 Kb     character
 ```
 
 ## Pattern Detection Warnings

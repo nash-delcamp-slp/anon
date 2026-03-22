@@ -99,6 +99,24 @@ anon_starwars <- starwars |>
 glimpse(anon_starwars)
 ```
 
+## Shiny App
+
+`anon` includes a local Shiny app for reviewing the current R environment,
+selecting objects for a report, cleaning text, and building anonymized prompt
+context.
+
+``` r
+library(anon)
+library(dplyr)
+
+starwars <- dplyr::starwars
+run_anon_app()
+```
+
+By default, the app loads the current environment into the inventory and starts
+with all available objects selected for `Objects for report`. The `Refresh
+environment` button is available if the session changes after launch.
+
 ## Global Options System
 
 Many functions in the anon package reference global options that make it easy to configure default behaviors for anonymization across workflows.
