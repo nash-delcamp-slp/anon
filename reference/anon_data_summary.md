@@ -12,10 +12,12 @@ pattern-based redaction.
 ``` r
 anon_data_summary(
   envir = globalenv(),
+  selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   check_approximate = TRUE,
-  max_distance = 2
+  max_distance = 2,
+  nlp_auto = getOption("anon.nlp_auto")
 )
 ```
 
@@ -28,6 +30,10 @@ anon_data_summary(
   (either derived from the function call or indexed as "x1", "x2",
   etc.). Default is
   [`globalenv()`](https://rdrr.io/r/base/environment.html).
+
+- selection:
+
+  Optional character vector of object names to include in the summary.
 
 - pattern_list:
 
@@ -55,6 +61,13 @@ anon_data_summary(
 
   Maximum string distance for approximate matching when
   `check_approximate` is `TRUE`. Default is `2`.
+
+- nlp_auto:
+
+  List of logical values with names corresponding to entity names. Can
+  be generated with [`nlp_auto()`](nlp_auto.md) and can be set as the
+  `anon.nlp_auto` global option. This argument overrides the global
+  option.
 
 ## Value
 

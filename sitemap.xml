@@ -5,15 +5,20 @@
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
 <url><loc>/reference/anon.html</loc></url>
+<url><loc>/reference/anon_clean_text.html</loc></url>
+<url><loc>/reference/anon_compare_text.html</loc></url>
 <url><loc>/reference/anon_data_summary.html</loc></url>
 <url><loc>/reference/anon_date_shift.html</loc></url>
 <url><loc>/reference/anon_email.html</loc></url>
 <url><loc>/reference/anon_id_chr_sequence.html</loc></url>
 <url><loc>/reference/anon_id_num_sequence.html</loc></url>
+<url><loc>/reference/anon_inventory.html</loc></url>
 <url><loc>/reference/anon_nlp_entities.html</loc></url>
 <url><loc>/reference/anon_num_preserve_distribution.html</loc></url>
 <url><loc>/reference/anon_num_range.html</loc></url>
 <url><loc>/reference/anon_phone_number.html</loc></url>
+<url><loc>/reference/anon_prompt_bundle.html</loc></url>
+<url><loc>/reference/anon_report.html</loc></url>
 <url><loc>/reference/c.anon_context.html</loc></url>
 <url><loc>/reference/index.html</loc></url>
 <url><loc>/reference/more_patterns.html</loc></url>
@@ -25,5 +30,6 @@
 <url><loc>/reference/print.anon_context.html</loc></url>
 <url><loc>/reference/print.anon_context_collection.html</loc></url>
 <url><loc>/reference/print.anon_data_summary.html</loc></url>
+<url><loc>/reference/run_anon_app.html</loc></url>
 </urlset>
 
