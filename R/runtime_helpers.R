@@ -61,6 +61,8 @@ anon_report <- function(
     "anon.default_replacement",
     default = "[REDACTED]"
   ),
+  example_values_n = 0,
+  example_rows = NULL,
   check_approximate = TRUE,
   max_distance = 2,
   df_variable_names = NULL,
@@ -84,6 +86,8 @@ anon_report <- function(
       objects,
       pattern_list = pattern_list,
       default_replacement = default_replacement,
+      example_values_n = example_values_n,
+      example_rows = example_rows,
       check_approximate = check_approximate,
       max_distance = max_distance,
       nlp_auto = nlp_auto
@@ -365,8 +369,50 @@ format_section <- function(title, body, format = c("markdown", "text")) {
   }
 }
 
+format_table_for_display <- function(x) {
+  x <- as.data.frame(x)
+
+  list_cols <- vapply(x, is.list, logical(1))
+  if (any(list_cols)) {
+    x[list_cols] <- lapply(x[list_cols], function(col) {
+      vapply(col, format_list_cell, character(1))
+    })
+  }
+
+  x
+}
+
+format_list_cell <- function(x) {
+  if (is.null(x) || length(x) == 0) {
+    return("")
+  }
+
+  if (is.data.frame(x)) {
+    return(paste(utils::capture.output(print(x, row.names = FALSE)), collapse = " | "))
+  }
+
+  if (is.list(x)) {
+    return(paste(vapply(x, format_example_scalar, character(1)), collapse = " | "))
+  }
+
+  format_example_scalar(x)
+}
+
+format_example_scalar <- function(x) {
+  if (is.null(x) || length(x) == 0) {
+    return("")
+  }
+
+  values <- as.character(x)
+  values[is.na(values)] <- "NA"
+  paste(values, collapse = " | ")
+}
+
 format_table_block <- function(x) {
-  paste(utils::capture.output(print(as.data.frame(x), row.names = FALSE)), collapse = "\n")
+  paste(
+    utils::capture.output(print(format_table_for_display(x), row.names = FALSE)),
+    collapse = "\n"
+  )
 }
 
 format_anon_data_summary_text <- function(x) {
@@ -399,6 +445,58 @@ format_anon_data_summary_text <- function(x) {
       )
     )
     sections <- c(sections, "", variable_blocks)
+  }
+
+  if (!is.null(x$examples$rows)) {
+    row_blocks <- purrr::imap_chr(
+      x$examples$rows,
+      ~ paste(
+        paste0("Example Rows (", .y, ")"),
+        format_table_block(.x),
+        sep = "\n"
+      )
+    )
+    sections <- c(sections, "", row_blocks)
+  }
+
+  scenarios <- get_example_scenarios(x$examples)
+  if (length(scenarios) > 0L) {
+    scenario_sections <- purrr::imap_chr(
+      scenarios,
+      ~ {
+        heading <- if (length(scenarios) == 1L) {
+          paste0(
+            "Example Scenario (",
+            .x$key,
+            " = ",
+            format_example_scalar(.x$value),
+            ")"
+          )
+        } else {
+          paste0(
+            "Example Scenario ",
+            .y,
+            " (",
+            .x$key,
+            " = ",
+            format_example_scalar(.x$value),
+            ")"
+          )
+        }
+
+        scenario_blocks <- purrr::imap_chr(
+          .x$tables,
+          ~ paste(
+            .y,
+            format_table_block(.x),
+            sep = "\n"
+          )
+        )
+
+        paste(c(heading, scenario_blocks), collapse = "\n")
+      }
+    )
+    sections <- c(sections, "", scenario_sections)
   }
 
   if (!is.null(x$other_objects)) {

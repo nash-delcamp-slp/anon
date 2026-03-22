@@ -108,6 +108,10 @@ anon_app_ui <- function(
         options = list(placeholder = "Choose entity types for NLP redaction")
       ),
       shiny::actionButton(
+        inputId = "configure_data_summary",
+        label = "Data Summary Options"
+      ),
+      shiny::actionButton(
         inputId = "generate_report",
         label = "Generate report"
       ),
@@ -211,6 +215,7 @@ anon_app_server <- function(
     comparison_data <- shiny::reactiveVal(NULL)
     nlp_status_data <- shiny::reactiveVal(get_nlp_runtime_status())
     nlp_entity_types_touched <- shiny::reactiveVal(FALSE)
+    data_summary_options_data <- shiny::reactiveVal(runtime_defaults$data_summary_options)
 
     active_rules <- shiny::reactive({
       if (is.null(input$pattern_rules)) {
@@ -252,6 +257,29 @@ anon_app_server <- function(
 
       nlp_auto_from_entity_types(active_nlp_entity_types())
     })
+
+
+    active_data_summary_options <- shiny::reactive({
+      data_summary_options_data()
+    })
+
+    shiny::observeEvent(input$configure_data_summary, {
+      shiny::showModal(data_summary_options_modal(active_data_summary_options()))
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input$save_data_summary_options, {
+      updated_options <- tryCatch(
+        parse_data_summary_options_input(input),
+        error = function(e) {
+          shiny::showNotification(conditionMessage(e), type = "error")
+          NULL
+        }
+      )
+      shiny::req(updated_options)
+
+      data_summary_options_data(updated_options)
+      shiny::removeModal()
+    }, ignoreInit = TRUE)
 
     scan_message <- shiny::reactive({
       inventory <- inventory_data()
@@ -296,6 +324,8 @@ anon_app_server <- function(
         selection = input$selected_objects,
         pattern_list = active_rules(),
         default_replacement = active_default_replacement(),
+        example_values_n = active_data_summary_options()$example_values_n,
+        example_rows = build_data_summary_example_rows(active_data_summary_options()),
         check_approximate = isTRUE(input$check_approximate),
         nlp_auto = active_report_nlp_auto()
       )
@@ -469,7 +499,8 @@ anon_runtime_defaults <- function() {
       enabled_nlp_entities
     } else {
       nlp_entity_sets$named
-    }
+    },
+    data_summary_options = default_data_summary_options()
   )
 }
 
@@ -592,4 +623,182 @@ ensure_shiny_runtime_packages <- function() {
 
 `%||%` <- function(x, y) {
   if (is.null(x)) y else x
+}
+
+
+default_data_summary_options <- function() {
+  list(
+    example_values_n = 0L,
+    example_rows_n = 0L,
+    example_rows_key = "",
+    example_rows_method = "random",
+    example_rows_value = "",
+    example_rows_n_key_values = 1L,
+    example_rows_seed = ""
+  )
+}
+
+data_summary_options_modal <- function(options = default_data_summary_options()) {
+  options <- normalize_data_summary_options(options)
+
+  shiny::modalDialog(
+    title = "Data Summary Options",
+    shiny::numericInput(
+      inputId = "data_summary_example_values_n",
+      label = "Example values per discrete column",
+      value = options$example_values_n,
+      min = 0,
+      step = 1
+    ),
+    shiny::numericInput(
+      inputId = "data_summary_example_rows_n",
+      label = "Example rows per table",
+      value = options$example_rows_n,
+      min = 0,
+      step = 1
+    ),
+    shiny::textInput(
+      inputId = "data_summary_example_rows_key",
+      label = "Scenario key (optional)",
+      value = options$example_rows_key,
+      placeholder = "USUBJID"
+    ),
+    shiny::selectInput(
+      inputId = "data_summary_example_rows_method",
+      label = "Selection method",
+      choices = c("first", "last", "random"),
+      selected = options$example_rows_method
+    ),
+    shiny::textInput(
+      inputId = "data_summary_example_rows_value",
+      label = "Explicit scenario value (optional)",
+      value = options$example_rows_value,
+      placeholder = "Overrides method when key is provided"
+    ),
+    shiny::numericInput(
+      inputId = "data_summary_example_rows_n_key_values",
+      label = "Scenario key values",
+      value = options$example_rows_n_key_values,
+      min = 1,
+      step = 1
+    ),
+    shiny::textInput(
+      inputId = "data_summary_example_rows_seed",
+      label = "Random seed (optional)",
+      value = options$example_rows_seed,
+      placeholder = "Used only for random selection"
+    ),
+    easyClose = TRUE,
+    footer = shiny::tagList(
+      shiny::modalButton("Cancel"),
+      shiny::actionButton("save_data_summary_options", "Apply")
+    )
+  )
+}
+
+normalize_data_summary_options <- function(options) {
+  defaults <- default_data_summary_options()
+  utils::modifyList(defaults, options %||% list())
+}
+
+parse_data_summary_options_input <- function(input) {
+  example_values_n <- normalize_modal_count(input$data_summary_example_values_n, "Example values")
+  example_rows_n <- normalize_modal_count(input$data_summary_example_rows_n, "Example rows")
+
+  key <- trimws(input$data_summary_example_rows_key %||% "")
+  method <- trimws(input$data_summary_example_rows_method %||% "random")
+  method <- match.arg(method, c("first", "last", "random"))
+  value <- trimws(input$data_summary_example_rows_value %||% "")
+  n_key_values <- normalize_modal_positive_count(
+    input$data_summary_example_rows_n_key_values,
+    "Scenario key values"
+  )
+  seed <- trimws(input$data_summary_example_rows_seed %||% "")
+
+  if (nzchar(value) && !nzchar(key)) {
+    stop("An explicit scenario value requires a scenario key.", call. = FALSE)
+  }
+  if (nzchar(value)) {
+    n_key_values <- 1L
+  }
+  if (example_rows_n > 0L && n_key_values > 1L && !nzchar(key)) {
+    stop("Multiple scenario key values require a scenario key.", call. = FALSE)
+  }
+
+  if (example_rows_n > 0L && nzchar(seed) && method != "random") {
+    stop("A random seed can only be used with the random selection method.", call. = FALSE)
+  }
+
+  if (nzchar(seed)) {
+    parsed_seed <- suppressWarnings(as.integer(seed))
+    if (is.na(parsed_seed)) {
+      stop("Random seed must be a whole number.", call. = FALSE)
+    }
+    seed <- as.character(parsed_seed)
+  }
+
+  list(
+    example_values_n = example_values_n,
+    example_rows_n = example_rows_n,
+    example_rows_key = key,
+    example_rows_method = method,
+    example_rows_value = value,
+    example_rows_n_key_values = n_key_values,
+    example_rows_seed = seed
+  )
+}
+
+normalize_modal_count <- function(x, label) {
+  if (length(x) != 1 || is.na(x) || !is.numeric(x)) {
+    stop(label, " must be a non-negative whole number.", call. = FALSE)
+  }
+
+  value <- as.integer(x)
+  if (value < 0L) {
+    stop(label, " must be a non-negative whole number.", call. = FALSE)
+  }
+
+  value
+}
+
+normalize_modal_positive_count <- function(x, label) {
+  value <- normalize_modal_count(x, label)
+  if (value <= 0L) {
+    stop(label, " must be at least 1.", call. = FALSE)
+  }
+
+  value
+}
+
+build_data_summary_example_rows <- function(options) {
+  options <- normalize_data_summary_options(options)
+
+  if (options$example_rows_n <= 0L) {
+    return(NULL)
+  }
+
+  key <- empty_string_to_null(options$example_rows_key)
+  value <- empty_string_to_null(options$example_rows_value)
+  seed <- empty_string_to_null(options$example_rows_seed)
+  if (!is.null(seed)) {
+    seed <- as.integer(seed)
+  }
+
+  anon_example_rows(
+    n = options$example_rows_n,
+    key = key,
+    method = options$example_rows_method,
+    value = value,
+    n_key_values = if (is.null(value)) options$example_rows_n_key_values else 1L,
+    seed = seed
+  )
+}
+
+empty_string_to_null <- function(x) {
+  value <- trimws(x %||% "")
+  if (!nzchar(value)) {
+    return(NULL)
+  }
+
+  value
 }

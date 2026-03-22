@@ -9,6 +9,8 @@ anon_data_summary(
   selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
+  example_values_n = 0,
+  example_rows = NULL,
   check_approximate = TRUE,
   max_distance = 2,
   nlp_auto = getOption("anon.nlp_auto")
@@ -31,6 +33,15 @@ This parameter is combined with the global option \code{getOption("anon.pattern_
 \item{default_replacement}{Value to use as the default replacement value when no specific replacement
 is provided. Default is \verb{getOption("anon.default_replacement", default = "\[REDACTED\]")}.}
 
+\item{example_values_n}{Optional number of example unique values to include for
+discrete/text-like data frame columns. Defaults to \code{0}, which disables
+example values.}
+
+\item{example_rows}{Optional example-row specification for data frames.
+Use \code{NULL} to disable examples, a single number to request that many rows
+per data frame, or \code{\link[=anon_example_rows]{anon_example_rows()}} to build a spec with explicit
+arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}.}
+
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is \code{TRUE}.}
 
@@ -51,8 +62,10 @@ other objects count, total memory usage)
 \item \verb{$structure}: A tibble with structural information for each data frame
 (name, label, dimensions, memory size)
 \item \verb{$variables}: A tibble with detailed variable information including data types,
-missing values, distinct values, and labels
+missing values, distinct values, labels, and optional example values
 }
+\item \verb{$examples}: Optional data frame example payloads containing either sample
+rows per data frame or one or more keyed cross-source scenarios
 \item All content is anonymized according to the specified patterns
 }
 }
@@ -74,7 +87,10 @@ The function operates in a few key steps:
 For data frames, the function captures:
 \itemize{
 \item Structural information: dimensions, memory usage, and data frame-level labels
-\item Variable details: data types, missing value counts, distinct value counts, and variable labels
+\item Variable details: data types, missing value counts, distinct value counts,
+variable labels, and optional example values
+\item Optional example payloads: either sample rows or one or more keyed
+cross-source scenarios when configured
 }
 
 The output includes a custom print method that displays the information in a
@@ -111,7 +127,9 @@ env_list |>
       "STUDY_A" = study_metadata$primary_study,    # "ABC123"
       "STUDY_B" = study_metadata$secondary_study,  # "CBA321"
       "MEDICAL_CENTER" = "Boston Medical Center"
-    )
+    ),
+    example_values_n = 2,
+    example_rows = anon_example_rows(n = 2, method = "random", seed = 42)
   )
 
 }

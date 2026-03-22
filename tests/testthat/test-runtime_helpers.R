@@ -71,8 +71,8 @@ test_that("anon_prompt_bundle() formats report and text", {
   expect_true(grepl("PERSON visited the site.", bundle, fixed = TRUE))
 })
 
-test_that("anon_report() forwards nlp_auto to anon_data_summary()", {
-  nlp_call <- new.env(parent = emptyenv())
+test_that("anon_report() forwards example options and nlp_auto to anon_data_summary()", {
+  summary_call <- new.env(parent = emptyenv())
 
   local_mocked_bindings(
     anon_data_summary = function(
@@ -80,11 +80,15 @@ test_that("anon_report() forwards nlp_auto to anon_data_summary()", {
       selection = NULL,
       pattern_list = list(),
       default_replacement = "[REDACTED]",
+      example_values_n = 0,
+      example_rows = NULL,
       check_approximate = TRUE,
       max_distance = 2,
       nlp_auto = NULL
     ) {
-      nlp_call$nlp_auto <- nlp_auto
+      summary_call$example_values_n <- example_values_n
+      summary_call$example_rows <- example_rows
+      summary_call$nlp_auto <- nlp_auto
       structure(
         list(summary = tibble::tibble(
           total_objects = 1,
@@ -97,11 +101,38 @@ test_that("anon_report() forwards nlp_auto to anon_data_summary()", {
     }
   )
 
+  spec <- anon_example_rows(n = 5, key = "USUBJID", method = "random", seed = 9)
+
   report <- anon_report(
     list(study = "Alice"),
+    example_values_n = 2,
+    example_rows = spec,
     nlp_auto = list(person = TRUE, org = TRUE)
   )
 
   expect_s3_class(report, "anon_report")
-  expect_equal(nlp_call$nlp_auto, list(person = TRUE, org = TRUE))
+  expect_equal(summary_call$example_values_n, 2)
+  expect_equal(summary_call$example_rows, spec)
+  expect_equal(summary_call$nlp_auto, list(person = TRUE, org = TRUE))
+})
+
+
+test_that("anon_prompt_bundle() includes example sections from report summaries", {
+  df <- data.frame(name = c("Alice", "Bob"), flag = c(TRUE, FALSE))
+  report <- anon_report(
+    list(study = df),
+    pattern_list = list("PERSON" = "Alice"),
+    example_values_n = 1,
+    example_rows = 1
+  )
+
+  bundle <- anon_prompt_bundle(
+    report = report,
+    format = "text",
+    include_text = FALSE,
+    include_comparison = FALSE
+  )
+
+  expect_match(bundle, "Example Rows \\(study\\)")
+  expect_match(bundle, "example_values", fixed = TRUE)
 })

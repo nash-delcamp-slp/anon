@@ -218,7 +218,7 @@ test_that("anon_app_server passes explicit NLP replacement override from the UI"
   )
 })
 
-test_that("anon_app_server uses raw object names for selection and UI NLP settings for reports", {
+test_that("anon_app_server uses raw object names and modal summary options for reports", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
 
@@ -232,10 +232,14 @@ test_that("anon_app_server uses raw object names for selection and UI NLP settin
       selection,
       pattern_list,
       default_replacement,
+      example_values_n,
+      example_rows,
       check_approximate,
       nlp_auto
     ) {
       report_call$selection <- selection
+      report_call$example_values_n <- example_values_n
+      report_call$example_rows <- example_rows
       report_call$nlp_auto <- nlp_auto
 
       structure(
@@ -262,11 +266,31 @@ test_that("anon_app_server uses raw object names for selection and UI NLP settin
       session$flushReact()
       session$setInputs(pattern_rules = "PERSON = Alice")
       session$setInputs(nlp_entity_types = c("PERSON", "ORG"))
+      session$setInputs(data_summary_example_values_n = 2)
+      session$setInputs(data_summary_example_rows_n = 5)
+      session$setInputs(data_summary_example_rows_key = "USUBJID")
+      session$setInputs(data_summary_example_rows_method = "random")
+      session$setInputs(data_summary_example_rows_value = "01")
+      session$setInputs(data_summary_example_rows_n_key_values = 2)
+      session$setInputs(data_summary_example_rows_seed = "17")
+      session$setInputs(save_data_summary_options = 1)
       session$setInputs(selected_objects = "Alice")
       session$setInputs(generate_report = 1)
       session$flushReact()
 
       expect_equal(report_call$selection, "Alice")
+      expect_equal(report_call$example_values_n, 2)
+      expect_equal(
+        report_call$example_rows,
+        anon_example_rows(
+          n = 5,
+          key = "USUBJID",
+          method = "random",
+          value = "01",
+          n_key_values = 1,
+          seed = 17
+        )
+      )
       expect_equal(report_call$nlp_auto, list(person = TRUE, org = TRUE))
     }
   )
@@ -309,4 +333,57 @@ test_that("ensure_shiny_runtime_packages() succeeds when runtime packages are pr
   skip_if_not_installed("bslib")
 
   expect_true(ensure_shiny_runtime_packages())
+})
+
+
+test_that("data summary option helpers default to random row selection", {
+  expect_equal(default_data_summary_options()$example_rows_method, "random")
+})
+
+test_that("data summary option helpers parse and build modal settings", {
+  parsed <- parse_data_summary_options_input(list(
+    data_summary_example_values_n = 3,
+    data_summary_example_rows_n = 4,
+    data_summary_example_rows_key = " USUBJID ",
+    data_summary_example_rows_method = "random",
+    data_summary_example_rows_value = " 01 ",
+    data_summary_example_rows_n_key_values = 1,
+    data_summary_example_rows_seed = "11"
+  ))
+
+  expect_equal(
+    parsed,
+    list(
+      example_values_n = 3L,
+      example_rows_n = 4L,
+      example_rows_key = "USUBJID",
+      example_rows_method = "random",
+      example_rows_value = "01",
+      example_rows_n_key_values = 1L,
+      example_rows_seed = "11"
+    )
+  )
+  expect_equal(
+    build_data_summary_example_rows(parsed),
+    anon_example_rows(n = 4, key = "USUBJID", method = "random", value = "01", n_key_values = 1, seed = 11)
+  )
+})
+
+
+test_that("data summary option helpers keep n_key_values for multiple scenarios", {
+  parsed <- parse_data_summary_options_input(list(
+    data_summary_example_values_n = 0,
+    data_summary_example_rows_n = 3,
+    data_summary_example_rows_key = "USUBJID",
+    data_summary_example_rows_method = "last",
+    data_summary_example_rows_value = "",
+    data_summary_example_rows_n_key_values = 2,
+    data_summary_example_rows_seed = ""
+  ))
+
+  expect_equal(parsed$example_rows_n_key_values, 2L)
+  expect_equal(
+    build_data_summary_example_rows(parsed),
+    anon_example_rows(n = 3, key = "USUBJID", method = "last", n_key_values = 2)
+  )
 })

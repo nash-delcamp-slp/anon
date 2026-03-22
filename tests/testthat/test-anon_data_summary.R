@@ -263,3 +263,160 @@ test_that("anon_data_summary() handles custom default_replacement", {
 
   expect_s3_class(result, "anon_data_summary")
 })
+
+
+test_that("anon_example_rows() defaults to random selection and builds a reusable example_rows spec", {
+  expect_equal(anon_example_rows(n = 2)$method, "random")
+
+  spec <- anon_example_rows(
+    n = 7,
+    key = "USUBJID",
+    method = "random",
+    value = "01-701-1015",
+    n_key_values = 1,
+    seed = 42
+  )
+
+  expect_s3_class(spec, "anon_example_rows_spec")
+  expect_equal(
+    unclass(spec),
+    list(
+      n = 7,
+      key = "USUBJID",
+      method = "random",
+      value = "01-701-1015",
+      n_key_values = 1L,
+      seed = 42L
+    )
+  )
+})
+
+
+test_that("anon_data_summary() includes example values and accepts numeric example_rows", {
+  df <- data.frame(
+    char_col = c("alpha", "beta", "alpha", NA),
+    num_col = c(1, 2, 3, 4),
+    lgl_col = c(TRUE, FALSE, TRUE, NA),
+    factor_col = factor(c("low", "high", "low", "medium"))
+  )
+
+  result <- anon_data_summary(
+    list(typed_data = df),
+    example_values_n = 2,
+    example_rows = 2
+  )
+
+  variables <- result$data_frames$variables$typed_data
+  expect_true("example_values" %in% names(variables))
+
+  expect_equal(
+    variables$example_values[[match("char_col", variables$variable)]],
+    c("alpha", "beta")
+  )
+  expect_equal(
+    variables$example_values[[match("num_col", variables$variable)]],
+    character(0)
+  )
+  expect_equal(
+    variables$example_values[[match("lgl_col", variables$variable)]],
+    c("TRUE", "FALSE")
+  )
+
+  expect_equal(nrow(result$examples$rows$typed_data), 2)
+})
+
+test_that("anon_data_summary() builds keyed scenarios with configurable methods", {
+  adsl <- data.frame(
+    USUBJID = c("01", "02", "03"),
+    SEX = c("F", "M", "F")
+  )
+  labs <- data.frame(
+    USUBJID = c("01", "01", "02", "03", "03"),
+    PARAM = c("ALT", "AST", "ALT", "ALT", "AST"),
+    AVAL = c(10, 20, 25, 30, 40)
+  )
+  visit <- data.frame(VISIT = c("SCREEN", "DAY 1"))
+
+  last_result <- anon_data_summary(
+    list(adsl = adsl, labs = labs, visit = visit),
+    example_rows = anon_example_rows(n = 20, key = "USUBJID", method = "last")
+  )
+
+  expect_equal(last_result$examples$scenario$key, "USUBJID")
+  expect_equal(as.character(last_result$examples$scenario$value), "03")
+  expect_equal(last_result$examples$scenario$method, "last")
+  expect_equal(names(last_result$examples$scenario$tables), c("adsl", "labs"))
+  expect_equal(nrow(last_result$examples$scenario$tables$adsl), 1)
+  expect_equal(nrow(last_result$examples$scenario$tables$labs), 2)
+
+  multi_result <- anon_data_summary(
+    list(adsl = adsl, labs = labs, visit = visit),
+    example_rows = anon_example_rows(n = 20, key = "USUBJID", method = "first", n_key_values = 2)
+  )
+
+  expect_equal(length(multi_result$examples$scenarios), 2)
+  expect_equal(vapply(multi_result$examples$scenarios, `[[`, character(1), "value"), c("01", "02"))
+
+  explicit_result <- anon_data_summary(
+    list(adsl = adsl, labs = labs),
+    example_rows = anon_example_rows(n = 20, key = "USUBJID", value = "01", n_key_values = 3)
+  )
+
+  expect_equal(as.character(explicit_result$examples$scenario$value), "01")
+  expect_equal(length(explicit_result$examples$scenarios), 1)
+})
+
+test_that("anon_data_summary() anonymizes example payloads", {
+  adsl <- data.frame(
+    USUBJID = c("SUBJ001", "SUBJ002"),
+    name = c("Alice", "Bob"),
+    flag = c(TRUE, FALSE)
+  )
+  detail <- data.frame(
+    USUBJID = c("SUBJ001", "SUBJ001"),
+    note = c("Alice visit", "Alice follow-up")
+  )
+
+  result <- anon_data_summary(
+    list(adsl = adsl, detail = detail),
+    pattern_list = list("PERSON" = "Alice", "SUBJECT" = "SUBJ001"),
+    example_values_n = 1,
+    example_rows = anon_example_rows(n = 5, key = "USUBJID", method = "first")
+  )
+
+  variables <- result$data_frames$variables$adsl
+  expect_equal(
+    variables$example_values[[match("name", variables$variable)]],
+    "PERSON"
+  )
+  expect_equal(as.character(result$examples$scenario$value), "SUBJECT")
+  expect_true(any(grepl("PERSON", result$examples$scenario$tables$detail$note)))
+  expect_false(any(grepl("Alice", result$examples$scenario$tables$detail$note)))
+  expect_output(print(result), "Example Scenario")
+})
+
+
+test_that("anon_data_summary() supports non-first row selection methods", {
+  df <- data.frame(
+    id = 1:5,
+    label = paste0("row", 1:5)
+  )
+
+  last_result <- anon_data_summary(
+    list(study = df),
+    example_rows = anon_example_rows(n = 2, method = "last")
+  )
+  expect_equal(last_result$examples$row_method, "last")
+  expect_equal(last_result$examples$rows$study$id, c(4L, 5L))
+
+  random_a <- anon_data_summary(
+    list(study = df),
+    example_rows = anon_example_rows(n = 2, method = "random", seed = 11)
+  )
+  random_b <- anon_data_summary(
+    list(study = df),
+    example_rows = anon_example_rows(n = 2, method = "random", seed = 11)
+  )
+
+  expect_equal(random_a$examples$rows$study, random_b$examples$rows$study)
+})

@@ -9,6 +9,8 @@ anon_report(
   selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
+  example_values_n = 0,
+  example_rows = NULL,
   check_approximate = TRUE,
   max_distance = 2,
   df_variable_names = NULL,

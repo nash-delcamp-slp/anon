@@ -17,7 +17,8 @@ Invisibly returns the input object \code{x}
 \description{
 Displays an anonymized environment summary in a structured, readable format.
 The output includes overall statistics, data frame structural information,
-variable details, and information about other objects (if present).
+variable details, optional example payloads, and information about other
+objects (if present).
 }
 \details{
 The print method displays information in the following order:
@@ -26,6 +27,7 @@ The print method displays information in the following order:
 data frame count, other object count, and total memory usage
 \item \strong{Data Frames}: Structural information for each data frame
 \item \strong{Variable Details}: Detailed information about variables within data frames
+\item \strong{Examples}: Optional sample rows or keyed scenarios when configured
 \item \strong{Other Objects}: Information about non-data frame objects
 }
 
