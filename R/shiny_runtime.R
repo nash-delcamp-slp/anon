@@ -76,11 +76,6 @@ anon_app_ui <- function(
         label = "Default replacement",
         value = runtime_defaults$default_replacement
       ),
-      shiny::checkboxInput(
-        inputId = "check_approximate",
-        label = "Check approximate matches",
-        value = runtime_defaults$check_approximate
-      ),
       shiny::textAreaInput(
         inputId = "pattern_rules",
         label = "Pattern rules",
@@ -381,7 +376,6 @@ anon_app_server <- function(
         default_replacement = active_default_replacement(),
         example_values_n = active_data_summary_options()$example_values_n,
         example_rows = build_data_summary_example_rows(active_data_summary_options()),
-        check_approximate = isTRUE(input$check_approximate),
         nlp_auto = active_report_nlp_auto()
       )
 
@@ -482,8 +476,7 @@ anon_app_server <- function(
         cleaned_text,
         pattern_list = active_rules(),
         default_replacement = active_default_replacement(),
-        check_approximate = isTRUE(input$check_approximate),
-        nlp_auto = FALSE
+            nlp_auto = FALSE
       )
 
       if (isTRUE(active_nlp_enabled())) {
@@ -499,7 +492,7 @@ anon_app_server <- function(
           nlp_args <- list(
             x = redacted_text,
             entity_types = entity_types,
-            check_approximate = isTRUE(input$check_approximate)
+            check_approximate = FALSE
           )
 
           if (!identical(
