@@ -216,6 +216,7 @@ anon_app_server <- function(
     nlp_status_data <- shiny::reactiveVal(get_nlp_runtime_status())
     nlp_entity_types_touched <- shiny::reactiveVal(FALSE)
     data_summary_options_data <- shiny::reactiveVal(runtime_defaults$data_summary_options)
+    pending_excel_upload_data <- shiny::reactiveVal(NULL)
 
     active_rules <- shiny::reactive({
       if (is.null(input$pattern_rules)) {
@@ -337,28 +338,80 @@ anon_app_server <- function(
       files <- input$upload_files
       shiny::req(nrow(files) > 0)
 
-      result <- tryCatch(
-        read_content(files$datapath, name = files$name),
+      current <- input$source_text %||% ""
+      split_files <- split_uploaded_files(files)
+
+      if (nrow(split_files$other) > 0) {
+        result <- tryCatch(
+          read_content(split_files$other$datapath, name = split_files$other$name),
+          error = function(e) {
+            shiny::showNotification(conditionMessage(e), type = "error")
+            NULL
+          }
+        )
+        shiny::req(result)
+        current <- append_uploaded_content(current, result)
+      }
+
+      if (nrow(split_files$excel) == 0) {
+        shiny::updateTextAreaInput(session, "source_text", value = current)
+        return()
+      }
+
+      choice_data <- tryCatch(
+        collect_excel_upload_sheet_choices(split_files$excel),
         error = function(e) {
           shiny::showNotification(conditionMessage(e), type = "error")
           NULL
         }
       )
-      shiny::req(result)
 
-      combined <- paste(
-        paste0("--- ", names(result), " ---\n", result),
-        collapse = "\n\n"
-      )
-
-      current <- input$source_text %||% ""
-      new_text <- if (nzchar(trimws(current))) {
-        paste(current, combined, sep = "\n\n")
-      } else {
-        combined
+      if (is.null(choice_data) || length(choice_data$choices) == 0) {
+        pending_excel_upload_data(NULL)
+        shiny::updateTextAreaInput(session, "source_text", value = current)
+        return()
       }
 
-      shiny::updateTextAreaInput(session, "source_text", value = new_text)
+      pending_excel_upload_data(list(
+        files = split_files$excel,
+        current_text = current
+      ))
+
+      shiny::showModal(excel_sheet_selection_modal(choice_data))
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input$cancel_excel_sheet_selection, {
+      pending <- pending_excel_upload_data()
+      shiny::req(!is.null(pending))
+
+      pending_excel_upload_data(NULL)
+      shiny::removeModal()
+      shiny::updateTextAreaInput(session, "source_text", value = pending$current_text)
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input$confirm_excel_sheet_selection, {
+      pending <- pending_excel_upload_data()
+      shiny::req(!is.null(pending))
+
+      result <- tryCatch(
+        import_uploaded_excel_files(
+          pending$files,
+          input$selected_excel_sheets %||% character(0)
+        ),
+        error = function(e) {
+          shiny::showNotification(conditionMessage(e), type = "error")
+          NULL
+        }
+      )
+      shiny::req(!is.null(result))
+
+      pending_excel_upload_data(NULL)
+      shiny::removeModal()
+      shiny::updateTextAreaInput(
+        session,
+        "source_text",
+        value = append_uploaded_content(pending$current_text, result)
+      )
     }, ignoreInit = TRUE)
 
     shiny::observeEvent(input$apply_text_tools, {
@@ -536,6 +589,118 @@ anon_app_initial_state <- function(
     raw_names = raw_names,
     choices = stats::setNames(raw_names, inventory$name),
     selected = selected
+  )
+}
+
+split_uploaded_files <- function(files) {
+  is_excel <- vapply(files$name, is_excel_upload_name, logical(1))
+
+  list(
+    excel = files[is_excel, , drop = FALSE],
+    other = files[!is_excel, , drop = FALSE]
+  )
+}
+
+is_excel_upload_name <- function(name) {
+  tolower(tools::file_ext(name)) %in% c("xlsx", "xls")
+}
+
+append_uploaded_content <- function(current_text, result) {
+  if (length(result) == 0) {
+    return(current_text)
+  }
+
+  combined <- paste(
+    paste0("--- ", names(result), " ---\n", result),
+    collapse = "\n\n"
+  )
+
+  if (nzchar(trimws(current_text))) {
+    paste(current_text, combined, sep = "\n\n")
+  } else {
+    combined
+  }
+}
+
+collect_excel_upload_sheet_choices <- function(files) {
+  choices <- character(0)
+
+  for (i in seq_len(nrow(files))) {
+    sheets <- list_excel_file_sheets(files$datapath[i])
+
+    if (length(sheets) == 0) {
+      next
+    }
+
+    choice_values <- make_excel_sheet_choice_id(i, sheets)
+    choice_labels <- paste0(files$name[i], " :: ", sheets)
+    choices <- c(choices, stats::setNames(choice_values, choice_labels))
+  }
+
+  list(
+    choices = choices,
+    selected = unname(choices)
+  )
+}
+
+list_excel_file_sheets <- function(path) {
+  ensure_content_package("readxl", ".xlsx")
+  readxl::excel_sheets(path)
+}
+
+make_excel_sheet_choice_id <- function(file_index, sheet_name) {
+  paste0(file_index, "::", sheet_name)
+}
+
+parse_excel_sheet_selection <- function(selected_ids) {
+  if (length(selected_ids) == 0) {
+    return(list())
+  }
+
+  file_index <- sub("::.*$", "", selected_ids)
+  sheet_name <- sub("^[0-9]+::", "", selected_ids)
+  split(sheet_name, file_index)
+}
+
+import_uploaded_excel_files <- function(files, selected_sheet_ids) {
+  selected_sheets <- parse_excel_sheet_selection(selected_sheet_ids)
+
+  if (length(selected_sheets) == 0) {
+    return(character(0))
+  }
+
+  out <- character(0)
+
+  for (i in seq_len(nrow(files))) {
+    sheets <- selected_sheets[[as.character(i)]]
+
+    if (is.null(sheets) || length(sheets) == 0) {
+      next
+    }
+
+    out <- c(
+      out,
+      stats::setNames(read_content_xlsx(files$datapath[i], sheet = sheets), files$name[i])
+    )
+  }
+
+  out
+}
+
+excel_sheet_selection_modal <- function(choice_data) {
+  shiny::modalDialog(
+    title = "Select Excel Sheets",
+    shiny::checkboxGroupInput(
+      inputId = "selected_excel_sheets",
+      label = "Sheets to include",
+      choices = choice_data$choices,
+      selected = choice_data$selected
+    ),
+    easyClose = FALSE,
+    footer = shiny::tagList(
+      shiny::actionButton("cancel_excel_sheet_selection", "Cancel"),
+      shiny::actionButton("confirm_excel_sheet_selection", "Import selected sheets")
+    )
   )
 }
 

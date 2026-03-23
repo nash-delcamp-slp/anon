@@ -328,6 +328,92 @@ test_that("anon_app_server allows clearing all NLP entity types", {
   )
 })
 
+
+test_that("append_uploaded_content() formats imported file blocks", {
+  result <- append_uploaded_content(
+    "Existing text",
+    c("notes.txt" = "alpha", "book.xlsx" = "beta")
+  )
+
+  expect_equal(
+    result,
+    paste(
+      "Existing text",
+      "--- notes.txt ---\nalpha\n\n--- book.xlsx ---\nbeta",
+      sep = "\n\n"
+    )
+  )
+})
+
+test_that("collect_excel_upload_sheet_choices() includes every uploaded sheet", {
+  files <- data.frame(
+    name = c("book.xlsx", "tables.xls"),
+    datapath = c("/tmp/book.xlsx", "/tmp/tables.xls"),
+    stringsAsFactors = FALSE
+  )
+
+  local_mocked_bindings(
+    list_excel_file_sheets = function(path) {
+      if (grepl("book", path, fixed = TRUE)) {
+        c("Raw", "Derived")
+      } else {
+        "Listing"
+      }
+    }
+  )
+
+  choice_data <- collect_excel_upload_sheet_choices(files)
+
+  expect_equal(
+    names(choice_data$choices),
+    c(
+      "book.xlsx :: Raw",
+      "book.xlsx :: Derived",
+      "tables.xls :: Listing"
+    )
+  )
+  expect_equal(
+    unname(choice_data$choices),
+    c("1::Raw", "1::Derived", "2::Listing")
+  )
+  expect_equal(choice_data$selected, unname(choice_data$choices))
+})
+
+test_that("import_uploaded_excel_files() reads only the selected sheets", {
+  files <- data.frame(
+    name = c("book.xlsx", "tables.xls"),
+    datapath = c("/tmp/book.xlsx", "/tmp/tables.xls"),
+    stringsAsFactors = FALSE
+  )
+
+  local_mocked_bindings(
+    read_content_xlsx = function(path, sheet = NULL) {
+      paste(sheet, collapse = " | ")
+    }
+  )
+
+  result <- import_uploaded_excel_files(
+    files,
+    c("1::Raw", "1::Derived", "2::Listing")
+  )
+
+  expect_equal(names(result), c("book.xlsx", "tables.xls"))
+  expect_equal(unname(result), c("Raw | Derived", "Listing"))
+})
+
+test_that("split_uploaded_files() separates Excel uploads from other files", {
+  files <- data.frame(
+    name = c("book.xlsx", "notes.txt", "tables.xls", "report.pdf"),
+    datapath = c("/tmp/book.xlsx", "/tmp/notes.txt", "/tmp/tables.xls", "/tmp/report.pdf"),
+    stringsAsFactors = FALSE
+  )
+
+  split_files <- split_uploaded_files(files)
+
+  expect_equal(split_files$excel$name, c("book.xlsx", "tables.xls"))
+  expect_equal(split_files$other$name, c("notes.txt", "report.pdf"))
+})
+
 test_that("ensure_shiny_runtime_packages() succeeds when runtime packages are present", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
