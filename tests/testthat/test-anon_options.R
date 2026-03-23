@@ -68,3 +68,70 @@ test_that("anon_options() preserves NULL assignments when clearing options", {
   expect_equal(previous[["anon.pattern_list"]], list(TEST = "x"))
   expect_null(getOption("anon.pattern_list"))
 })
+
+test_that("anon_options() sets and clears df_variable_names", {
+  old <- anon_options()
+  on.exit(options(old), add = TRUE)
+
+  anon_options(df_variable_names = list("name" = "[REDACTED]"))
+  expect_equal(getOption("anon.df_variable_names"), list("name" = "[REDACTED]"))
+
+  anon_options(df_variable_names = NULL)
+  expect_null(getOption("anon.df_variable_names"))
+})
+
+test_that("anon_options() sets and clears df_classes", {
+  old <- anon_options()
+  on.exit(options(old), add = TRUE)
+
+  anon_options(df_classes = list(character = "[TEXT]"))
+  expect_equal(getOption("anon.df_classes"), list(character = "[TEXT]"))
+
+  anon_options(df_classes = NULL)
+  expect_null(getOption("anon.df_classes"))
+})
+
+test_that("anon_options() sets and clears nlp_default_replacements", {
+  old <- anon_options()
+  on.exit(options(old), add = TRUE)
+
+  replacements <- nlp_default_replacements(person = "[NAME]")
+  anon_options(nlp_default_replacements = replacements)
+  expect_equal(getOption("anon.nlp_default_replacements"), replacements)
+
+  anon_options(nlp_default_replacements = NULL)
+  expect_null(getOption("anon.nlp_default_replacements"))
+})
+
+test_that("anon_options() sets and clears nlp_auto", {
+  old <- anon_options()
+  on.exit(options(old), add = TRUE)
+
+  anon_options(nlp_auto = nlp_auto(person = TRUE, org = FALSE))
+  expect_false(is.null(getOption("anon.nlp_auto")))
+
+  anon_options(nlp_auto = NULL)
+  expect_null(getOption("anon.nlp_auto"))
+})
+
+test_that("get_anon_options() returns all 8 option names", {
+  result <- anon:::get_anon_options()
+
+  expect_length(result, 8)
+  expect_true(all(anon:::anon_option_names() %in% names(result)))
+})
+
+test_that("append_option_value() adds to option map", {
+  map <- list()
+  result <- anon:::append_option_value(map, "anon.test", "value")
+
+  expect_equal(result[["anon.test"]], "value")
+})
+
+test_that("append_option_value() handles NULL values", {
+  map <- list()
+  result <- anon:::append_option_value(map, "anon.test", NULL)
+
+  expect_true("anon.test" %in% names(result))
+  expect_null(result[["anon.test"]])
+})
