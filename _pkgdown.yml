@@ -2,6 +2,8 @@ url: ~
 template:
   bootstrap: 5
 navbar:
+  structure:
+    left: [intro, reference, benchmarks, news]
   components:
     benchmarks:
       text: Benchmarks
