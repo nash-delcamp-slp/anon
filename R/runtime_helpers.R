@@ -48,6 +48,7 @@ anon_inventory <- function(
 #' @param envir An environment or named/unnamed list of objects.
 #' @param selection Optional character vector of object names to include.
 #' @inheritParams anon
+#' @inheritParams anon_data_summary
 #'
 #' @return An object of class `"anon_report"` containing an anonymized object
 #'   inventory and environment summary for the selected objects.

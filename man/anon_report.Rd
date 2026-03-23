@@ -35,6 +35,15 @@ This parameter is combined with the global option \code{getOption("anon.pattern_
 \item{default_replacement}{Value to use as the default replacement value when no specific replacement
 is provided. Default is \verb{getOption("anon.default_replacement", default = "\[REDACTED\]")}.}
 
+\item{example_values_n}{Optional number of example unique values to include for
+discrete/text-like data frame columns. Defaults to \code{0}, which disables
+example values.}
+
+\item{example_rows}{Optional example-row specification for data frames.
+Use \code{NULL} to disable examples, a single number to request that many rows
+per data frame, or \code{\link[=anon_example_rows]{anon_example_rows()}} to build a spec with explicit
+arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}.}
+
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is
 \code{getOption("anon.check_approximate", default = FALSE)}.}
