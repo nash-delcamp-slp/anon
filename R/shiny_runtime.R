@@ -875,7 +875,7 @@ get_nlp_runtime_status <- function() {
 
   init_error <- tryCatch(
     {
-      suppressWarnings(suppressMessages(cleanNLP::cnlp_init_spacy()))
+      suppressWarnings(suppressMessages(cleanNLP::cnlp_init_spacy(model_name = "en_core_web_sm")))
       NULL
     },
     error = function(e) e

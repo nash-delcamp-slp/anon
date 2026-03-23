@@ -89,7 +89,7 @@ nlp_get_entities <- function(
   tryCatch(
     {
       # Initialize spacy backend if not already done
-      cleanNLP::cnlp_init_spacy()
+      cleanNLP::cnlp_init_spacy(model_name = "en_core_web_sm")
 
       # Process each text element
       for (i in seq_along(text_clean)) {

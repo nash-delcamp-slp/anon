@@ -197,7 +197,7 @@ nlp_benchmark_available <- function() {
 
   tryCatch(
     {
-      suppressMessages(cleanNLP::cnlp_init_spacy())
+      suppressMessages(cleanNLP::cnlp_init_spacy(model_name = "en_core_web_sm"))
       TRUE
     },
     error = function(...) FALSE

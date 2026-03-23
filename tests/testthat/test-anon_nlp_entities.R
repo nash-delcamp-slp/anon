@@ -14,7 +14,7 @@ require_spacy <- function() {
   )
 
   # Initialize cleanNLP with spaCy backend
-  suppressMessages(cleanNLP::cnlp_init_spacy())
+  suppressMessages(cleanNLP::cnlp_init_spacy(model_name = "en_core_web_sm"))
 }
 
 test_that("anon_nlp functions work with cleanNLP and spaCy", {
