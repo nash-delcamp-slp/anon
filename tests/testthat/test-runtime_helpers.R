@@ -71,6 +71,63 @@ test_that("anon_prompt_bundle() formats report and text", {
   expect_true(grepl("PERSON visited the site.", bundle, fixed = TRUE))
 })
 
+test_that("as_anon_json() serializes anon_report objects", {
+  df <- data.frame(name = c("Alice", "Bob"), score = c(1, 2))
+  report <- anon_report(list(study = df, notes = c("alpha", "beta")))
+
+  payload <- jsonlite::fromJSON(as_anon_json(report), simplifyVector = FALSE)
+
+  expect_equal(payload$schema_version, 1)
+  expect_equal(payload$kind, "anon_report")
+  expect_equal(payload$inventory$rows[[1]]$name, "study")
+  expect_equal(payload$inventory$rows[[2]]$name, "notes")
+  expect_equal(payload$data_summary$summary$rows[[1]]$total_objects, 2)
+  expect_equal(payload$data_summary$data_frames$structure$rows[[1]]$name, "study")
+})
+
+test_that("as_anon_payload() exposes structured report payloads", {
+  df <- data.frame(name = c("Alice", "Bob"), score = c(1, 2))
+  report <- anon_report(list(study = df, notes = c("alpha", "beta")))
+
+  payload <- as_anon_payload(report)
+
+  expect_equal(payload$schema_version, 1)
+  expect_equal(payload$kind, "anon_report")
+  expect_equal(payload$inventory$rows[[1]]$name, "study")
+  expect_equal(payload$data_summary$summary$rows[[1]]$total_objects, 2)
+})
+
+test_that("anon_prompt_bundle() can emit JSON payloads", {
+  df <- data.frame(name = c("Alice", "Bob"), score = c(1, 2))
+  report <- anon_report(list(study = df))
+  comparison <- anon_compare_text("Alice", "PERSON")
+
+  bundle <- anon_prompt_bundle(
+    report = report,
+    text = "PERSON visited the site.",
+    comparison = comparison,
+    format = "json"
+  )
+  payload <- jsonlite::fromJSON(bundle, simplifyVector = FALSE)
+
+  expect_s3_class(bundle, "anon_prompt_bundle")
+  expect_equal(attr(bundle, "output_format"), "json")
+  expect_equal(payload$kind, "anon_prompt_bundle")
+  expect_equal(payload$title, "Anonymized Prompt Context")
+  expect_equal(payload$report$inventory$rows[[1]]$name, "study")
+  expect_equal(payload$text, "PERSON visited the site.")
+  expect_equal(payload$comparison$summary$rows[[1]]$changed_lines, 1)
+})
+
+test_that("as_anon_json() errors on unsupported custom classes", {
+  unsupported <- new_anon_context(structure(list(coefficients = 1), class = "lm"))
+
+  expect_error(
+    as_anon_json(unsupported),
+    "Unsupported class for JSON serialization"
+  )
+})
+
 test_that("anon_report() forwards example options and nlp_auto to anon_data_summary()", {
   summary_call <- new.env(parent = emptyenv())
 

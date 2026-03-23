@@ -114,6 +114,8 @@ test_that("anon_app_server cleans text and assembles a prompt bundle", {
       expect_match(output$comparison_preview, "Line-level details", fixed = TRUE)
       expect_match(output$prompt_bundle_preview, "Redacted Text", fixed = TRUE)
       expect_match(output$prompt_bundle_preview, "PERSON met PERSON", fixed = TRUE)
+      expect_match(output$prompt_bundle_json_preview, '"kind": "anon_prompt_bundle"', fixed = TRUE)
+      expect_match(output$prompt_bundle_json_preview, '"text": "PERSON met PERSON"', fixed = TRUE)
     }
   )
 })

@@ -157,7 +157,7 @@ anon_prompt_bundle <- function(
   report = NULL,
   text = NULL,
   comparison = NULL,
-  format = c("markdown", "text"),
+  format = c("markdown", "text", "json"),
   title = "Anonymized Prompt Context",
   include_inventory = TRUE,
   include_data_summary = TRUE,
@@ -166,73 +166,102 @@ anon_prompt_bundle <- function(
 ) {
   format <- match.arg(format)
 
-  sections <- character(0)
+  payload <- build_anon_prompt_bundle_payload(
+    report = report,
+    text = text,
+    comparison = comparison,
+    title = title,
+    include_inventory = include_inventory,
+    include_data_summary = include_data_summary,
+    include_text = include_text,
+    include_comparison = include_comparison
+  )
 
-  if (format == "markdown") {
-    sections <- c(sections, paste0("# ", title))
+  if (format == "json") {
+    bundle <- jsonlite::toJSON(
+      payload,
+      pretty = TRUE,
+      auto_unbox = TRUE,
+      null = "null",
+      na = "null",
+      force = TRUE
+    )
   } else {
-    sections <- c(
-      sections,
-      title,
-      strrep("=", nchar(title))
-    )
-  }
+    sections <- character(0)
 
-  if (!is.null(report)) {
-    if (isTRUE(include_inventory) && !is.null(report$inventory)) {
+    if (format == "markdown") {
+      sections <- c(sections, paste0("# ", title))
+    } else {
+      sections <- c(
+        sections,
+        title,
+        strrep("=", nchar(title))
+      )
+    }
+
+    if (!is.null(report)) {
+      if (isTRUE(include_inventory) && !is.null(report$inventory)) {
+        sections <- c(
+          sections,
+          format_section(
+            "Inventory",
+            format_table_block(report$inventory),
+            format = format
+          )
+        )
+      }
+
+      if (isTRUE(include_data_summary) && !is.null(report$data_summary)) {
+        sections <- c(
+          sections,
+          format_section(
+            "Data Summary",
+            format_anon_data_summary_text(report$data_summary),
+            format = format
+          )
+        )
+      }
+    }
+
+    if (isTRUE(include_text) && !is.null(text)) {
       sections <- c(
         sections,
         format_section(
-          "Inventory",
-          format_table_block(report$inventory),
+          "Redacted Text",
+          paste(text, collapse = "
+"),
           format = format
         )
       )
     }
 
-    if (isTRUE(include_data_summary) && !is.null(report$data_summary)) {
+    if (isTRUE(include_comparison) && !is.null(comparison)) {
       sections <- c(
         sections,
         format_section(
-          "Data Summary",
-          format_anon_data_summary_text(report$data_summary),
-          format = format
-        )
-      )
-    }
-  }
-
-  if (isTRUE(include_text) && !is.null(text)) {
-    sections <- c(
-      sections,
-      format_section(
-        "Redacted Text",
-        paste(text, collapse = "\n"),
-        format = format
-      )
-    )
-  }
-
-  if (isTRUE(include_comparison) && !is.null(comparison)) {
-    sections <- c(
-      sections,
-      format_section(
-        "Comparison Summary",
-        paste(
-          c(
-            format_table_block(comparison$summary),
-            "",
-            "Line-level details:",
-            format_table_block(comparison$details)
+          "Comparison Summary",
+          paste(
+            c(
+              format_table_block(comparison$summary),
+              "",
+              "Line-level details:",
+              format_table_block(comparison$details)
+            ),
+            collapse = "
+"
           ),
-          collapse = "\n"
-        ),
-        format = format
+          format = format
+        )
       )
-    )
+    }
+
+    bundle <- paste(sections, collapse = "
+
+")
   }
 
-  bundle <- paste(sections, collapse = "\n\n")
+  attr(bundle, "payload") <- payload
+  attr(bundle, "output_format") <- format
   class(bundle) <- c("anon_prompt_bundle", "anon_context", "character")
   bundle
 }

@@ -8,7 +8,7 @@ anon_prompt_bundle(
   report = NULL,
   text = NULL,
   comparison = NULL,
-  format = c("markdown", "text"),
+  format = c("markdown", "text", "json"),
   title = "Anonymized Prompt Context",
   include_inventory = TRUE,
   include_data_summary = TRUE,

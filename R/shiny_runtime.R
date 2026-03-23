@@ -178,10 +178,64 @@ anon_app_ui <- function(
           ),
           shiny::tabPanel(
             title = "Prompt Bundle",
-            shiny::verbatimTextOutput("prompt_bundle_preview")
+            shiny::tabsetPanel(
+              shiny::tabPanel(
+                title = "Text",
+                shiny::verbatimTextOutput("prompt_bundle_preview")
+              ),
+              shiny::tabPanel(
+                title = "JSON",
+                shiny::div(
+                  style = "display:flex; gap:0.5rem; align-items:center; margin-bottom:0.75rem;",
+                  shiny::actionButton(
+                    inputId = "copy_prompt_bundle_json",
+                    label = "Copy JSON"
+                  ),
+                  shiny::downloadButton(
+                    outputId = "download_prompt_bundle_json",
+                    label = "Download JSON"
+                  )
+                ),
+                shiny::verbatimTextOutput("prompt_bundle_json_preview")
+              )
+            )
           )
         )
-      )
+      ),
+      shiny::tags$script(shiny::HTML(paste(
+        "Shiny.addCustomMessageHandler('anon-copy-text', function(message) {",
+        "  var text = (message && message.text) ? message.text : '';",
+        "  function signal(status) {",
+        "    Shiny.setInputValue('copy_prompt_bundle_json_result', status, {priority: 'event'});",
+        "  }",
+        "  function fallbackCopy(value) {",
+        "    var area = document.createElement('textarea');",
+        "    area.value = value;",
+        "    area.setAttribute('readonly', '');",
+        "    area.style.position = 'absolute';",
+        "    area.style.left = '-9999px';",
+        "    document.body.appendChild(area);",
+        "    area.select();",
+        "    try {",
+        "      document.execCommand('copy');",
+        "      signal('success');",
+        "    } catch (err) {",
+        "      signal('error');",
+        "    }",
+        "    document.body.removeChild(area);",
+        "  }",
+        "  if (navigator.clipboard && window.isSecureContext) {",
+        "    navigator.clipboard.writeText(text).then(function() {",
+        "      signal('success');",
+        "    }).catch(function() {",
+        "      fallbackCopy(text);",
+        "    });",
+        "  } else {",
+        "    fallbackCopy(text);",
+        "  }",
+        "});",
+        collapse = "\n"
+      )))
     )
   )
 }
@@ -463,6 +517,72 @@ anon_app_server <- function(
       comparison_data(anon_compare_text(source_text, as.character(redacted_text)))
     }, ignoreInit = TRUE)
 
+    prompt_bundle_json_text <- shiny::reactive({
+      report <- report_data()
+      cleaned_text <- cleaned_text_data()
+      comparison <- comparison_data()
+
+      if (is.null(report) && is.null(cleaned_text)) {
+        return(NULL)
+      }
+
+      as.character(anon_prompt_bundle(
+        report = report,
+        text = cleaned_text,
+        comparison = comparison,
+        format = "json",
+        include_inventory = !is.null(report),
+        include_data_summary = !is.null(report),
+        include_text = !is.null(cleaned_text),
+        include_comparison = !is.null(comparison)
+      ))
+    })
+
+    shiny::observeEvent(input$copy_prompt_bundle_json, {
+      json_text <- prompt_bundle_json_text()
+
+      if (is.null(json_text) || !nzchar(json_text)) {
+        shiny::showNotification(
+          "Generate a report or process text before copying prompt bundle JSON.",
+          type = "warning"
+        )
+        return()
+      }
+
+      session$sendCustomMessage("anon-copy-text", list(text = json_text))
+    }, ignoreInit = TRUE)
+
+    shiny::observeEvent(input$copy_prompt_bundle_json_result, {
+      if (identical(input$copy_prompt_bundle_json_result, "success")) {
+        shiny::showNotification("Prompt bundle JSON copied.", type = "message")
+      } else {
+        shiny::showNotification("Unable to copy prompt bundle JSON.", type = "error")
+      }
+    }, ignoreInit = TRUE)
+
+    output$download_prompt_bundle_json <- shiny::downloadHandler(
+      filename = function() {
+        paste0(
+          "anon-prompt-bundle-",
+          format(Sys.time(), "%Y%m%d-%H%M%S"),
+          ".json"
+        )
+      },
+      content = function(file) {
+        json_text <- prompt_bundle_json_text()
+
+        if (is.null(json_text) || !nzchar(json_text)) {
+          stop(
+            "Generate a report or process text before downloading prompt bundle JSON.",
+            call. = FALSE
+          )
+        }
+
+        writeLines(json_text, con = file, useBytes = TRUE)
+      },
+      contentType = "application/json"
+    )
+
     output$scan_status <- shiny::renderText({
       scan_message()
     })
@@ -531,6 +651,16 @@ anon_app_server <- function(
         include_text = !is.null(cleaned_text),
         include_comparison = !is.null(comparison)
       )
+    })
+
+    output$prompt_bundle_json_preview <- shiny::renderText({
+      json_text <- prompt_bundle_json_text()
+
+      if (is.null(json_text) || !nzchar(json_text)) {
+        return("Generate a report or process text to preview prompt bundle JSON.")
+      }
+
+      json_text
     })
   }
 }

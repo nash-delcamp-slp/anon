@@ -12,6 +12,7 @@ Imports:
     cleanNLP,
     digest,
     dplyr,
+    jsonlite,
     purrr,
     rlang,
     stopwords,
