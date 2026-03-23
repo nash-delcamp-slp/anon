@@ -78,6 +78,19 @@ This parameter is combined with the global option <code>getOption("anon.pattern_
 is provided. Default is <code>getOption("anon.default_replacement", default = "\[REDACTED\]")</code>.</p></dd>
 
 
+<dt id="arg-example-values-n">example_values_n<a class="anchor" aria-label="anchor" href="#arg-example-values-n"></a></dt>
+<dd><p>Optional number of example unique values to include for
+discrete/text-like data frame columns. Defaults to <code>0</code>, which disables
+example values.</p></dd>
+
+
+<dt id="arg-example-rows">example_rows<a class="anchor" aria-label="anchor" href="#arg-example-rows"></a></dt>
+<dd><p>Optional example-row specification for data frames.
+Use <code>NULL</code> to disable examples, a single number to request that many rows
+per data frame, or <code><a href="anon_example_rows.html">anon_example_rows()</a></code> to build a spec with explicit
+arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>.</p></dd>
+
+
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
 <dd><p>Logical indicating whether to check for approximate
 matches using string distance. Default is

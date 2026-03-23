@@ -49,6 +49,20 @@ anon_report(
   replacement is provided. Default is
   `getOption("anon.default_replacement", default = "\[REDACTED\]")`.
 
+- example_values_n:
+
+  Optional number of example unique values to include for
+  discrete/text-like data frame columns. Defaults to `0`, which disables
+  example values.
+
+- example_rows:
+
+  Optional example-row specification for data frames. Use `NULL` to
+  disable examples, a single number to request that many rows per data
+  frame, or [`anon_example_rows()`](anon_example_rows.md) to build a
+  spec with explicit arguments such as `n`, `key`, `method`, and
+  `n_key_values`.
+
 - check_approximate:
 
   Logical indicating whether to check for approximate matches using
