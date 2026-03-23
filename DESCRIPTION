@@ -4,6 +4,8 @@ Version: 0.0.0.9000
 Authors@R: 
     person("Nash", "Delcamp", , "nash.delcamp@simulations-plus.com", role = c("aut", "cre"))
 Description: Provides tools for anonymizing sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based redaction with approximate matching warnings, specialized functions for common data types (identifiers, dates, emails, phone numbers), and environment summarization with anonymization. Designed to help data scientists share code and results while protecting sensitive information.
+URL: https://nash-delcamp-slp.github.io/anon/, https://github.com/nash-delcamp-slp/anon
+BugReports: https://github.com/nash-delcamp-slp/anon/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
