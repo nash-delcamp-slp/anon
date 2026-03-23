@@ -1,6 +1,6 @@
 # Changelog
 
-## anon (development version)
+## anon 0.0.0.9000
 
 - Pattern-based anonymization with custom replacement rules and global
   options via [`anon()`](../reference/anon.md).
