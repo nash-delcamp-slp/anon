@@ -13,7 +13,8 @@
 #' @param default_replacement Value to use as the default replacement value when no specific replacement
 #' is provided. Default is `getOption("anon.default_replacement", default = "\[REDACTED\]")`.
 #' @param check_approximate Logical indicating whether to check for approximate
-#'   matches using string distance. Default is `TRUE`.
+#'   matches using string distance. Default is
+#'   `getOption("anon.check_approximate", default = FALSE)`.
 #' @param max_distance Maximum string distance for approximate matching when
 #'   `check_approximate` is `TRUE`. Default is `2`.
 #' @param df_variable_names For data frames, a character vector or named list
@@ -146,7 +147,7 @@ anon <- function(
     "anon.default_replacement",
     default = "[REDACTED]"
   ),
-  check_approximate = TRUE,
+  check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
   df_variable_names = NULL,
   df_classes = NULL,

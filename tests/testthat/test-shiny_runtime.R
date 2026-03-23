@@ -236,7 +236,7 @@ test_that("anon_app_server uses raw object names and modal summary options for r
       default_replacement,
       example_values_n,
       example_rows,
-      check_approximate = TRUE,
+      check_approximate = FALSE,
       nlp_auto
     ) {
       report_call$selection <- selection

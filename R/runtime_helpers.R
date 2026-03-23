@@ -16,7 +16,7 @@ anon_inventory <- function(
     "anon.default_replacement",
     default = "[REDACTED]"
   ),
-  check_approximate = TRUE,
+  check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2
 ) {
   objects <- normalize_object_source(envir, selection = selection)
@@ -63,7 +63,7 @@ anon_report <- function(
   ),
   example_values_n = getOption("anon.example_values_n", default = 0),
   example_rows = getOption("anon.example_rows"),
-  check_approximate = TRUE,
+  check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
   df_variable_names = NULL,
   df_classes = NULL,

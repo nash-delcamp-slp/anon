@@ -11,7 +11,7 @@ anon_data_summary(
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
   example_values_n = getOption("anon.example_values_n", default = 0),
   example_rows = getOption("anon.example_rows"),
-  check_approximate = TRUE,
+  check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
   nlp_auto = getOption("anon.nlp_auto")
 )
@@ -43,7 +43,8 @@ per data frame, or \code{\link[=anon_example_rows]{anon_example_rows()}} to buil
 arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}.}
 
 \item{check_approximate}{Logical indicating whether to check for approximate
-matches using string distance. Default is \code{TRUE}.}
+matches using string distance. Default is
+\code{getOption("anon.check_approximate", default = FALSE)}.}
 
 \item{max_distance}{Maximum string distance for approximate matching when
 \code{check_approximate} is \code{TRUE}. Default is \code{2}.}

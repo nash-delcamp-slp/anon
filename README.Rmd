@@ -327,12 +327,12 @@ anon_data_summary()
 
 ## Pattern Detection Warnings
 
-When using pattern-based anonymization, anon will detect potential matches and report warnings unless `check_approximate = FALSE`.
+When using pattern-based anonymization, anon can detect potential approximate matches and report warnings. This is off by default; enable it with `check_approximate = TRUE` or globally with `options(anon.check_approximate = TRUE)`.
 
 ```{r}
-starwars |> 
+starwars |>
   anon(list(
     "blonde", "bleu", "imperials"
-  )) |> 
+  ), check_approximate = TRUE) |>
   glimpse()
 ```

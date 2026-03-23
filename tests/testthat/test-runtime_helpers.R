@@ -139,7 +139,7 @@ test_that("anon_report() forwards example options and nlp_auto to anon_data_summ
       default_replacement = "[REDACTED]",
       example_values_n = 0,
       example_rows = NULL,
-      check_approximate = TRUE,
+      check_approximate = FALSE,
       max_distance = 2,
       nlp_auto = NULL
     ) {
