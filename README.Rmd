@@ -14,7 +14,7 @@ knitr::opts_chunk$set(
 set.seed(1234)
 ```
 
-# anon
+# anon <a href="https://nash-delcamp-slp.github.io/anon/"><img src="man/figures/logo.png" align="right" height="139" alt="anon logo" /></a>
 
 <!-- badges: start -->
 <!-- badges: end -->
