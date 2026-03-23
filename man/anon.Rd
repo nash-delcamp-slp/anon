@@ -120,7 +120,17 @@ The following global options affect function behavior:
 \item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
 \item{\code{anon.nlp_auto}}{List of logical values indicating which NLP entity types should be
 automatically anonymized. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
+\item{\code{anon.nlp_default_replacements}}{Default NLP replacement labels. Use
+\code{\link[=nlp_default_replacements]{nlp_default_replacements()}} to generate this list.}
+\item{\code{anon.example_values_n}}{Default \code{example_values_n} used by \code{\link[=anon_data_summary]{anon_data_summary()}}
+and \code{\link[=anon_report]{anon_report()}}.}
+\item{\code{anon.example_rows}}{Default \code{example_rows} specification used by
+\code{\link[=anon_data_summary]{anon_data_summary()}} and \code{\link[=anon_report]{anon_report()}}. Use \code{\link[=anon_example_rows]{anon_example_rows()}}
+to generate this value.}
 }
+
+See \code{\link[=anon_options]{anon_options()}} for a central helper that lists and sets all supported
+\verb{anon.*} options.
 
 To set global options:
 

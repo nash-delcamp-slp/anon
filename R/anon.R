@@ -74,7 +74,17 @@
 #'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
 #'   \item{`anon.nlp_auto`}{List of logical values indicating which NLP entity types should be
 #'         automatically anonymized. Use [`nlp_auto()`] to generate this list. Override the option by setting the `nlp_auto` argument.}
+#'   \item{`anon.nlp_default_replacements`}{Default NLP replacement labels. Use
+#'         [`nlp_default_replacements()`] to generate this list.}
+#'   \item{`anon.example_values_n`}{Default `example_values_n` used by [`anon_data_summary()`]
+#'         and [`anon_report()`].}
+#'   \item{`anon.example_rows`}{Default `example_rows` specification used by
+#'         [`anon_data_summary()`] and [`anon_report()`]. Use [`anon_example_rows()`]
+#'         to generate this value.}
 #' }
+#'
+#' See [`anon_options()`] for a central helper that lists and sets all supported
+#' `anon.*` options.
 #'
 #' To set global options:
 #' ```r

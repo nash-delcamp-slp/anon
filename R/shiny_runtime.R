@@ -627,14 +627,31 @@ ensure_shiny_runtime_packages <- function() {
 
 
 default_data_summary_options <- function() {
+  example_values_n <- normalize_example_values_n(
+    getOption("anon.example_values_n", default = 0)
+  )
+  example_rows <- normalize_example_rows_spec(getOption("anon.example_rows"))
+
+  if (is.null(example_rows)) {
+    return(list(
+      example_values_n = example_values_n,
+      example_rows_n = 0L,
+      example_rows_key = "",
+      example_rows_method = "random",
+      example_rows_value = "",
+      example_rows_n_key_values = 1L,
+      example_rows_seed = ""
+    ))
+  }
+
   list(
-    example_values_n = 0L,
-    example_rows_n = 0L,
-    example_rows_key = "",
-    example_rows_method = "random",
-    example_rows_value = "",
-    example_rows_n_key_values = 1L,
-    example_rows_seed = ""
+    example_values_n = example_values_n,
+    example_rows_n = example_rows$n,
+    example_rows_key = example_rows$key %||% "",
+    example_rows_method = example_rows$method,
+    example_rows_value = if (is.null(example_rows$value)) "" else as.character(example_rows$value),
+    example_rows_n_key_values = example_rows$n_key_values %||% 1L,
+    example_rows_seed = if (is.null(example_rows$seed)) "" else as.character(example_rows$seed)
   )
 }
 

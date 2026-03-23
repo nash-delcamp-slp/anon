@@ -9,8 +9,8 @@ anon_data_summary(
   selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
-  example_values_n = 0,
-  example_rows = NULL,
+  example_values_n = getOption("anon.example_values_n", default = 0),
+  example_rows = getOption("anon.example_rows"),
   check_approximate = TRUE,
   max_distance = 2,
   nlp_auto = getOption("anon.nlp_auto")
