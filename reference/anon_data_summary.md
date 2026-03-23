@@ -15,6 +15,8 @@ anon_data_summary(
   selection = NULL,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
+  example_values_n = getOption("anon.example_values_n", default = 0),
+  example_rows = getOption("anon.example_rows"),
   check_approximate = TRUE,
   max_distance = 2,
   nlp_auto = getOption("anon.nlp_auto")
@@ -52,6 +54,20 @@ anon_data_summary(
   replacement is provided. Default is
   `getOption("anon.default_replacement", default = "\[REDACTED\]")`.
 
+- example_values_n:
+
+  Optional number of example unique values to include for
+  discrete/text-like data frame columns. Defaults to `0`, which disables
+  example values.
+
+- example_rows:
+
+  Optional example-row specification for data frames. Use `NULL` to
+  disable examples, a single number to request that many rows per data
+  frame, or [`anon_example_rows()`](anon_example_rows.md) to build a
+  spec with explicit arguments such as `n`, `key`, `method`, and
+  `n_key_values`.
+
 - check_approximate:
 
   Logical indicating whether to check for approximate matches using
@@ -83,7 +99,11 @@ An object of class `"anon_data_summary"` containing:
     frame (name, label, dimensions, memory size)
 
   - `$variables`: A tibble with detailed variable information including
-    data types, missing values, distinct values, and labels
+    data types, missing values, distinct values, labels, and optional
+    example values
+
+- `$examples`: Optional data frame example payloads containing either
+  sample rows per data frame or one or more keyed cross-source scenarios
 
 - All content is anonymized according to the specified patterns
 
@@ -105,7 +125,10 @@ For data frames, the function captures:
   labels
 
 - Variable details: data types, missing value counts, distinct value
-  counts, and variable labels
+  counts, variable labels, and optional example values
+
+- Optional example payloads: either sample rows or one or more keyed
+  cross-source scenarios when configured
 
 The output includes a custom print method that displays the information
 in a readable format while maintaining the anonymization.
@@ -147,7 +170,9 @@ env_list |>
       "STUDY_A" = study_metadata$primary_study,    # "ABC123"
       "STUDY_B" = study_metadata$secondary_study,  # "CBA321"
       "MEDICAL_CENTER" = "Boston Medical Center"
-    )
+    ),
+    example_values_n = 2,
+    example_rows = anon_example_rows(n = 2, method = "random", seed = 42)
   )
 #> Environment Data Summary
 #> ========================
@@ -171,7 +196,24 @@ env_list |>
 #> 4   STUDY_B_RESULT   numeric          3         0       3           0  <NA>
 #> 5 STUDY_B_BASELINE   numeric          3         0       3           0  <NA>
 #> 6              age   numeric          3         0       3           0  <NA>
+#>   example_values
+#> 1    P001 | P002
+#> 2               
+#> 3               
+#> 4               
+#> 5               
+#> 6               
 #> 
+#> 
+#> Example Rows (study_results):
+#> 
+#> ----------------------------- 
+#>   participant_id ABC123_RESULT ABC123_BASELINE CBA321_RESULT CBA321_BASELINE
+#> 1           P001          85.2            80.0          45.1            42.0
+#> 3           P003          78.5            75.2          41.8            39.5
+#>   age
+#> 1  45
+#> 3  67
 #> 
 #> Other Objects:
 #> --------------

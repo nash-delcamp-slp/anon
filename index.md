@@ -133,17 +133,61 @@ launch.
 
 ## Global Options System
 
-Many functions in the anon package reference global options that make it
-easy to configure default behaviors for anonymization across workflows.
+Many functions in the anon package reference global `anon.*` options
+that make it easy to configure default behaviors across workflows.
+
+Use [`anon_options()`](reference/anon_options.md) as the central helper
+for these settings. It is a thin wrapper around base
+[`options()`](https://rdrr.io/r/base/options.html) for the supported
+anon package options:
+
+- [`anon_options()`](reference/anon_options.md) with no arguments
+  returns the current supported `anon.*` values.
+- `anon_options(...)` sets those same underlying global options and
+  invisibly returns the previous values, matching the values returned by
+  [`options()`](https://rdrr.io/r/base/options.html).
+- `options(old)` can still be used to restore previously captured
+  values.
+
+You can still call [`options()`](https://rdrr.io/r/base/options.html)
+directly, but the examples below use
+[`anon_options()`](reference/anon_options.md) so all supported package
+options are configured in one consistent way.
+
+``` r
+anon_options()
+#> $anon.default_replacement
+#> NULL
+#> 
+#> $anon.pattern_list
+#> NULL
+#> 
+#> $anon.df_variable_names
+#> NULL
+#> 
+#> $anon.df_classes
+#> NULL
+#> 
+#> $anon.nlp_auto
+#> NULL
+#> 
+#> $anon.nlp_default_replacements
+#> NULL
+#> 
+#> $anon.example_values_n
+#> NULL
+#> 
+#> $anon.example_rows
+#> NULL
+```
 
 ### Setting Default Patterns & Replacements
 
-Set the `anon.pattern_list` global option to define patterns that should
-always be replaced.
+Set `pattern_list` to define patterns that should always be replaced.
 
 ``` r
-options(
-  anon.pattern_list = list(
+anon_options(
+  pattern_list = list(
     DARK = c("empire", "imperials?", "sith"),
     LIGHT = c("jedi", "rebels?")
   )
@@ -159,7 +203,7 @@ The default options are applied after provided arguments.
 
 ``` r
 anon(
-  a_new_hope_intro, 
+  a_new_hope_intro,
   pattern_list = list("good guy" = "rebel")
 )
 #> [1] "It is a period of civil war."                                                                                                                                                          
@@ -171,28 +215,28 @@ anon(
 Reset the option:
 
 ``` r
-options(anon.pattern_list = NULL)
+anon_options(pattern_list = NULL)
 ```
 
 ### Setting Default Data Frame Behavior
 
-Set the `anon.df_variable_names` and `anon.df_classes` to automatically
-replace content with a constant or result of a function.
+Set `df_variable_names` and `df_classes` to automatically replace
+content with a constant or the result of a function.
 
 ``` r
-options(
-  anon.df_variable_names = list(
+old_options <- anon_options(
+  df_variable_names = list(
     name = anon_id_chr_sequence,
     homeworld = ~ anon_id_chr_sequence(.x, start = "Planet ")
   ),
-  anon.df_classes = list(
+  df_classes = list(
     integer = ~ anon_num_range(.x, n_breaks = 10),
     numeric = anon_num_preserve_distribution
   )
 )
 
-starwars |> 
-  anon() |> 
+starwars |>
+  anon() |>
   glimpse()
 #> Rows: 87
 #> Columns: 14
@@ -215,19 +259,18 @@ starwars |>
 Reset the options:
 
 ``` r
-options(
-  anon.df_variable_names = NULL, 
-  anon.df_classes = NULL
+old_options <- anon_options(
+  df_variable_names = NULL,
+  df_classes = NULL
 )
 ```
 
-### Setting Default Replacements
+### Setting a Default Replacement
 
-Set the `anon.default_replacement` global option to define a fallback
-replacement.
+Set `default_replacement` to define a fallback replacement.
 
 ``` r
-options(anon.default_replacement = "[HIDDEN]")
+old_options <- anon_options(default_replacement = "[HIDDEN]")
 
 anon(
   a_new_hope_intro,
@@ -242,15 +285,15 @@ anon(
 Reset the option:
 
 ``` r
-options(anon.default_replacement = NULL)
+old_options <- anon_options(default_replacement = NULL)
 ```
 
 ### Setting Default NLP Entity Replacements
 
-Set the `anon.nlp_default_replacements` global option to define
-replacement values for different entity types. Use
+Set `nlp_default_replacements` to define replacement values for
+different entity types. Use
 [`nlp_default_replacements()`](reference/nlp_default_replacements.md) to
-create the list input for the option.
+create the list input.
 
 ``` r
 # View the default replacement values for all entity types
@@ -279,12 +322,12 @@ str(nlp_default_replacements())
 # Customize specific replacements
 my_replacements <- nlp_default_replacements(
   person = "[NAME]",
-  org = "[GROUP]", 
+  org = "[GROUP]",
   gpe = "[LOCATION]",
   propn = "[PROPER_NOUN]"
 )
 
-options(anon.nlp_default_replacements = my_replacements)
+old_options <- anon_options(nlp_default_replacements = my_replacements)
 
 anon_nlp_entities(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                                       
@@ -296,14 +339,14 @@ anon_nlp_entities(a_new_hope_intro)
 Reset the option:
 
 ``` r
-options(anon.nlp_default_replacements = NULL)
+old_options <- anon_options(nlp_default_replacements = NULL)
 ```
 
 ### Enabling Automatic NLP Entity Anonymization
 
-Set the `anon.nlp_auto` global option to control which entity types are
-automatically anonymized. Use [`nlp_auto()`](reference/nlp_auto.md) to
-create the list input for the option.
+Set `nlp_auto` to control which entity types are automatically
+anonymized. Use [`nlp_auto()`](reference/nlp_auto.md) to create the list
+input.
 
 ``` r
 # View default auto-anonymization settings (all FALSE by default)
@@ -354,7 +397,7 @@ str(nlp_auto(default = TRUE))
 
 # Enable only specific entity types
 my_auto_settings <- nlp_auto(person = TRUE, org = TRUE, gpe = TRUE, propn = TRUE)
-options(anon.nlp_auto = my_auto_settings)
+old_options <- anon_options(nlp_auto = my_auto_settings)
 
 anon(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                           
@@ -366,7 +409,104 @@ anon(a_new_hope_intro)
 Reset the option:
 
 ``` r
-options(anon.nlp_auto = NULL)
+old_options <- anon_options(nlp_auto = NULL)
+```
+
+### Setting Default Data Summary Examples
+
+Set `example_values_n` and `example_rows` to control the default example
+content used by [`anon_data_summary()`](reference/anon_data_summary.md),
+[`anon_report()`](reference/anon_report.md), and the Shiny app’s initial
+data-summary settings. Use
+[`anon_example_rows()`](reference/anon_example_rows.md) to create the
+row-example specification.
+
+``` r
+old_options <- anon_options(
+  example_values_n = 3,
+  example_rows = anon_example_rows(
+    n = 2,
+    key = "homeworld",
+    method = "random",
+    n_key_values = 2,
+    seed = 11
+  )
+)
+
+anon_data_summary(list(starwars = starwars))
+#> Environment Data Summary
+#> ========================
+#> 
+#>   total_objects data_frames other_objects total_memory
+#> 1             1           1             0        57440
+#> 
+#> Data Frames:
+#> ------------
+#>       name       type n_rows n_cols memory_size
+#> 1 starwars data.frame     87     14     56.1 Kb
+#> 
+#> 
+#> Variable Details (starwars):
+#> 
+#> -------------------------- 
+#>      variable data_type n_distinct n_missing n_total pct_missing label
+#> 1        name character         87         0      87        0.00  <NA>
+#> 2      height   integer         45         6      87        6.90  <NA>
+#> 3        mass   numeric         38        28      87       32.18  <NA>
+#> 4  hair_color character         11         5      87        5.75  <NA>
+#> 5  skin_color character         31         0      87        0.00  <NA>
+#> 6   eye_color character         15         0      87        0.00  <NA>
+#> 7  birth_year   numeric         36        44      87       50.57  <NA>
+#> 8         sex character          4         4      87        4.60  <NA>
+#> 9      gender character          2         4      87        4.60  <NA>
+#> 10  homeworld character         48        10      87       11.49  <NA>
+#> 11    species character         37         4      87        4.60  <NA>
+#> 12      films      list         24         0      87        0.00  <NA>
+#> 13   vehicles      list         11         0      87        0.00  <NA>
+#> 14  starships      list         16         0      87        0.00  <NA>
+#>                    example_values
+#> 1  Luke Skywalker | C-3PO | R2-D2
+#> 2                                
+#> 3                                
+#> 4            blond | none | brown
+#> 5       fair | gold | white, blue
+#> 6             blue | yellow | red
+#> 7                                
+#> 8            male | none | female
+#> 9            masculine | feminine
+#> 10    Tatooine | Naboo | Alderaan
+#> 11        Human | Droid | Wookiee
+#> 12                               
+#> 13                               
+#> 14                               
+#> 
+#> 
+#> Example Scenario 1 (homeworld = Aleen Minor): 
+#> --------------------------------------------- 
+#> 
+#> starwars:
+#>           name height mass hair_color skin_color eye_color birth_year  sex
+#> 1 Ratts Tyerel     79   15       none grey, blue   unknown         NA male
+#>      gender   homeworld species              films vehicles starships
+#> 1 masculine Aleen Minor  Aleena The Phantom Menace                   
+#> 
+#> Example Scenario 2 (homeworld = Quermia): 
+#> ----------------------------------------- 
+#> 
+#> starwars:
+#>          name height mass hair_color skin_color eye_color birth_year  sex
+#> 1 Yarael Poof    264   NA       none      white    yellow         NA male
+#>      gender homeworld  species              films vehicles starships
+#> 1 masculine   Quermia Quermian The Phantom Menace
+```
+
+Reset the options:
+
+``` r
+old_options <- anon_options(
+  example_values_n = NULL,
+  example_rows = NULL
+)
 ```
 
 ## Automatic NLP-Powered Anonymization
@@ -435,33 +575,12 @@ anon_data_summary()
 #> ========================
 #> 
 #>   total_objects data_frames other_objects total_memory
-#> 1             6           2             4       122944
+#> 1             1           1             0        57440
 #> 
 #> Data Frames:
 #> ------------
-#>            name       type n_rows n_cols memory_size
-#> 1 anon_starwars data.frame     87     14     56.6 Kb
-#> 2      starwars data.frame     87     14     56.1 Kb
-#> 
-#> 
-#> Variable Details (anon_starwars):
-#> 
-#> ------------------------------- 
-#>      variable data_type n_distinct n_missing n_total pct_missing label
-#> 1        name character         87         0      87        0.00  <NA>
-#> 2      height character         10         6      87        6.90  <NA>
-#> 3        mass   numeric         30        28      87       32.18  <NA>
-#> 4  hair_color character         11         5      87        5.75  <NA>
-#> 5  skin_color character         31         0      87        0.00  <NA>
-#> 6   eye_color character         15         0      87        0.00  <NA>
-#> 7  birth_year   numeric         32        44      87       50.57  <NA>
-#> 8         sex character          4         4      87        4.60  <NA>
-#> 9      gender character          2         4      87        4.60  <NA>
-#> 10  homeworld character         48        10      87       11.49  <NA>
-#> 11    species character         37         4      87        4.60  <NA>
-#> 12      films      list         24         0      87        0.00  <NA>
-#> 13   vehicles      list         11         0      87        0.00  <NA>
-#> 14  starships      list         16         0      87        0.00  <NA>
+#>       name       type n_rows n_cols memory_size
+#> 1 starwars data.frame     87     14     56.1 Kb
 #> 
 #> 
 #> Variable Details (starwars):
@@ -482,20 +601,6 @@ anon_data_summary()
 #> 12      films      list         24         0      87        0.00  <NA>
 #> 13   vehicles      list         11         0      87        0.00  <NA>
 #> 14  starships      list         16         0      87        0.00  <NA>
-#> 
-#> 
-#> Other Objects:
-#> --------------
-#>               name      type length n_distinct n_missing pct_missing
-#> 1 a_new_hope_intro character      4          4         0           0
-#> 2     names_vector character      4          3         0           0
-#> 3 my_auto_settings      list     19         NA        NA          NA
-#> 4  my_replacements      list     19         NA        NA          NA
-#>   memory_size element_types
-#> 1   800 bytes          <NA>
-#> 2   248 bytes          <NA>
-#> 3      2.6 Kb       logical
-#> 4      3.7 Kb     character
 ```
 
 ## Pattern Detection Warnings

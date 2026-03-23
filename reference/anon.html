@@ -183,8 +183,23 @@ anonymized objects using <code><a href="https://rdrr.io/r/base/c.html" class="ex
 <dd><p>List of logical values indicating which NLP entity types should be
 automatically anonymized. Use <code><a href="nlp_auto.html">nlp_auto()</a></code> to generate this list. Override the option by setting the <code>nlp_auto</code> argument.</p></dd>
 
+<dt><code>anon.nlp_default_replacements</code></dt>
+<dd><p>Default NLP replacement labels. Use
+<code><a href="nlp_default_replacements.html">nlp_default_replacements()</a></code> to generate this list.</p></dd>
 
-</dl><p>To set global options:</p>
+<dt><code>anon.example_values_n</code></dt>
+<dd><p>Default <code>example_values_n</code> used by <code><a href="anon_data_summary.html">anon_data_summary()</a></code>
+and <code><a href="anon_report.html">anon_report()</a></code>.</p></dd>
+
+<dt><code>anon.example_rows</code></dt>
+<dd><p>Default <code>example_rows</code> specification used by
+<code><a href="anon_data_summary.html">anon_data_summary()</a></code> and <code><a href="anon_report.html">anon_report()</a></code>. Use <code><a href="anon_example_rows.html">anon_example_rows()</a></code>
+to generate this value.</p></dd>
+
+
+</dl><p>See <code><a href="anon_options.html">anon_options()</a></code> for a central helper that lists and sets all supported
+<code>anon.*</code> options.</p>
+<p>To set global options:</p>
 <p></p><div class="sourceCode r"><pre><code><span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="st">"EMAIL"</span> <span class="op">=</span> <span class="st">"@\\S+"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.df_variable_names <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"name"</span>, <span class="st">"email"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">options</a></span><span class="op">(</span>anon.default_replacement <span class="op">=</span> <span class="st">"[HIDDEN]"</span><span class="op">)</span></span>

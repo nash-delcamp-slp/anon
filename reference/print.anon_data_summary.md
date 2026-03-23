@@ -2,8 +2,8 @@
 
 Displays an anonymized environment summary in a structured, readable
 format. The output includes overall statistics, data frame structural
-information, variable details, and information about other objects (if
-present).
+information, variable details, optional example payloads, and
+information about other objects (if present).
 
 ## Usage
 
@@ -40,7 +40,10 @@ The print method displays information in the following order:
 3.  **Variable Details**: Detailed information about variables within
     data frames
 
-4.  **Other Objects**: Information about non-data frame objects
+4.  **Examples**: Optional sample rows or keyed scenarios when
+    configured
+
+5.  **Other Objects**: Information about non-data frame objects
 
 All displayed content respects the anonymization patterns applied during
 the creation of the summary object.

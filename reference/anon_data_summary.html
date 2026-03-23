@@ -54,6 +54,8 @@ information through pattern-based redaction.</p>
 <span>  selection <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  default_replacement <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.default_replacement"</span>, default <span class="op">=</span> <span class="st">"[REDACTED]"</span><span class="op">)</span>,</span>
+<span>  example_values_n <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.example_values_n"</span>, default <span class="op">=</span> <span class="fl">0</span><span class="op">)</span>,</span>
+<span>  example_rows <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.example_rows"</span><span class="op">)</span>,</span>
 <span>  check_approximate <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  max_distance <span class="op">=</span> <span class="fl">2</span>,</span>
 <span>  nlp_auto <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.nlp_auto"</span><span class="op">)</span></span>
@@ -86,6 +88,19 @@ This parameter is combined with the global option <code>getOption("anon.pattern_
 is provided. Default is <code>getOption("anon.default_replacement", default = "\[REDACTED\]")</code>.</p></dd>
 
 
+<dt id="arg-example-values-n">example_values_n<a class="anchor" aria-label="anchor" href="#arg-example-values-n"></a></dt>
+<dd><p>Optional number of example unique values to include for
+discrete/text-like data frame columns. Defaults to <code>0</code>, which disables
+example values.</p></dd>
+
+
+<dt id="arg-example-rows">example_rows<a class="anchor" aria-label="anchor" href="#arg-example-rows"></a></dt>
+<dd><p>Optional example-row specification for data frames.
+Use <code>NULL</code> to disable examples, a single number to request that many rows
+per data frame, or <code><a href="anon_example_rows.html">anon_example_rows()</a></code> to build a spec with explicit
+arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>.</p></dd>
+
+
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
 <dd><p>Logical indicating whether to check for approximate
 matches using string distance. Default is <code>TRUE</code>.</p></dd>
@@ -109,8 +124,10 @@ other objects count, total memory usage)</p></li>
 <li><p><code>$data_frames</code>: A list with two elements (only present if data frames exist):</p><ul><li><p><code>$structure</code>: A tibble with structural information for each data frame
 (name, label, dimensions, memory size)</p></li>
 <li><p><code>$variables</code>: A tibble with detailed variable information including data types,
-missing values, distinct values, and labels</p></li>
+missing values, distinct values, labels, and optional example values</p></li>
 </ul></li>
+<li><p><code>$examples</code>: Optional data frame example payloads containing either sample
+rows per data frame or one or more keyed cross-source scenarios</p></li>
 <li><p>All content is anonymized according to the specified patterns</p></li>
 </ul></div>
     <div class="section level2">
@@ -119,7 +136,10 @@ missing values, distinct values, and labels</p></li>
 <li><p>Creates structured output with summary statistics and detailed information about data frames</p></li>
 <li><p>Applies anonymization using <code><a href="anon.html">anon()</a></code> with the provided patterns</p></li>
 </ol><p>For data frames, the function captures:</p><ul><li><p>Structural information: dimensions, memory usage, and data frame-level labels</p></li>
-<li><p>Variable details: data types, missing value counts, distinct value counts, and variable labels</p></li>
+<li><p>Variable details: data types, missing value counts, distinct value counts,
+variable labels, and optional example values</p></li>
+<li><p>Optional example payloads: either sample rows or one or more keyed
+cross-source scenarios when configured</p></li>
 </ul><p>The output includes a custom print method that displays the information in a
 readable format while maintaining the anonymization.</p>
     </div>
@@ -160,7 +180,9 @@ readable format while maintaining the anonymization.</p>
 <span class="r-in"><span>      <span class="st">"STUDY_A"</span> <span class="op">=</span> <span class="va">study_metadata</span><span class="op">$</span><span class="va">primary_study</span>,    <span class="co"># "ABC123"</span></span></span>
 <span class="r-in"><span>      <span class="st">"STUDY_B"</span> <span class="op">=</span> <span class="va">study_metadata</span><span class="op">$</span><span class="va">secondary_study</span>,  <span class="co"># "CBA321"</span></span></span>
 <span class="r-in"><span>      <span class="st">"MEDICAL_CENTER"</span> <span class="op">=</span> <span class="st">"Boston Medical Center"</span></span></span>
-<span class="r-in"><span>    <span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    example_values_n <span class="op">=</span> <span class="fl">2</span>,</span></span>
+<span class="r-in"><span>    example_rows <span class="op">=</span> <span class="fu"><a href="anon_example_rows.html">anon_example_rows</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">2</span>, method <span class="op">=</span> <span class="st">"random"</span>, seed <span class="op">=</span> <span class="fl">42</span><span class="op">)</span></span></span>
 <span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Environment Data Summary</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ========================</span>
@@ -184,7 +206,24 @@ readable format while maintaining the anonymization.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 4   STUDY_B_RESULT   numeric          3         0       3           0  &lt;NA&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 5 STUDY_B_BASELINE   numeric          3         0       3           0  &lt;NA&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 6              age   numeric          3         0       3           0  &lt;NA&gt;</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   example_values</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1    P001 | P002</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2               </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 3               </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 4               </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 5               </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 6               </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Example Rows (study_results):</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> ----------------------------- </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   participant_id ABC123_RESULT ABC123_BASELINE CBA321_RESULT CBA321_BASELINE</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1           P001          85.2            80.0          45.1            42.0</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 3           P003          78.5            75.2          41.8            39.5</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   age</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1  45</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 3  67</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Other Objects:</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> --------------</span>

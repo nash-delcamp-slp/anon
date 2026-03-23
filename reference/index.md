@@ -18,6 +18,11 @@
 
 - [`anon_email()`](anon_email.md) : Anonymize email addresses
 
+- [`anon_example_rows()`](anon_example_rows.md) :
+
+  Build an example-row specification for
+  [`anon_data_summary()`](../reference/anon_data_summary.md)
+
 - [`anon_id_chr_sequence()`](anon_id_chr_sequence.md) : Convert unique
   identifiers to sequential character IDs
 
@@ -44,6 +49,9 @@
 - [`anon_num_range()`](anon_num_range.md) : Convert numeric values into
   range categories
 
+- [`anon_options()`](anon_options.md) : Get or set package options used
+  by anon
+
 - [`anon_phone_number()`](anon_phone_number.md) : Anonymize phone
   numbers
 
@@ -52,6 +60,11 @@
 
 - [`anon_report()`](anon_report.md) : Build an anonymized report for
   selected objects
+
+- [`as_anon_json()`](as_anon_json.md) : Serialize anon objects as JSON
+
+- [`as_anon_payload()`](as_anon_payload.md) : Build structured anon
+  payloads
 
 - [`c(`*`<anon_context>`*`)`](c.anon_context.md) : Combine anon_context
   objects
