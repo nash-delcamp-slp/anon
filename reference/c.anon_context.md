@@ -28,7 +28,6 @@ An anon_context_collection object containing all input objects
 ``` r
 df <- data.frame(name = c("John", "Jane"), age = c(25, 30))
 anon_df <- anon(df, pattern_list = c("John", "Jane"))
-#> Warning: Potential approximate match: 'name' is similar to pattern 'Jane'
 summary_obj <- anon_data_summary(list(df = df))
 combined <- c(anon_df, summary_obj)
 print(combined)

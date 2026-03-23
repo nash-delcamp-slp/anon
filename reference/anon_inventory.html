@@ -42,7 +42,7 @@
 <span>  selection <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  pattern_list <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  default_replacement <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.default_replacement"</span>, default <span class="op">=</span> <span class="st">"[REDACTED]"</span><span class="op">)</span>,</span>
-<span>  check_approximate <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  check_approximate <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.check_approximate"</span>, default <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span>
 <span>  max_distance <span class="op">=</span> <span class="fl">2</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -73,7 +73,8 @@ is provided. Default is <code>getOption("anon.default_replacement", default = "\
 
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
 <dd><p>Logical indicating whether to check for approximate
-matches using string distance. Default is <code>TRUE</code>.</p></dd>
+matches using string distance. Default is
+<code>getOption("anon.check_approximate", default = FALSE)</code>.</p></dd>
 
 
 <dt id="arg-max-distance">max_distance<a class="anchor" aria-label="anchor" href="#arg-max-distance"></a></dt>

@@ -13,7 +13,7 @@ anon(
   x,
   pattern_list = list(),
   default_replacement = getOption("anon.default_replacement", default = "[REDACTED]"),
-  check_approximate = TRUE,
+  check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
   df_variable_names = NULL,
   df_classes = NULL,
@@ -53,7 +53,8 @@ anon(
 - check_approximate:
 
   Logical indicating whether to check for approximate matches using
-  string distance. Default is `TRUE`.
+  string distance. Default is
+  `getOption("anon.check_approximate", default = FALSE)`.
 
 - max_distance:
 
