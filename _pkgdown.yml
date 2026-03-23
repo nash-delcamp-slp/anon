@@ -3,9 +3,10 @@ template:
   bootstrap: 5
 navbar:
   structure:
-    left: [intro, reference, benchmarks, news]
+    left: [intro, reference, news]
+    right: [search, github, benchmarks]
   components:
     benchmarks:
-      text: Benchmarks
+      icon: fa-gauge-high
       href: bench/index.html
-
+      aria-label: Benchmarks
