@@ -5,6 +5,7 @@
 
 <!-- badges: start -->
 
+[![coverage](https://img.shields.io/endpoint?url=https://nash-delcamp-slp.github.io/anon/coverage.json)](https://github.com/nash-delcamp-slp/anon/actions/workflows/pkgdown.yml)
 <!-- badges: end -->
 
 The anon package provides comprehensive tools for anonymizing sensitive

@@ -17,6 +17,7 @@ set.seed(1234)
 # anon <a href="https://nash-delcamp-slp.github.io/anon/"><img src="man/figures/logo.png" align="right" height="139" alt="anon logo" /></a>
 
 <!-- badges: start -->
+[![coverage](https://img.shields.io/endpoint?url=https://nash-delcamp-slp.github.io/anon/coverage.json)](https://github.com/nash-delcamp-slp/anon/actions/workflows/pkgdown.yml)
 <!-- badges: end -->
 
 The anon package provides comprehensive tools for anonymizing sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.

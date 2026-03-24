@@ -44,7 +44,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::bench, any::ggplot2, any::pkgdown, any::pkgload, local::.
+          extra-packages: any::bench, any::covr, any::ggplot2, any::pkgdown, any::pkgload, local::.
           needs: website
 
       - name: Restore benchmark history
@@ -103,3 +103,62 @@ jobs:
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git commit -m "Update benchmark site"
           git push origin HEAD:gh-pages
+
+      - name: Compute coverage
+        run: |
+          cov <- covr::package_coverage(
+            quiet = FALSE,
+            clean = FALSE,
+            install_path = file.path(normalizePath(Sys.getenv("RUNNER_TEMP"), winslash = "/"), "package")
+          )
+          print(cov)
+          pct <- round(covr::percent_coverage(cov), 1)
+          if (pct >= 90) {
+            color <- "brightgreen"
+          } else if (pct >= 80) {
+            color <- "yellowgreen"
+          } else if (pct >= 70) {
+            color <- "yellow"
+          } else if (pct >= 50) {
+            color <- "orange"
+          } else {
+            color <- "red"
+          }
+          json <- sprintf(
+            '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}',
+            pct, color
+          )
+          writeLines(json, "coverage.json")
+          cat("Coverage:", pct, "%\n")
+        shell: Rscript {0}
+
+      - name: Publish coverage badge
+        shell: bash
+        run: |
+          git fetch origin gh-pages
+          tmp_dir="$(mktemp -d)"
+          git worktree add -B gh-pages-cov "$tmp_dir" origin/gh-pages
+          cp coverage.json "$tmp_dir/coverage.json"
+          cd "$tmp_dir"
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "No coverage change."
+            exit 0
+          fi
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git commit -m "Update coverage badge"
+          git push origin HEAD:gh-pages
+
+      - name: Show testthat output
+        if: always()
+        run: |
+          find '${{ runner.temp }}/package' -name 'testthat.Rout*' -exec cat '{}' \; || true
+        shell: bash
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-test-failures
+          path: ${{ runner.temp }}/package
