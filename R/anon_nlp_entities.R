@@ -236,6 +236,9 @@ whole_value_suffix <- "(?![[:alnum:]])(?![.,][0-9])"
 
 # ISO 8601 date and time patterns used alongside spaCy for DATE and TIME.
 # Dates need at least year and month (YYYY-MM); a bare year is not matched.
+# Times follow the whole-value boundary rule, except that the time part of a
+# date-time ("2021-03-14T08:30") matches after its "T" when DATE is not also
+# being redacted.
 iso8601_patterns <- function(entity_type) {
   switch(
     entity_type,
@@ -247,9 +250,10 @@ iso8601_patterns <- function(entity_type) {
       "(?![[:alnum:]])"
     ),
     TIME = paste0(
-      "(?<![0-9:])",
+      "(?:(?<=[0-9]T)|(?<![[:alnum:]:])(?<![0-9][.,]))",
       "(?:[01]?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]+)?)?",
-      "(?![0-9:])"
+      "(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?",
+      "(?![[:alnum:]:])(?![.,][0-9])"
     ),
     character(0)
   )

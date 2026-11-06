@@ -358,3 +358,51 @@ test_that("NLP text source skips columns that are replaced wholesale", {
   src <- anon:::nlp_text_source(list(a = df), list(id = "X"), NULL)
   expect_named(src$a, c("conc", "note"))
 })
+
+test_that("numbered backreferences in user patterns keep their meaning", {
+  result <- anon(c("112", "123"), pattern_list = list(X = "([0-9])\\1"))
+  expect_equal(as.character(result), c("X2", "123"))
+
+  result <- anon(
+    c("foo 112", "abab 99"),
+    pattern_list = list(A = "foo", X = c("(ab)\\1", "([0-9])\\1"))
+  )
+  expect_equal(as.character(result), c("A X2", "X X"))
+
+  expect_equal(
+    anon:::shift_backreferences("([0-9])\\1 \\\\1", 3L),
+    "([0-9])\\4 \\\\1"
+  )
+})
+
+test_that("TIME pattern respects whole-value boundaries", {
+  result <- anon(
+    c("A08:30B", "08:30", "2021-03-14T08:30", "08:30Z", "1.08:30"),
+    pattern_list = list("[TIME]" = anon:::iso8601_patterns("TIME"))
+  )
+  expect_equal(
+    as.character(result),
+    c("A08:30B", "[TIME]", "2021-03-14T[TIME]", "[TIME]", "1.08:30")
+  )
+})
+
+test_that("POSIXct matching handles ISO offsets and rejects invalid values", {
+  times <- anon:::parse_iso8601_datetime(
+    c("2021-03-14", "2021-03-14T08:00", "2021-03-14T08:00:00Z",
+      "2021-03-14T08:00:00.5+02:00", "2021-03-14T08:00-0500", "2021-99-99T08:00")
+  )
+  expect_equal(
+    format(times, "%Y-%m-%d %H:%M:%OS1"),
+    c("2021-03-14 00:00:00.0", "2021-03-14 08:00:00.0", "2021-03-14 08:00:00.0",
+      "2021-03-14 06:00:00.5", "2021-03-14 13:00:00.0", NA)
+  )
+
+  df <- data.frame(
+    tz = c("2021-03-14T08:00:00Z", "2021-03-14T08:00:00.5+02:00"),
+    bad = c("2021-99-99T08:00", "2021-03-14"),
+    stringsAsFactors = FALSE
+  )
+  result <- anon(df, df_classes = "POSIXct", default_replacement = "X")
+  expect_equal(result$tz, c("X", "X"))
+  expect_equal(result$bad, df$bad)
+})

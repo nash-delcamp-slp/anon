@@ -577,7 +577,10 @@ parse_character_as <- function(x, cls) {
   }
 
   iso_date <- "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-  iso_datetime <- "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?$"
+  iso_datetime <- paste0(
+    "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?",
+    "(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$"
+  )
 
   parsed <- switch(
     cls,
@@ -597,7 +600,7 @@ parse_character_as <- function(x, cls) {
     },
     date = {
       dates <- if (all(grepl(iso_date, values))) {
-        as.Date(values, format = "%Y-%m-%d")
+        as.Date(values, format = "%Y-%m-%d", optional = TRUE)
       }
       if (!is.null(dates) && !anyNA(dates)) dates else NULL
     },
@@ -606,11 +609,7 @@ parse_character_as <- function(x, cls) {
       is_date <- grepl(iso_date, values)
       is_datetime <- grepl(iso_datetime, values)
       if (all(is_date | is_datetime) && any(is_datetime)) {
-        times <- as.POSIXct(
-          values,
-          tz = "UTC",
-          tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
-        )
+        times <- parse_iso8601_datetime(values)
         if (!anyNA(times)) times else NULL
       }
     },
@@ -624,6 +623,19 @@ parse_character_as <- function(x, cls) {
   out <- rep(parsed[NA_integer_], length(x))
   out[present] <- parsed
   out
+}
+
+# Parse ISO 8601 dates and date-times (optional seconds, fractional seconds and
+# UTC offset) to POSIXct in UTC, keeping the instant each value represents.
+# Values without an offset are read as UTC. Unparseable values become NA.
+parse_iso8601_datetime <- function(x) {
+  x <- sub("^([0-9]{4}-[0-9]{2}-[0-9]{2})$", "\\1T00:00:00", x)
+  x <- sub("(T[0-9]{2}:[0-9]{2})(?=$|[Z+-])", "\\1:00", x, perl = TRUE)
+  x <- sub("Z$", "+0000", x)
+  x <- sub("([+-][0-9]{2}):?([0-9]{2})$", "\\1\\2", x)
+  x <- sub("(T[0-9:.]+)([+-][0-9]{2})$", "\\1\\200", x)
+  x <- ifelse(grepl("[+-][0-9]{4}$", x), x, paste0(x, "+0000"))
+  as.POSIXct(strptime(x, "%Y-%m-%dT%H:%M:%OS%z", tz = "UTC"))
 }
 
 # Whether a data frame column is replaced wholesale by df_variable_names or
@@ -706,6 +718,19 @@ compile_patterns <- function(pattern_replacements) {
     )
   }
 
+  # Each named wrapper is itself a numbered capture group, so numbered
+  # backreferences in user patterns are shifted by the number of capture
+  # groups that open before that pattern in the combined regex.
+  opened <- 0L
+  for (i in seq_along(groups)) {
+    opened <- opened + 1L
+    for (j in seq_along(groups[[i]]$patterns)) {
+      pattern <- groups[[i]]$patterns[[j]]
+      groups[[i]]$patterns[[j]] <- shift_backreferences(pattern, opened)
+      opened <- opened + count_capture_groups(pattern)
+    }
+  }
+
   regex <- paste0(
     "(?<", group_names, ">",
     vapply(groups, function(g) combine_group_patterns(g$patterns), character(1)),
@@ -747,6 +772,31 @@ combine_group_patterns <- function(patterns) {
     }
   }
   paste(pieces, collapse = "|")
+}
+
+# Number of capture groups in a valid regex, as counted by ICU.
+count_capture_groups <- function(pattern) {
+  ncol(stringi::stri_match_first_regex("", pattern)) - 1L
+}
+
+# Add `shift` to every numbered backreference (\\1, \\2, ...) in a regex.
+# A backslash that is itself escaped (\\\\1) is not a backreference.
+shift_backreferences <- function(pattern, shift) {
+  if (shift == 0L || !grepl("\\\\[1-9]", pattern)) {
+    return(pattern)
+  }
+  locs <- stringi::stri_locate_all_regex(pattern, "(?<!\\\\)(?:\\\\\\\\)*\\\\[1-9][0-9]*")[[1]]
+  pieces <- stringi::stri_sub(pattern, locs[, "start"], locs[, "end"])
+  shifted <- vapply(
+    pieces,
+    function(piece) {
+      digits <- sub("^.*\\\\", "", piece)
+      paste0(substr(piece, 1, nchar(piece) - nchar(digits)), as.integer(digits) + shift)
+    },
+    character(1),
+    USE.NAMES = FALSE
+  )
+  stringi::stri_sub_replace_all(pattern, locs[, "start"], locs[, "end"], replacement = shifted)
 }
 
 # Return a pattern unchanged if it compiles as a regular expression, otherwise
