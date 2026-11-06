@@ -94,8 +94,15 @@ anon_report(
     `default_replacement`
 
   - Named elements: class names are keys, value can be either a
-    replacement value or a function This parameter is combined with the
-    global option `getOption("anon.df_classes")`.
+    replacement value or a function Class names are matched
+    case-insensitively against
+    [`class()`](https://rdrr.io/r/base/class.html) of each column.
+    `"double"` also matches plain double columns (not `Date` or
+    `POSIXct`). Character columns also match `"double"`/`"numeric"`,
+    `"integer"`, `"Date"` or `"POSIXct"` when every non-missing,
+    non-blank value parses as that type (dates as ISO 8601); a
+    replacement function then receives the parsed values. This parameter
+    is combined with the global option `getOption("anon.df_classes")`.
 
 - check_names:
 

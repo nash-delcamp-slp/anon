@@ -55,10 +55,19 @@ replaced according to the anonymization workflow.
 These functions:
 
 1.  Use NLP to extract potentially sensitive information of the
-    specified type
+    specified type from the distinct text values. Values without letters
+    or digits and hexadecimal identifiers are not sent to the NLP model.
 
-2.  Extend patterns using [`more_patterns`](more_patterns.md) for
-    comprehensive matching
+2.  Turn each entity into a pattern that matches only as a whole value
+    (not preceded or followed by a letter, a digit, or a decimal
+    separator next to a digit). For name-like entity types (`"PERSON"`,
+    `"ORG"`, `"NORP"`, `"FAC"`, `"GPE"`, `"LOC"`, `"PRODUCT"`,
+    `"EVENT"`, `"WORK_OF_ART"`, `"PROPN"`), each word of the entity is
+    also matched as a whole word, excluding stopwords and number-only
+    words. A name part that is also a common word (e.g. "Grace") is then
+    redacted wherever that word appears. For `"DATE"` and `"TIME"`, ISO
+    8601 dates (`YYYY-MM`, `YYYY-MM-DD`, with optional time) and times
+    (`HH:MM`, `HH:MM:SS`) are also matched by pattern.
 
 3.  Apply [`anon`](anon.md) to anonymize the identified patterns
 

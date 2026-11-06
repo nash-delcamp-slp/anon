@@ -10,6 +10,7 @@ You can install the development version of anon from
 [GitHub](https://github.com/) with:
 
 ``` r
+
 # install.packages("pak")
 pak::pak("nash-delcamp-slp/anon")
 ```
@@ -17,12 +18,14 @@ pak::pak("nash-delcamp-slp/anon")
 ## Loading the Package
 
 ``` r
+
 library(anon)
 ```
 
 Example data:
 
 ``` r
+
 library(dplyr)
 #> 
 #> Attaching package: 'dplyr'
@@ -50,6 +53,7 @@ support anonymization of various R objects.
 ### Vector Anonymization
 
 ``` r
+
 # Character sequence anonymization - preserves unique mappings
 names_vector <- c("John", "Paul", "John", "Keith")
 anon_id_chr_sequence(names_vector)
@@ -74,6 +78,7 @@ anon_num_range(starwars$mass, n_breaks = 10) |>
 ### Data Frame Anonymization
 
 ``` r
+
 anon_starwars <- starwars |> 
   anon(
     # Pattern-based text replacement
@@ -119,6 +124,7 @@ environment, selecting objects for a report, cleaning text, and building
 anonymized prompt context.
 
 ``` r
+
 library(anon)
 library(dplyr)
 
@@ -155,6 +161,7 @@ directly, but the examples below use
 options are configured in one consistent way.
 
 ``` r
+
 anon_options()
 #> $anon.default_replacement
 #> NULL
@@ -186,6 +193,7 @@ anon_options()
 Set `pattern_list` to define patterns that should always be replaced.
 
 ``` r
+
 anon_options(
   pattern_list = list(
     DARK = c("empire", "imperials?", "sith"),
@@ -202,6 +210,7 @@ anon(a_new_hope_intro)
 The default options are applied after provided arguments.
 
 ``` r
+
 anon(
   a_new_hope_intro,
   pattern_list = list("good guy" = "rebel")
@@ -215,6 +224,7 @@ anon(
 Reset the option:
 
 ``` r
+
 anon_options(pattern_list = NULL)
 ```
 
@@ -224,6 +234,7 @@ Set `df_variable_names` and `df_classes` to automatically replace
 content with a constant or the result of a function.
 
 ``` r
+
 old_options <- anon_options(
   df_variable_names = list(
     name = anon_id_chr_sequence,
@@ -259,6 +270,7 @@ starwars |>
 Reset the options:
 
 ``` r
+
 old_options <- anon_options(
   df_variable_names = NULL,
   df_classes = NULL
@@ -270,6 +282,7 @@ old_options <- anon_options(
 Set `default_replacement` to define a fallback replacement.
 
 ``` r
+
 old_options <- anon_options(default_replacement = "[HIDDEN]")
 
 anon(
@@ -285,6 +298,7 @@ anon(
 Reset the option:
 
 ``` r
+
 old_options <- anon_options(default_replacement = NULL)
 ```
 
@@ -296,6 +310,7 @@ different entity types. Use
 create the list input.
 
 ``` r
+
 # View the default replacement values for all entity types
 str(nlp_default_replacements())
 #> List of 19
@@ -339,6 +354,7 @@ anon_nlp_entities(a_new_hope_intro)
 Reset the option:
 
 ``` r
+
 old_options <- anon_options(nlp_default_replacements = NULL)
 ```
 
@@ -349,6 +365,7 @@ anonymized. Use [`nlp_auto()`](reference/nlp_auto.md) to create the list
 input.
 
 ``` r
+
 # View default auto-anonymization settings (all FALSE by default)
 str(nlp_auto())
 #> List of 19
@@ -409,6 +426,7 @@ anon(a_new_hope_intro)
 Reset the option:
 
 ``` r
+
 old_options <- anon_options(nlp_auto = NULL)
 ```
 
@@ -422,6 +440,7 @@ data-summary settings. Use
 row-example specification.
 
 ``` r
+
 old_options <- anon_options(
   example_values_n = 3,
   example_rows = anon_example_rows(
@@ -503,6 +522,7 @@ anon_data_summary(list(starwars = starwars))
 Reset the options:
 
 ``` r
+
 old_options <- anon_options(
   example_values_n = NULL,
   example_rows = NULL
@@ -532,6 +552,7 @@ The package provides specific functions for different entity types:
   anonymize monetary amounts and percentages
 
 ``` r
+
 anon_nlp_entities(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                         
 #> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                            
@@ -570,6 +591,7 @@ The [`anon_data_summary()`](reference/anon_data_summary.md) function
 provides an anonymized overview of the data in your environment:
 
 ``` r
+
 anon_data_summary()
 #> Environment Data Summary
 #> ========================
@@ -611,6 +633,7 @@ it with `check_approximate = TRUE` or globally with
 `options(anon.check_approximate = TRUE)`.
 
 ``` r
+
 starwars |>
   anon(list(
     "blonde", "bleu", "imperials"
