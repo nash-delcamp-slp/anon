@@ -84,21 +84,16 @@ The seed makes this article reproducible. For real data, don't fix the seed,
 and keep `subject_key`, `site_key` and `date_offset` out of anything you share:
 they are what links the anonymized data back to the source.
 
-SDTM dates are ISO 8601 strings with varying precision, so a small helper
-shifts the date part and keeps any time part. Partial dates such as `2014-03`
-cannot be shifted by an exact number of days and are removed.
+SDTM dates are ISO 8601 strings with varying precision. `anon_date_shift()`
+with a fixed `offset` moves each one by exactly that many days and returns it
+in the same format: any time part is kept, and a partial date such as
+`2014-03` keeps its precision.
 
 ```{r shift-dtc}
-shift_dtc <- function(x, days) {
-  out <- x
-  full <- !is.na(x) & grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}", x)
-  shifted <- as.Date(substr(x[full], 1, 10)) + days
-  out[full] <- paste0(format(shifted, "%Y-%m-%d"), substring(x[full], 11))
-  out[!is.na(x) & nzchar(x) & !full] <- ""
-  out
-}
-
-shift_dtc(c("2014-01-02", "2014-01-02T08:30", "2014-03", ""), date_offset)
+anon_date_shift(
+  c("2014-01-02", "2014-01-02T08:30", "2014-03", ""),
+  offset = date_offset
+)
 ```
 
 ## Set the rules as global options
@@ -114,7 +109,7 @@ dtc_vars <- setdiff(dtc_vars, "BRTHDTC")
 dtc_vars
 
 dtc_rules <- setNames(
-  rep(list(~ shift_dtc(.x, date_offset)), length(dtc_vars)),
+  rep(list(~ anon_date_shift(.x, offset = date_offset)), length(dtc_vars)),
   dtc_vars
 )
 
@@ -176,8 +171,9 @@ any(grepl("xanomeline|cdiscpilot|imaginary", shared_text, ignore.case = TRUE))
 ## Write the files to share
 
 The rules have done their job, so restore the previous options before building
-the report. The report then describes the anonymized data as it is, without
-applying the rules a second time.
+the report. The report then describes the anonymized data as it is; applying
+the rules a second time would shift the dates again and fail to look up
+subject IDs that are already pseudonyms.
 
 ```{r restore}
 options(old_options)
@@ -236,7 +232,7 @@ nrow(check_env$pc)
   `nlp_auto()`.
 - Keep the lookups and the date offset private, and don't save them in the
   `.RData` file.
-- Build the report from the anonymized data, as here. Example values and
-  example rows in `anon_report()` and `anon_data_summary()` come from the data
-  you pass in, and only `pattern_list` is applied to them, so passing the raw
-  domains would expose identifiers that `df_variable_names` replaces.
+- `anon_report()` also applies the global rules to its example values and
+  rows, so `anon_report(sdtm)` with the options still set is safe too. Building
+  it from the anonymized copy, as here, guarantees the Markdown file describes
+  exactly what is in the `.RData` file.
