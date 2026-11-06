@@ -25,6 +25,10 @@ anon_inventory <- function(
     objects,
     ~ get_inventory_row(.y, .x)
   )
+  if (length(objects) == 0) {
+    # Keep the inventory columns when there are no objects.
+    inventory <- get_inventory_row("", character(0))[0, ]
+  }
 
   inventory <- anon(
     inventory,

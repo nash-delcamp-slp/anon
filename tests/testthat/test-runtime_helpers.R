@@ -267,3 +267,16 @@ test_that("anon_inventory() handles POSIXlt objects", {
   expect_equal(inventory$has_text, c(FALSE, FALSE))
   expect_equal(inventory$has_labels, c(FALSE, FALSE))
 })
+
+test_that("anon_inventory() keeps its columns when there are no objects", {
+  inventory <- anon_inventory(list())
+  expect_equal(nrow(inventory), 0)
+  expect_named(inventory, names(anon_inventory(list(a = 1))))
+
+  state <- expect_no_warning(anon_app_initial_state(
+    envir = list(),
+    pattern_list = list(),
+    default_replacement = "[REDACTED]"
+  ))
+  expect_equal(nrow(state$inventory), 0)
+})
