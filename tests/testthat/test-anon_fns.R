@@ -557,7 +557,7 @@ test_that("anon_date_shift() handles POSIXct without a time zone and character d
   expect_equal(as.numeric(diff(result), units = "days"), 2)
 
   result <- anon_date_shift(c("2023-01-01", "2023-01-03"), center_date = "2024-06-02")
-  expect_equal(result, as.Date(c("2024-06-01", "2024-06-03")))
+  expect_equal(result, c("2024-06-01", "2024-06-03"))
 })
 
 test_that("anon_num_range() equal_count handles unclean and collapsing breaks", {
@@ -621,4 +621,94 @@ test_that("anon_num_range() equal_count with clean breaks assigns every value a 
 
   result <- anon_num_range(c(x, NA), n_breaks = 2, method = "equal_count", keep_values = FALSE)
   expect_equal(is.na(result), c(rep(FALSE, 6), TRUE))
+})
+
+test_that("anon_date_shift() shifts every value by a fixed offset", {
+  dates <- as.Date(c("2023-01-15", "2023-02-20", NA))
+  expect_equal(
+    anon_date_shift(dates, offset = -10),
+    as.Date(c("2023-01-05", "2023-02-10", NA))
+  )
+
+  times <- as.POSIXct(c("2023-01-15 08:30:00", "2023-01-16 23:45:00"), tz = "UTC")
+  result <- anon_date_shift(times, offset = 3)
+  expect_equal(format(result, "%Y-%m-%d %H:%M:%S"), c("2023-01-18 08:30:00", "2023-01-19 23:45:00"))
+  expect_equal(attr(result, "tzone"), "UTC")
+
+  # Separate columns shifted with the same offset keep the intervals between them
+  dose <- anon_date_shift("2023-01-15T08:00", offset = 100)
+  sample <- anon_date_shift("2023-01-16T09:30", offset = 100)
+  expect_equal(
+    as.numeric(difftime(
+      as.POSIXct(sample, format = "%Y-%m-%dT%H:%M", tz = "UTC"),
+      as.POSIXct(dose, format = "%Y-%m-%dT%H:%M", tz = "UTC"),
+      units = "hours"
+    )),
+    25.5
+  )
+})
+
+test_that("anon_date_shift() validates offset", {
+  expect_error(anon_date_shift(Sys.Date(), offset = c(1, 2)), "single whole number of days")
+  expect_error(anon_date_shift(Sys.Date(), offset = 1.5), "single whole number of days")
+  expect_error(anon_date_shift(Sys.Date(), offset = NA), "single whole number of days")
+  expect_error(anon_date_shift(Sys.Date(), offset = "10"), "single whole number of days")
+  expect_error(anon_date_shift(Sys.Date(), offset = 10, scramble = TRUE), "scramble")
+  expect_equal(
+    anon_date_shift(as.Date("2023-01-15"), offset = as.difftime(2, units = "days")),
+    as.Date("2023-01-17")
+  )
+})
+
+test_that("anon_date_shift() shifts ISO 8601 strings and keeps their precision", {
+  x <- c(
+    "2014-01-02", "2014-01-02T08:30", "2014-01-02T08:30:15", "2014-01-02T08:30:15.5Z",
+    "2014-01-02T08", "", NA
+  )
+  expect_equal(
+    anon_date_shift(x, offset = 30),
+    c("2014-02-01", "2014-02-01T08:30", "2014-02-01T08:30:15", "2014-02-01T08:30:15.5Z",
+      "2014-02-01T08", "", NA)
+  )
+})
+
+test_that("anon_date_shift() shifts or removes partial ISO 8601 dates", {
+  x <- c("2014-03", "2014", "2014-03-10")
+  # The middle of each period moves by the offset; precision is kept
+  expect_equal(anon_date_shift(x, offset = 30), c("2014-04", "2014", "2014-04-09"))
+  expect_equal(anon_date_shift(x, offset = -200), c("2013-08", "2013", "2013-08-22"))
+  expect_equal(anon_date_shift(x, offset = 30, partial = "remove"), c("", "", "2014-04-09"))
+})
+
+test_that("anon_date_shift() removes and warns about values that are not ISO 8601 dates", {
+  expect_warning(
+    result <- anon_date_shift(c("2014-01-02", "2014---15", "unknown"), offset = 1),
+    "2 values are not ISO 8601 dates and were removed"
+  )
+  expect_equal(result, c("2014-01-03", "", ""))
+})
+
+test_that("anon_date_shift() centers character input on center_date", {
+  x <- c("2023-01-01T10:00", "2023-01-03", "2023-01")
+  result <- anon_date_shift(x, center_date = "2024-06-02")
+  expect_equal(result[1:2], c("2024-06-01T10:00", "2024-06-03"))
+  expect_error(anon_date_shift(x, scramble = TRUE), "scramble")
+})
+
+test_that("anon_date_shift() ignores center_date when offset is given", {
+  expect_equal(
+    anon_date_shift(as.Date("2023-01-15"), offset = 1, center_date = "unused"),
+    as.Date("2023-01-16")
+  )
+})
+
+test_that("anon_date_shift() removes date-times with an invalid time part", {
+  expect_warning(
+    result <- anon_date_shift(
+      c("2014-01-02T99:99", "2014-01-02Tunknown", "2014-01-02T08:61", "2014-01-02T23:59:59+05:30"),
+      offset = 1
+    ),
+    "3 values are not ISO 8601 dates and were removed"
+  )
+  expect_equal(result, c("", "", "", "2014-01-03T23:59:59+05:30"))
 })

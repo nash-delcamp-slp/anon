@@ -1,18 +1,73 @@
 #' Shift dates to a new time period
 #'
 #' Shifts dates to a new time period while preserving relative relationships
-#' between dates. Supports Date and POSIXct objects.
+#' between dates. Supports Date and POSIXct vectors and ISO 8601 character
+#' strings such as SDTM `--DTC` variables.
 #'
-#' @param x A Date or POSIXct vector to anonymize
-#' @param center_date New center point for the date range (default: current date)
-#' @param scramble Logical, whether to randomize the assignment order of generated results
+#' By default, dates are moved so that their mean falls on `center_date`. Each
+#' call computes its own shift, so separate columns or datasets move by
+#' different amounts. To keep intervals between columns and datasets (for
+#' example dose and sample times), pass the same `offset` to every call.
+#'
+#' Character input is read as ISO 8601 and returned as character in the same
+#' format and precision: a full date (`2014-01-02`) is shifted and any time part
+#' after `T` is kept as is. Partial dates (`2014-03`, `2014`) are handled by
+#' `partial`. Empty strings and `NA` are returned unchanged, and other values
+#' are removed with a warning.
+#'
+#' @param x A Date, POSIXct or ISO 8601 character vector to anonymize
+#' @param center_date New center point for the date range (default: current
+#'   date). Ignored when `offset` is given.
+#' @param scramble Logical, whether to randomize the assignment order of
+#'   generated results. Not available with `offset` or character input.
+#' @param offset Optional number of days (a whole number, or a `difftime`) to
+#'   add to every value. Use the same `offset` for all columns that must stay
+#'   aligned.
+#' @param partial How to handle partial ISO 8601 dates in character input:
+#'   `"shift"` (default) moves the middle of the month or year by the offset and
+#'   keeps the original precision; `"remove"` replaces them with `""`.
+#'
+#' @return A vector of the same class as `x` (character for character input).
 #'
 #' @examples
 #' dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))
 #' anon_date_shift(dates, center_date = "2024-06-01")
 #'
+#' # One offset for every column keeps intervals between them
+#' offset <- -400
+#' anon_date_shift(c("2023-01-15T08:00", "2023-02-20", "2023-03"), offset = offset)
+#' anon_date_shift(as.Date("2023-01-16"), offset = offset)
+#'
 #' @export
-anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
+anon_date_shift <- function(
+  x,
+  center_date = Sys.Date(),
+  scramble = FALSE,
+  offset = NULL,
+  partial = c("shift", "remove")
+) {
+  partial <- match.arg(partial)
+
+  if (!is.null(offset)) {
+    offset <- validate_date_offset(offset)
+    if (isTRUE(scramble)) {
+      stop(
+        "`scramble` cannot be combined with `offset`; a fixed offset keeps every interval.",
+        call. = FALSE
+      )
+    }
+  }
+
+  if (is.character(x)) {
+    if (isTRUE(scramble)) {
+      stop("`scramble` is not supported for character input.", call. = FALSE)
+    }
+    if (is.null(offset)) {
+      offset <- iso8601_center_offset(x, parse_center_date(center_date))
+    }
+    return(shift_iso8601(x, offset, partial))
+  }
+
   # Handle missing values
   na_idx <- is.na(x)
   x_clean <- x[!na_idx]
@@ -42,22 +97,12 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
     x_dates <- x_clean
   }
 
-  # Parse center_date if character
-  if (is.character(center_date)) {
-    # Handle flexible formats: "2020", "2020-01", "2020-01-01"
-    if (grepl("^\\d{4}$", center_date)) {
-      # Just year: "2020" -> "2020-01-01"
-      center_date <- paste0(center_date, "-01-01")
-    } else if (grepl("^\\d{4}-\\d{2}$", center_date)) {
-      # Year-month: "2020-01" -> "2020-01-01"
-      center_date <- paste0(center_date, "-01")
-    }
-    center_date <- as.Date(center_date)
-  }
-
   # Calculate the offset from original center to new center
-  original_center <- mean(x_dates, na.rm = TRUE)
-  offset <- as.numeric(center_date - original_center)
+  if (is.null(offset)) {
+    center_date <- parse_center_date(center_date)
+    original_center <- mean(x_dates, na.rm = TRUE)
+    offset <- as.numeric(center_date - original_center)
+  }
 
   # Apply the shift
   if (is_datetime) {
@@ -99,6 +144,105 @@ anon_date_shift <- function(x, center_date = Sys.Date(), scramble = FALSE) {
   }
   final_result[!na_idx] <- result
   final_result
+}
+
+# A whole number of days from a number or difftime.
+validate_date_offset <- function(offset) {
+  if (inherits(offset, "difftime")) {
+    offset <- as.numeric(offset, units = "days")
+  }
+  if (!is.numeric(offset) || length(offset) != 1 || !is.finite(offset) ||
+    offset != round(offset)) {
+    stop("`offset` must be a single whole number of days.", call. = FALSE)
+  }
+  as.numeric(offset)
+}
+
+# Parse center_date given as a Date or as "YYYY", "YYYY-MM" or "YYYY-MM-DD".
+parse_center_date <- function(center_date) {
+  if (!is.character(center_date)) {
+    return(center_date)
+  }
+  if (grepl("^\\d{4}$", center_date)) {
+    center_date <- paste0(center_date, "-01-01")
+  } else if (grepl("^\\d{4}-\\d{2}$", center_date)) {
+    center_date <- paste0(center_date, "-01")
+  }
+  as.Date(center_date)
+}
+
+# Classify ISO 8601 strings and give each a reference date: the date itself
+# for full dates (optionally with a time of hours, minutes, seconds and a UTC
+# offset), the middle of the month (day 15) or year (2 July) for
+# partial dates. Values that are not ISO 8601 dates have kind "invalid".
+parse_iso8601_dates <- function(x) {
+  kind <- rep("empty", length(x))
+  reference <- rep(as.Date(NA), length(x))
+  present <- !is.na(x) & nzchar(trimws(x))
+
+  time_part <- paste0(
+    "T([01][0-9]|2[0-3])(:[0-5][0-9](:[0-5][0-9](\\.[0-9]+)?)?)?",
+    "(Z|[+-][0-9]{2}(:?[0-9]{2})?)?"
+  )
+  is_full <- present & grepl(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}(", time_part, ")?$"), x)
+  is_month <- present & grepl("^[0-9]{4}-[0-9]{2}$", x)
+  is_year <- present & grepl("^[0-9]{4}$", x)
+
+  reference[is_full] <- as.Date(substr(x[is_full], 1, 10), format = "%Y-%m-%d", optional = TRUE)
+  reference[is_month] <- as.Date(paste0(x[is_month], "-15"), format = "%Y-%m-%d", optional = TRUE)
+  reference[is_year] <- as.Date(paste0(x[is_year], "-07-02"), format = "%Y-%m-%d", optional = TRUE)
+
+  kind[is_full] <- "full"
+  kind[is_month] <- "month"
+  kind[is_year] <- "year"
+  kind[present & is.na(reference)] <- "invalid"
+
+  list(kind = kind, reference = reference)
+}
+
+# Offset in whole days that moves the mean of the full dates (or, if there are
+# none, of the partial dates) to center_date.
+iso8601_center_offset <- function(x, center_date) {
+  parsed <- parse_iso8601_dates(x)
+  usable <- parsed$kind == "full"
+  if (!any(usable)) {
+    usable <- parsed$kind %in% c("month", "year")
+  }
+  if (!any(usable)) {
+    return(0)
+  }
+  round(as.numeric(center_date - mean(parsed$reference[usable])))
+}
+
+shift_iso8601 <- function(x, offset, partial = "shift") {
+  parsed <- parse_iso8601_dates(x)
+  kind <- parsed$kind
+  shifted <- parsed$reference + offset
+  out <- x
+
+  full <- kind == "full"
+  out[full] <- paste0(format(shifted[full], "%Y-%m-%d"), substring(x[full], 11))
+
+  is_partial <- kind %in% c("month", "year")
+  if (partial == "shift") {
+    out[kind == "month"] <- format(shifted[kind == "month"], "%Y-%m")
+    out[kind == "year"] <- format(shifted[kind == "year"], "%Y")
+  } else {
+    out[is_partial] <- ""
+  }
+
+  invalid <- kind == "invalid"
+  if (any(invalid)) {
+    n <- sum(invalid)
+    warning(
+      n, if (n == 1) " value is" else " values are",
+      " not ISO 8601 dates and were removed.",
+      call. = FALSE
+    )
+    out[invalid] <- ""
+  }
+
+  out
 }
 
 #' Anonymize email addresses
