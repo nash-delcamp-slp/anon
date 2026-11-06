@@ -23,6 +23,6 @@ Invisibly returns the running Shiny app object.
 }
 \description{
 The \code{anon} Shiny app provides a local, session-oriented workflow for reviewing an
-environment, selecting objects, cleaning text, and generating anonymized
+environment, selecting objects, cleaning text, and generating redacted
 structural reports suitable for prompt building.
 }

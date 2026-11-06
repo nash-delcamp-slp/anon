@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_data_summary.R
 \name{anon_data_summary}
 \alias{anon_data_summary}
-\title{Generate anonymized summary of data objects in an environment}
+\title{Summarize data objects in an environment, applying your redaction rules}
 \usage{
 anon_data_summary(
   envir = globalenv(),
@@ -58,7 +58,7 @@ generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{a
 This argument overrides the global option.}
 
 \item{df_variable_names}{For data frames, a character vector or named list
-specifying which variable names should be anonymized:
+specifying which variables should be replaced:
 \itemize{
 \item Unnamed elements: variables are replaced with \code{default_replacement}
 \item Named elements: variable names are keys, value can be either a replacement value or a function
@@ -66,7 +66,7 @@ This parameter is combined with the global option \code{getOption("anon.df_varia
 }}
 
 \item{df_classes}{For data frames, a character vector or named list specifying
-which variable classes should be anonymized:
+which variable classes should be replaced:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
@@ -92,7 +92,7 @@ missing values, distinct values, labels, and optional example values
 }
 \item \verb{$examples}: Optional data frame example payloads containing either sample
 rows per data frame or one or more keyed cross-source scenarios
-\item All content is anonymized according to the specified patterns
+\item Your patterns, rules and NLP settings are applied to all content
 }
 }
 \description{

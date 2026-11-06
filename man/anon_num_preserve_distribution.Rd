@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_num_preserve_distribution}
 \alias{anon_num_preserve_distribution}
-\title{Anonymize numeric data while preserving distribution}
+\title{Shuffle, add noise to, or resample numeric values}
 \usage{
 anon_num_preserve_distribution(
   x,
@@ -21,6 +21,13 @@ anon_num_preserve_distribution(
 \item{quantile_dist_family}{Distribution family for quantile method: "normal", "uniform", "exponential" (used when method = "quantile")}
 }
 \description{
-Anonymizes numeric data while preserving distributional properties using
-various transformation methods.
+Replaces numeric values while keeping their overall distribution, using one
+of three methods:
+\itemize{
+\item \code{"rank"} (default) reassigns the original values to other records (data
+swapping). Every original value, including outliers, is still present.
+\item \code{"noise"} adds random noise to each value (randomization).
+\item \code{"quantile"} replaces values with draws from a fitted theoretical
+distribution at shuffled quantiles.
+}
 }

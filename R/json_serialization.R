@@ -173,7 +173,7 @@ build_anon_prompt_bundle_payload <- function(
   report = NULL,
   text = NULL,
   comparison = NULL,
-  title = "Anonymized Prompt Context",
+  title = "Prompt Context",
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,

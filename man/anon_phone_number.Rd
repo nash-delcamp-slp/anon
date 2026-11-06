@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_phone_number}
 \alias{anon_phone_number}
-\title{Anonymize phone numbers}
+\title{Replace phone numbers with pseudonymous numbers}
 \usage{
 anon_phone_number(x, start = "555-000")
 }
@@ -12,7 +12,10 @@ anon_phone_number(x, start = "555-000")
 \item{start}{Character prefix for generated results (default: "555-000")}
 }
 \description{
-Anonymizes phone numbers by replacing them with sequential fake numbers.
+Replaces each distinct phone number matching common North American formats
+(9 or 10 digits, with or without separators) with a sequential fake number.
+Other formats are not detected, and other 9- or 10-digit numbers may be
+replaced.
 }
 \examples{
 phones <- c("Call me at 123-456-7890", "1234567890", "(123) 456-7890")

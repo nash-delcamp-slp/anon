@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_data_summary.R
 \name{print.anon_data_summary}
 \alias{print.anon_data_summary}
-\title{Print method for anonymized environment summary}
+\title{Print method for environment data summaries}
 \usage{
 \method{print}{anon_data_summary}(x, ...)
 }
@@ -15,7 +15,7 @@
 Invisibly returns the input object \code{x}
 }
 \description{
-Displays an anonymized environment summary in a structured, readable format.
+Displays an environment data summary in a structured, readable format.
 The output includes overall statistics, data frame structural information,
 variable details, optional example payloads, and information about other
 objects (if present).
@@ -36,7 +36,7 @@ the creation of the summary object.
 }
 \examples{
 \dontrun{
-# Create and print an anonymized summary
+# Create and print a summary
 summary_result <- anon_data_summary(
   list(data = mtcars),
   pattern_list = list("CAR" = "Mazda|Merc")

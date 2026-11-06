@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_email}
 \alias{anon_email}
-\title{Anonymize email addresses}
+\title{Replace email addresses with pseudonymous addresses}
 \usage{
 anon_email(x, start = "user", domain = "domain.com")
 }
@@ -14,7 +14,7 @@ anon_email(x, start = "user", domain = "domain.com")
 \item{domain}{Domain for generated emails (default: "domain.com")}
 }
 \description{
-Anonymizes email addresses by replacing them with sequential fake emails.
+Replaces each distinct email address with a sequential fake address.
 }
 \examples{
 emails <- c("john@company.com", "not_an_email", "jane at work dot org")

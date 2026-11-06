@@ -1,15 +1,16 @@
-#' Anonymize Named Entities in Text Using NLP
+#' Redact Named Entities in Text Using NLP
 #'
-#' These functions use natural language processing to identify and anonymize
+#' These functions use natural language processing to identify and redact
 #' different types of named entities from text. Each function combines NLP
-#' entity extraction with pattern expansion and anonymization.
+#' entity extraction with pattern-based redaction. Detection is model-based and
+#' can miss entities, so review the output before sharing it.
 #'
 #' @inheritParams anon
 #' @inheritParams nlp_get_entities
 #' @param ... Additional arguments passed to \code{\link{anon}}
 #'
-#' @return An anonymized object of class \code{anon_context} with named entities
-#'   replaced according to the anonymization workflow.
+#' @return An object of class \code{anon_context} with named entities
+#'   replaced.
 #'
 #' @details
 #' These functions:
@@ -27,20 +28,20 @@
 #'     "Grace") is then redacted wherever that word appears. For \code{"DATE"} and
 #'     \code{"TIME"}, ISO 8601 dates (\code{YYYY-MM}, \code{YYYY-MM-DD}, with optional
 #'     time) and times (\code{HH:MM}, \code{HH:MM:SS}) are also matched by pattern.
-#'   \item Apply \code{\link{anon}} to anonymize the identified patterns
+#'   \item Apply \code{\link{anon}} to redact the identified patterns
 #' }
 #'
 #' Available entity types:
 #' \itemize{
-#'   \item \code{anon_nlp_entities()}: Anonymize any specified entity types
-#'   \item \code{anon_nlp_proper_nouns()}: Anonymize proper nouns using POS tagging
-#'   \item \code{anon_nlp_dates()}: Anonymize dates
-#'   \item \code{anon_nlp_dates_and_times()}: Anonymize dates and times
-#'   \item \code{anon_nlp_people()}: Anonymize person names
-#'   \item \code{anon_nlp_organizations()}: Anonymize organization names
-#'   \item \code{anon_nlp_places()}: Anonymize place names and locations
-#'   \item \code{anon_nlp_numbers()}: Anonymize numeric entities
-#'   \item \code{anon_nlp_named()}: Anonymize named entities
+#'   \item \code{anon_nlp_entities()}: Redact any specified entity types
+#'   \item \code{anon_nlp_proper_nouns()}: Redact proper nouns using POS tagging
+#'   \item \code{anon_nlp_dates()}: Redact dates
+#'   \item \code{anon_nlp_dates_and_times()}: Redact dates and times
+#'   \item \code{anon_nlp_people()}: Redact person names
+#'   \item \code{anon_nlp_organizations()}: Redact organization names
+#'   \item \code{anon_nlp_places()}: Redact place names and locations
+#'   \item \code{anon_nlp_numbers()}: Redact numeric entities
+#'   \item \code{anon_nlp_named()}: Redact named entities
 #' }
 #'
 #' @section Global Options:

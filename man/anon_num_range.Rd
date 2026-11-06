@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_num_range}
 \alias{anon_num_range}
-\title{Convert numeric values into range categories}
+\title{Generalize numeric values into range categories}
 \usage{
 anon_num_range(
   x,
@@ -29,7 +29,7 @@ anon_num_range(
 }
 \description{
 Converts numeric values into range categories, either preserving actual
-ranges or creating anonymized range labels.
+ranges or creating generic range labels.
 }
 \examples{
 values <- c(150, 165, 180, 175, 160, 190)

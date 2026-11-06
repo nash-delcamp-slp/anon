@@ -1,6 +1,6 @@
-#' Anonymize sensitive information in R objects
+#' Redact and replace sensitive information in R objects
 #'
-#' This function anonymizes or redacts sensitive information from various R objects
+#' This function redacts or replaces sensitive information in various R objects
 #' including character vectors, factors, data frames, and lists. It uses pattern
 #' matching to find and replace sensitive content, with options for targeted
 #' anonymization based on variable names or classes and warnings about approximate matches.
@@ -18,12 +18,12 @@
 #' @param max_distance Maximum string distance for approximate matching when
 #'   `check_approximate` is `TRUE`. Default is `2`.
 #' @param df_variable_names For data frames, a character vector or named list
-#'   specifying which variable names should be anonymized:
+#'   specifying which variables should be replaced:
 #'   - Unnamed elements: variables are replaced with `default_replacement`
 #'   - Named elements: variable names are keys, value can be either a replacement value or a function
 #'   This parameter is combined with the global option `getOption("anon.df_variable_names")`.
 #' @param df_classes For data frames, a character vector or named list specifying
-#'   which variable classes should be anonymized:
+#'   which variable classes should be replaced:
 #'   - Unnamed elements: variables with matching classes are replaced with `default_replacement`
 #'   - Named elements: class names are keys, value can be either a replacement value or a function
 #'   Class names are matched case-insensitively against `class()` of each column. `"double"`
@@ -57,7 +57,7 @@
 #' `anon()` operates recursively on nested structures. For data frames:
 #' - Individual columns are processed based on their content
 #' - Entire columns can be replaced if specified in `df_variable_names` or `df_classes`
-#' - Column names, row names, and labels are anonymized when enabled
+#' - Column names, row names, and labels are redacted when enabled
 #'
 #' Pattern matching is case-insensitive. When `check_approximate` is enabled,
 #' `anon()` will warn about remaining potential matches that are similar but not exact.
@@ -67,7 +67,7 @@
 #' - Formula notation (e.g., `~ .x + rnorm(length(.x), mean = 1)`)
 #'
 #' The returned object has class `anon_context` which allows it to be combined with other
-#' anonymized objects using `c()`.
+#' objects returned by `anon()` using `c()`.
 #'
 #' @section Global Options:
 #' The following global options affect function behavior:
@@ -79,7 +79,7 @@
 #'         `df_variable_names` parameter.}
 #'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
 #'   \item{`anon.nlp_auto`}{List of logical values indicating which NLP entity types should be
-#'         automatically anonymized. Use [`nlp_auto()`] to generate this list. Override the option by setting the `nlp_auto` argument.}
+#'         automatically redacted. Use [`nlp_auto()`] to generate this list. Override the option by setting the `nlp_auto` argument.}
 #'   \item{`anon.nlp_default_replacements`}{Default NLP replacement labels. Use
 #'         [`nlp_default_replacements()`] to generate this list.}
 #'   \item{`anon.example_values_n`}{Default `example_values_n` used by [`anon_data_summary()`]
@@ -139,7 +139,7 @@
 #' options(anon.df_variable_names = "name")
 #' anon(df)  # Will anonymize emails and names using global settings
 #'
-#' # Combine anonymized objects
+#' # Combine processed objects
 #' anon_summary <- anon_data_summary(list(df = df))
 #' combined <- c(anon_df, anon_summary)
 #' combined

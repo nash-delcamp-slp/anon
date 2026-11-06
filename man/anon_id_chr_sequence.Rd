@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_id_chr_sequence}
 \alias{anon_id_chr_sequence}
-\title{Convert unique identifiers to sequential character IDs}
+\title{Pseudonymize identifiers as sequential character IDs}
 \usage{
 anon_id_chr_sequence(
   x,
@@ -24,7 +24,9 @@ anon_id_chr_sequence(
 \item{padding_chr}{Character used for padding (default: "0")}
 }
 \description{
-Convert unique identifiers to sequential character IDs
+Without \code{scramble = TRUE}, IDs are numbered in order of first appearance,
+so if \code{x} is sorted by something sensitive (for example the original ID,
+enrolment date or name), the new IDs keep that order.
 }
 \examples{
 ids <- c("A123", "B456", "A123", "C789")
