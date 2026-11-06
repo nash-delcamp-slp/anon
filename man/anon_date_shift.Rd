@@ -4,21 +4,58 @@
 \alias{anon_date_shift}
 \title{Shift dates to a new time period}
 \usage{
-anon_date_shift(x, center_date = Sys.Date(), scramble = FALSE)
+anon_date_shift(
+  x,
+  center_date = Sys.Date(),
+  scramble = FALSE,
+  offset = NULL,
+  partial = c("shift", "remove")
+)
 }
 \arguments{
-\item{x}{A Date or POSIXct vector to anonymize}
+\item{x}{A Date, POSIXct or ISO 8601 character vector to anonymize}
 
-\item{center_date}{New center point for the date range (default: current date)}
+\item{center_date}{New center point for the date range (default: current
+date). Ignored when \code{offset} is given.}
 
-\item{scramble}{Logical, whether to randomize the assignment order of generated results}
+\item{scramble}{Logical, whether to randomize the assignment order of
+generated results. Not available with \code{offset} or character input.}
+
+\item{offset}{Optional number of days (a whole number, or a \code{difftime}) to
+add to every value. Use the same \code{offset} for all columns that must stay
+aligned.}
+
+\item{partial}{How to handle partial ISO 8601 dates in character input:
+\code{"shift"} (default) moves the middle of the month or year by the offset and
+keeps the original precision; \code{"remove"} replaces them with \code{""}.}
+}
+\value{
+A vector of the same class as \code{x} (character for character input).
 }
 \description{
 Shifts dates to a new time period while preserving relative relationships
-between dates. Supports Date and POSIXct objects.
+between dates. Supports Date and POSIXct vectors and ISO 8601 character
+strings such as SDTM \code{--DTC} variables.
+}
+\details{
+By default, dates are moved so that their mean falls on \code{center_date}. Each
+call computes its own shift, so separate columns or datasets move by
+different amounts. To keep intervals between columns and datasets (for
+example dose and sample times), pass the same \code{offset} to every call.
+
+Character input is read as ISO 8601 and returned as character in the same
+format and precision: a full date (\code{2014-01-02}) is shifted and any time part
+after \code{T} is kept as is. Partial dates (\code{2014-03}, \code{2014}) are handled by
+\code{partial}. Empty strings and \code{NA} are returned unchanged, and other values
+are removed with a warning.
 }
 \examples{
 dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))
 anon_date_shift(dates, center_date = "2024-06-01")
+
+# One offset for every column keeps intervals between them
+offset <- -400
+anon_date_shift(c("2023-01-15T08:00", "2023-02-20", "2023-03"), offset = offset)
+anon_date_shift(as.Date("2023-01-16"), offset = offset)
 
 }
