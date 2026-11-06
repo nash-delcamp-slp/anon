@@ -15,7 +15,18 @@
 #' These functions:
 #' \enumerate{
 #'   \item Use NLP to extract potentially sensitive information of the specified type
-#'   \item Extend patterns using \code{\link{more_patterns}} for comprehensive matching
+#'     from the distinct text values. Values without letters or digits and
+#'     hexadecimal identifiers are not sent to the NLP model.
+#'   \item Turn each entity into a pattern that matches only as a whole value (not
+#'     preceded or followed by a letter, a digit, or a decimal separator next to
+#'     a digit). For name-like entity types (\code{"PERSON"}, \code{"ORG"},
+#'     \code{"NORP"}, \code{"FAC"}, \code{"GPE"}, \code{"LOC"}, \code{"PRODUCT"},
+#'     \code{"EVENT"}, \code{"WORK_OF_ART"}, \code{"PROPN"}), each word of the
+#'     entity is also matched as a whole word, excluding stopwords and
+#'     number-only words. A name part that is also a common word (e.g.
+#'     "Grace") is then redacted wherever that word appears. For \code{"DATE"} and
+#'     \code{"TIME"}, ISO 8601 dates (\code{YYYY-MM}, \code{YYYY-MM-DD}, with optional
+#'     time) and times (\code{HH:MM}, \code{HH:MM:SS}) are also matched by pattern.
 #'   \item Apply \code{\link{anon}} to anonymize the identified patterns
 #' }
 #'
@@ -131,12 +142,25 @@ anon_nlp_places <- function(x, ...) {
   anon_nlp_entities(x, nlp_entity_sets$places, ...)
 }
 
-
-# Helper function to extract NLP patterns for automatic anonymization
+# Helper function to extract NLP patterns for automatic anonymization.
+#
+# Each detected entity becomes one literal pattern that matches only as a whole
+# value (see whole_value_prefix), so an entity such as "2021" does not match
+# inside "ab2021cd" or a hexadecimal identifier. For name-like entity types,
+# the entity's individual words are added as whole-word patterns too, so a
+# surname found once in "John Smith" is also redacted where it appears alone.
+# DATE and TIME also get deterministic ISO 8601 patterns, because spaCy does
+# not reliably tag ISO dates in structured data. DATE and TIME groups come
+# first so a full date-time is replaced before any shorter numeric entity can
+# match part of it.
 extract_nlp_patterns <- function(x, entity_types) {
   if (length(entity_types) == 0) {
     return(list())
   }
+
+  entity_types <- unique(entity_types)
+  date_time_first <- intersect(c("DATE", "TIME"), entity_types)
+  entity_types <- c(date_time_first, setdiff(entity_types, date_time_first))
 
   text_to_process <- collect_text(x)
 
@@ -144,49 +168,93 @@ extract_nlp_patterns <- function(x, entity_types) {
     return(list())
   }
 
-  # Get entities by type
+  all_entities <- nlp_get_entities(
+    text_to_process,
+    entity_types = entity_types,
+    return_list = TRUE
+  )
+
   pattern_list <- list()
 
-  # Handle NLP entities other than proper nouns
-  other_entities <- setdiff(entity_types, "PROPN")
-  if (length(other_entities) > 0) {
-    all_entities <- nlp_get_entities(
-      text_to_process,
-      entity_types = other_entities,
-      return_list = TRUE
+  for (entity_type in entity_types) {
+    entities <- all_entities[[entity_type]]
+    entities <- entities[!is.na(entities) & nchar(entities) >= 2]
+
+    words <- if (entity_type %in% name_entity_types) {
+      entity_words(entities)
+    } else {
+      character(0)
+    }
+
+    patterns <- c(
+      iso8601_patterns(entity_type),
+      whole_value_patterns(c(entities, words))
     )
 
-    for (entity_type in other_entities) {
-      entities <- all_entities[[entity_type]]
-      if (length(entities) > 0) {
-        replacement <- get_nlp_default_replacement(entity_type)
-        expanded_patterns <- more_patterns(entities, original = FALSE)
-        pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
-        names(pattern_list)[length(pattern_list)] <- replacement
-      }
+    if (length(patterns) > 0) {
+      pattern_list[[length(pattern_list) + 1]] <- patterns
+      names(pattern_list)[length(pattern_list)] <-
+        get_nlp_default_replacement(entity_type)
     }
   }
 
-  # Handle proper nouns separately
-  if ("PROPN" %in% entity_types) {
-    propn_entities <- nlp_get_proper_nouns(text_to_process)
-    if (length(propn_entities) > 0) {
-      replacement <- get_nlp_default_replacement("PROPN")
-      expanded_patterns <- more_patterns(propn_entities, original = FALSE)
-      pattern_list[[length(pattern_list) + 1]] <- expanded_patterns
-      names(pattern_list)[length(pattern_list)] <- replacement
-    }
+  pattern_list
+}
+
+# Entity types whose individual words are also redacted.
+name_entity_types <- c(
+  "PERSON", "ORG", "NORP", "FAC", "GPE", "LOC", "PRODUCT", "EVENT",
+  "WORK_OF_ART", "PROPN"
+)
+
+# Individual words of multi-word entities, split on whitespace and
+# punctuation. Stopwords, number-only pieces and single characters are dropped.
+entity_words <- function(entities) {
+  words <- unlist(strsplit(entities, "[[:space:][:punct:]]+"), use.names = FALSE)
+  words <- words[nchar(words) >= 2 & !grepl("^[0-9]+$", words)]
+  words <- words[!tolower(words) %in% stopwords::stopwords()]
+  unique(words)
+}
+
+# Literal, case-insensitive patterns that match an entity only as a whole
+# value. Runs of whitespace inside an entity match any run of whitespace.
+# Longer entities come first so they win over entities they contain.
+whole_value_patterns <- function(entities) {
+  if (length(entities) == 0) {
+    return(character(0))
   }
+  entities <- unique(entities)
+  entities <- entities[order(nchar(entities), decreasing = TRUE)]
+  escaped <- gsub("\\s+", "\\\\s+", escape_regex_chars(entities))
+  paste0(whole_value_prefix, escaped, whole_value_suffix)
+}
 
-  # Remove entities with less than 2 characters
-  if (length(pattern_list) > 0) {
-    pattern_list <- lapply(pattern_list, function(patterns) {
-      patterns[nchar(patterns) >= 2]
-    })
+# A whole value is not preceded or followed by a letter or digit, nor by a
+# decimal separator next to a digit (so "03" does not match inside "42.03").
+whole_value_prefix <- "(?<![[:alnum:]])(?<![0-9][.,])"
+whole_value_suffix <- "(?![[:alnum:]])(?![.,][0-9])"
 
-    # Remove empty pattern lists
-    pattern_list <- pattern_list[lengths(pattern_list) > 0]
-  }
-
-  return(pattern_list)
+# ISO 8601 date and time patterns used alongside spaCy for DATE and TIME.
+# Dates need at least year and month (YYYY-MM); a bare year is not matched.
+# Times follow the whole-value boundary rule, except that the time part of a
+# date-time ("2021-03-14T08:30") matches after its "T" when DATE is not also
+# being redacted.
+iso8601_patterns <- function(entity_type) {
+  switch(
+    entity_type,
+    DATE = paste0(
+      "(?<![[:alnum:]])",
+      "[0-9]{4}-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12][0-9]|3[01]))?",
+      "(?:T(?:[01][0-9]|2[0-3])(?::[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]+)?)?)?",
+      "(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?)?",
+      "(?![[:alnum:]])"
+    ),
+    TIME = paste0(
+      "(?:(?<=[0-9]{4}-[0-9]{2}-[0-9]{2}T)|(?<![[:alnum:]:])(?<![0-9][.,]))",
+      "(?:[01]?[0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\\.[0-9]+)?)?",
+      "(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?",
+      "(?![[:alnum:]:])(?![.,][0-9])"
+    ),
+    character(0)
+  )
 }

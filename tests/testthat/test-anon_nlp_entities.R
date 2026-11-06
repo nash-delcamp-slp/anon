@@ -298,3 +298,68 @@ test_that("anon_nlp_entities accepts entity_types parameter", {
   expect_type(result1, "character")
   expect_type(result2, "character")
 })
+
+test_that("nlp_candidate_text() drops values that cannot hold entities", {
+  result <- anon:::nlp_candidate_text(
+    c("", "--", "<", "ae6c6d98ae40", "306537CDE4F4", "2024MARK", "20210312",
+      "facade", "x", "Day 1", "Day 1", NA)
+  )
+  expect_equal(result, c("2024MARK", "20210312", "facade", "Day 1"))
+})
+
+test_that("NLP date redaction on SDTM-style data keeps codes intact", {
+  require_spacy()
+
+  pc <- data.frame(
+    USUBJID = c("MIR-101-001", "MIR-101-002"),
+    PCSPID = c("ae6c6d98ae40", "df10b05f7c06"),
+    PCTESTCD = c("MIRACLE", "MIRM1"),
+    PCORRES = c("42.03", "<LLOQ"),
+    PCDTC = c("2021-03-14T08:00", "2021-03-15T10:30"),
+    PCTPT = c("PREDOSE", "2H"),
+    stringsAsFactors = FALSE
+  )
+
+  result <- anon(
+    pc,
+    default_replacement = "",
+    pattern_list = list(DRUG = "MIRACLE"),
+    df_variable_names = "USUBJID",
+    nlp_auto = nlp_auto(date = TRUE, time = TRUE)
+  )
+
+  expect_equal(result$USUBJID, c("", ""))
+  expect_equal(result$PCSPID, pc$PCSPID)
+  expect_equal(result$PCTESTCD, c("DRUG", "MIRM1"))
+  expect_equal(result$PCORRES, pc$PCORRES)
+  expect_equal(result$PCDTC, c("[DATE]", "[DATE]"))
+  expect_equal(result$PCTPT, pc$PCTPT)
+})
+
+test_that("entity_words() keeps name words and drops stopwords and numbers", {
+  expect_equal(
+    anon:::entity_words(c("Bank of America", "Mary-Jane O'Brien", "Room 101", "A")),
+    c("Bank", "America", "Mary", "Jane", "Brien", "Room")
+  )
+})
+
+test_that("name entity words are redacted as whole words", {
+  # The trade-off: a name part that is also a common word is redacted too.
+  pats <- anon:::whole_value_patterns(
+    c("Grace Lee", anon:::entity_words("Grace Lee"))
+  )
+  result <- anon(
+    c("Grace Lee", "Lee said", "a grace period", "Leeds", "Lee2"),
+    pattern_list = list("[P]" = pats)
+  )
+  expect_equal(
+    as.character(result),
+    c("[P]", "[P] said", "a [P] period", "Leeds", "Lee2")
+  )
+})
+
+test_that("NLP person redaction also catches a surname on its own", {
+  require_spacy()
+  result <- anon_nlp_people(c("John Smith works at Microsoft.", "Smith reported it."))
+  expect_false(any(grepl("Smith", result)))
+})

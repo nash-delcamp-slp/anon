@@ -64,6 +64,11 @@ which variable classes should be anonymized:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
+Class names are matched case-insensitively against \code{class()} of each column. \code{"double"}
+also matches plain double columns (not \code{Date} or \code{POSIXct}). Character columns also match
+\code{"double"}/\code{"numeric"}, \code{"integer"}, \code{"Date"} or \code{"POSIXct"} when every non-missing,
+non-blank value parses as that type (dates as ISO 8601); a replacement function then
+receives the parsed values.
 This parameter is combined with the global option \code{getOption("anon.df_classes")}.
 }}
 

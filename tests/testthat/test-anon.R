@@ -243,3 +243,171 @@ test_that("compute_approximate_distances helper works correctly", {
   result_empty_pattern <- compute_approximate_distances(c("Alice", "Alise", "Bob"), "", max_distance = 2)
   expect_equal(result_empty_pattern$matching_strings, character(0))
 })
+
+test_that("later pattern groups cannot match inside earlier replacements", {
+  # Hex-like fragments and greedy regexes used to corrupt the internal tokens
+  # that stood in for earlier replacements.
+  result <- anon(
+    c("MIRACLE", "MIRACLE Metabolite"),
+    pattern_list = list(DRUG = "MIRACLE", "[DATE]" = c("10", "05", "f7c", "[0-9]{2}"))
+  )
+  expect_equal(as.character(result), c("DRUG", "DRUG Metabolite"))
+
+  result <- anon("MIRACLE", pattern_list = list(DRUG = "MIRACLE", "[X]" = "\\S+"))
+  expect_equal(as.character(result), "DRUG")
+})
+
+test_that("invalid regex patterns are matched literally", {
+  result <- anon("call a(b now", pattern_list = list(X = "a(b"))
+  expect_equal(as.character(result), "call X now")
+})
+
+test_that("whole-value patterns only match complete values", {
+  pats <- anon:::whole_value_patterns(c("2021", "03", "Day 1"))
+  result <- anon(
+    c("2021", "ab2021cd", "42.03", "2021-x", "Day 1", "Day   1", "Day11"),
+    pattern_list = list("[D]" = pats)
+  )
+  expect_equal(
+    as.character(result),
+    c("[D]", "ab2021cd", "42.03", "[D]-x", "[D]", "[D]", "Day11")
+  )
+})
+
+test_that("compile_patterns() shares boundaries without changing matches", {
+  pats <- anon:::whole_value_patterns(c("abc", "ab"))
+  compiled <- anon:::compile_patterns(list(c(pats[1], "[A]"), c(pats[2], "[A]")))
+  expect_equal(
+    anon:::replace_compiled(c("abc", "ab", "abd", "x ab."), compiled),
+    c("[A]", "[A]", "abd", "x [A].")
+  )
+})
+
+test_that("ISO 8601 patterns match dates and times but not bare years", {
+  result <- anon(
+    c("2021-03-14T08:00", "x 2021-03 y", "2024MARK", "2024", "08:30",
+      "at 8:30:15", "PT0.5H", "2021-03-14T08:00:00Z"),
+    pattern_list = list(
+      "[DATE]" = anon:::iso8601_patterns("DATE"),
+      "[TIME]" = anon:::iso8601_patterns("TIME")
+    )
+  )
+  expect_equal(
+    as.character(result),
+    c("[DATE]", "x [DATE] y", "2024MARK", "2024", "[TIME]", "at [TIME]",
+      "PT0.5H", "[DATE]")
+  )
+})
+
+test_that("df_classes 'double' matches plain doubles only", {
+  df <- data.frame(
+    d = 1.5,
+    i = 2L,
+    dt = as.Date("2021-01-01"),
+    stringsAsFactors = FALSE
+  )
+  result <- anon(df, df_classes = "double", default_replacement = "X")
+  expect_equal(result$d, "X")
+  expect_equal(result$i, 2L)
+  expect_equal(result$dt, as.Date("2021-01-01"))
+})
+
+test_that("df_classes matches character columns whose values all parse", {
+  df <- data.frame(
+    num = c("24.13", " 8.7", "", NA),
+    mixed = c("24.13", "<LLOQ", "", NA),
+    int = c("1", "20", "", NA),
+    date = c("2021-03-14", "2021-03-15", "", NA),
+    dtc = c("2021-03-14T08:00", "2021-03-15", "", NA),
+    blank = c("", "", "", NA),
+    stringsAsFactors = FALSE
+  )
+
+  result <- anon(df, df_classes = "double", default_replacement = "X")
+  expect_equal(result$num, rep("X", 4))
+  expect_equal(result$int, rep("X", 4))
+  expect_equal(result$mixed, df$mixed)
+  expect_equal(result$blank, df$blank)
+
+  result <- anon(df, df_classes = "integer", default_replacement = "X")
+  expect_equal(result$int, rep("X", 4))
+  expect_equal(result$num, df$num)
+
+  result <- anon(df, df_classes = c("Date", "POSIXct"), default_replacement = "X")
+  expect_equal(result$date, rep("X", 4))
+  expect_equal(result$dtc, rep("X", 4))
+  expect_equal(result$num, df$num)
+})
+
+test_that("df_classes functions receive parsed values for character columns", {
+  df <- data.frame(conc = c("1.5", "2.5", NA), stringsAsFactors = FALSE)
+  result <- anon(df, df_classes = list(numeric = ~ .x * 2))
+  expect_equal(result$conc, c(3, 5, NA))
+})
+
+test_that("NLP text source skips columns that are replaced wholesale", {
+  df <- data.frame(
+    id = "0001",
+    conc = 1.5,
+    note = "seen on 2021-03-14",
+    stringsAsFactors = FALSE
+  )
+  src <- anon:::nlp_text_source(df, c("id"), "double")
+  expect_named(src, "note")
+
+  src <- anon:::nlp_text_source(list(a = df), list(id = "X"), NULL)
+  expect_named(src$a, c("conc", "note"))
+})
+
+test_that("numbered backreferences in user patterns keep their meaning", {
+  result <- anon(c("112", "123"), pattern_list = list(X = "([0-9])\\1"))
+  expect_equal(as.character(result), c("X2", "123"))
+
+  result <- anon(
+    c("foo 112", "abab 99"),
+    pattern_list = list(A = "foo", X = c("(ab)\\1", "([0-9])\\1"))
+  )
+  expect_equal(as.character(result), c("A X2", "X X"))
+
+  expect_equal(
+    anon:::shift_backreferences("([0-9])\\1 \\\\1", 3L),
+    "([0-9])\\4 \\\\1"
+  )
+
+  # An escaped backslash before a digit is not a backreference
+  expect_equal(anon:::shift_backreferences("\\\\1", 1L), "\\\\1")
+  result <- anon(c("a\\1b", "zzz"), pattern_list = list(X = "\\\\1"))
+  expect_equal(as.character(result), c("aXb", "zzz"))
+})
+
+test_that("TIME pattern respects whole-value boundaries", {
+  result <- anon(
+    c("A08:30B", "ID1T08:30", "08:30", "2021-03-14T08:30", "08:30Z", "1.08:30"),
+    pattern_list = list("[TIME]" = anon:::iso8601_patterns("TIME"))
+  )
+  expect_equal(
+    as.character(result),
+    c("A08:30B", "ID1T08:30", "[TIME]", "2021-03-14T[TIME]", "[TIME]", "1.08:30")
+  )
+})
+
+test_that("POSIXct matching handles ISO offsets and rejects invalid values", {
+  times <- anon:::parse_iso8601_datetime(
+    c("2021-03-14", "2021-03-14T08:00", "2021-03-14T08:00:00Z",
+      "2021-03-14T08:00:00.5+02:00", "2021-03-14T08:00-0500", "2021-99-99T08:00")
+  )
+  expect_equal(
+    format(times, "%Y-%m-%d %H:%M:%OS1"),
+    c("2021-03-14 00:00:00.0", "2021-03-14 08:00:00.0", "2021-03-14 08:00:00.0",
+      "2021-03-14 06:00:00.5", "2021-03-14 13:00:00.0", NA)
+  )
+
+  df <- data.frame(
+    tz = c("2021-03-14T08:00:00Z", "2021-03-14T08:00:00.5+02:00"),
+    bad = c("2021-99-99T08:00", "2021-03-14"),
+    stringsAsFactors = FALSE
+  )
+  result <- anon(df, df_classes = "POSIXct", default_replacement = "X")
+  expect_equal(result$tz, c("X", "X"))
+  expect_equal(result$bad, df$bad)
+})

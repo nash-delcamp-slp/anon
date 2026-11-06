@@ -59,140 +59,103 @@ nlp_get_entities <- function(
   entity_types = nlp_entity_sets$all,
   return_list = FALSE
 ) {
-  # Extract text from different data types
-  text_clean <- collect_text(x)
+  all_entities <- stats::setNames(
+    rep(list(character(0)), length(entity_types)),
+    entity_types
+  )
 
-  if (length(text_clean) == 0) {
-    if (return_list) {
-      result <- vector("list", length(entity_types))
-      names(result) <- entity_types
-      return(result)
-    }
-    return(character(0))
-  }
+  text_clean <- nlp_candidate_text(collect_text(x))
 
-  all_entities <- vector("list", length(entity_types))
-  names(all_entities) <- entity_types
-
-  # Check if cleanNLP is available and spacy backend is initialized
-  if (!requireNamespace("cleanNLP", quietly = TRUE)) {
-    stop(
-      "cleanNLP package is required for entity extraction",
-      call. = FALSE
-    )
-    if (return_list) {
-      return(all_entities)
-    }
-    return(character(0))
-  }
-
-  tryCatch(
-    {
-      # Initialize spacy backend if not already done
-      cleanNLP::cnlp_init_spacy(model_name = "en_core_web_sm")
-
-      # Process each text element
-      for (i in seq_along(text_clean)) {
-        single_text <- trimws(text_clean[i])
-
-        # Skip if text is too short
-        if (nchar(single_text) < 2) {
-          next
-        }
-
-        tryCatch(
-          {
-            # Annotate the text with cleanNLP
-            doc <- cleanNLP::cnlp_annotate(single_text)
-
-            # Extract entities
-            entities <- doc$entity
-
-            if ("PROPN" %in% entity_types) {
-              # Extract tokens with POS tags
-              tokens <- doc$token
-
-              if (nrow(tokens) > 0) {
-                # Filter for proper nouns (PROPN in spacy, NNP/NNPS in other models)
-                proper_nouns <- tokens[
-                  tokens$upos %in% c("PROPN", "NNP", "NNPS"),
-                ]
-
-                if (nrow(proper_nouns) > 0) {
-                  # Get the actual words
-                  words <- proper_nouns$token
-                  words <- trimws(words)
-                  words <- words[words != "" & !is.na(words)]
-                  all_entities[["PROPN"]] <- c(
-                    all_entities[["PROPN"]],
-                    words
-                  )
-                }
-              }
-            }
-
-            if (nrow(entities) > 0) {
-              # Group entities by type
-              for (entity_type in setdiff(entity_types, "PROPN")) {
-                target_entities <- entities[
-                  entities$entity_type == entity_type,
-                ]
-
-                if (nrow(target_entities) > 0) {
-                  # Get the actual entity text
-                  entity_text <- target_entities$entity
-                  entity_text <- trimws(entity_text)
-                  entity_text <- entity_text[
-                    entity_text != "" & !is.na(entity_text)
-                  ]
-                  all_entities[[entity_type]] <- c(
-                    all_entities[[entity_type]],
-                    entity_text
-                  )
-                }
-              }
-            }
-          },
-          error = function(e) {
-            stop(
-              paste("cleanNLP processing failed for text", i, ":", e$message),
-              call. = FALSE
-            )
-          }
+  if (length(text_clean) > 0) {
+    found <- tryCatch(
+      spacy_extract(text_clean),
+      error = function(e) {
+        stop(
+          paste("cleanNLP initialization or processing failed:", conditionMessage(e)),
+          call. = FALSE
         )
       }
+    )
 
-      # Clean up results - get unique entities for each type
-      for (entity_type in entity_types) {
-        if (length(all_entities[[entity_type]]) > 0) {
-          all_entities[[entity_type]] <- unique(all_entities[[entity_type]])
-        } else {
-          all_entities[[entity_type]] <- character(0)
-        }
-      }
-
-      if (return_list) {
-        return(all_entities)
-      } else {
-        # Return flat vector
-        flat_entities <- unlist(all_entities, use.names = FALSE)
-        if (length(flat_entities) == 0) {
-          return(character(0))
-        }
-        return(unique(flat_entities))
-      }
-    },
-    error = function(e) {
-      stop(
-        paste("cleanNLP initialization or processing failed:", e$message),
-        call. = FALSE
+    for (entity_type in setdiff(entity_types, "PROPN")) {
+      all_entities[[entity_type]] <- unique(
+        found$entity_text[found$entity_label == entity_type]
       )
-      if (return_list) {
-        return(all_entities)
-      }
-      return(character(0))
     }
+    if ("PROPN" %in% entity_types) {
+      all_entities[["PROPN"]] <- unique(found$propn)
+    }
+  }
+
+  if (return_list) {
+    return(all_entities)
+  }
+  unique(unlist(all_entities, use.names = FALSE)) %||% character(0)
+}
+
+# Reduce text to the distinct strings worth sending to spaCy. Strings with no
+# letters or digits, and hexadecimal identifiers (8+ characters of 0-9/a-f
+# containing both a digit and a letter, e.g. hashes or specimen IDs), cannot
+# hold a named entity; spaCy otherwise tags many of them as DATE or CARDINAL.
+nlp_candidate_text <- function(text) {
+  text <- unique(trimws(text))
+  text <- text[!is.na(text) & nchar(text) >= 2]
+  no_alnum <- !grepl("[[:alnum:]]", text)
+  hex_id <- grepl("^[0-9a-fA-F]{8,}$", text) &
+    grepl("[0-9]", text) &
+    grepl("[a-fA-F]", text)
+  text[!no_alnum & !hex_id]
+}
+
+nlp_cache <- new.env(parent = emptyenv())
+
+# Load the spaCy pipeline once per session. cleanNLP selects and validates the
+# Python environment and model; a separate pipeline without the dependency
+# parser and lemmatizer is then loaded for batched entity and POS extraction.
+spacy_pipeline <- function(model_name = "en_core_web_sm") {
+  if (!requireNamespace("cleanNLP", quietly = TRUE)) {
+    stop("cleanNLP package is required for entity extraction", call. = FALSE)
+  }
+  if (identical(nlp_cache$model_name, model_name) && !is.null(nlp_cache$extract)) {
+    return(nlp_cache$extract)
+  }
+
+  cleanNLP::cnlp_init_spacy(model_name = model_name)
+
+  py <- reticulate::py_run_string(
+    paste(
+      "def make_extract(model_name):",
+      "    import spacy",
+      "    nlp = spacy.load(model_name, disable=['parser', 'lemmatizer'])",
+      "    def extract(texts):",
+      "        labels, ents, propn = [], [], []",
+      "        for doc in nlp.pipe(texts, batch_size=256):",
+      "            for e in doc.ents:",
+      "                labels.append(e.label_)",
+      "                ents.append(e.text.strip())",
+      "            for t in doc:",
+      "                if t.pos_ == 'PROPN' or t.tag_ in ('NNP', 'NNPS'):",
+      "                    propn.append(t.text.strip())",
+      "        return {'entity_label': labels, 'entity_text': ents, 'propn': propn}",
+      "    return extract",
+      sep = "\n"
+    ),
+    local = TRUE,
+    convert = TRUE
   )
+
+  nlp_cache$extract <- py$make_extract(model_name)
+  nlp_cache$model_name <- model_name
+  nlp_cache$extract
+}
+
+spacy_extract <- function(text) {
+  extract <- spacy_pipeline()
+  out <- extract(as.list(text))
+  lapply(out, function(v) {
+    v <- as.character(unlist(v))
+    v[!is.na(v) & v != ""]
+  })
 }
 
 #' @rdname nlp_get_entities
