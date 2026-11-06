@@ -305,11 +305,11 @@ anon_subject_dates <- function(
     if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
       shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
       df$QVAL <- shifted$values
-      totals <- totals + c(shifted$no_key, 0)
-      if (shifted$shifted + shifted$no_key + shifted$partial > 0) {
+      totals <- totals + c(shifted$no_key, shifted$invalid)
+      if (shifted$shifted + shifted$no_key + shifted$invalid + shifted$partial > 0) {
         log <- deid_log_add(
           log, ds, "QVAL", paste0(shift_detail(shifted), " (date values only)"),
-          shifted$shifted, shifted$no_key + shifted$partial
+          shifted$shifted, shifted$no_key + shifted$invalid + shifted$partial
         )
       }
     }
@@ -432,6 +432,9 @@ as_dataset_list <- function(data) {
   if (!is.list(data) || is.null(names(data)) || any(names(data) == "") ||
     !all(vapply(data, is.data.frame, logical(1)))) {
     stop("`data` must be a data frame, a named list of data frames, or a step result.", call. = FALSE)
+  }
+  if (anyDuplicated(names(data))) {
+    stop("Dataset names in `data` must be unique.", call. = FALSE)
   }
   list(data = data, unwrap = function(x) x, previous = previous)
 }
@@ -611,11 +614,13 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE) {
     lt$mday <- lt$mday + use
     lt$isdst <- -1L
     out[] <- as.POSIXct(lt, tz = tz)
-    out[no_offset] <- NA
+    invalid <- present & !no_offset & !year_in_range(out)
+    out[no_offset | invalid] <- NA
   } else {
     no_offset <- present & is.na(offset)
     out[] <- x + use
-    out[no_offset] <- NA
+    invalid <- present & !no_offset & !year_in_range(out)
+    out[no_offset | invalid] <- NA
   }
   out <- drop_value_labels(out)
 
@@ -626,6 +631,13 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE) {
     invalid = sum(invalid),
     partial = sum(removed_partial)
   )
+}
+
+# Whether each Date or POSIXct value falls in years 0001-9999, the range ISO
+# 8601 text can hold. Missing values count as in range.
+year_in_range <- function(x) {
+  year <- as.integer(format(x, "%Y"))
+  is.na(x) | (!is.na(year) & year >= 1 & year <= 9999)
 }
 
 # Partial dates, including intervals with a partial end.
@@ -656,13 +668,18 @@ shift_qval_dates <- function(x, offset, partial = "shift") {
   movable <- is_date & !no_offset & !removed_partial
   new_text <- text
   new_text[movable] <- suppressWarnings(shift_iso8601(text[movable], offset[movable], "shift", year_step = TRUE))
-  new_text[no_offset | removed_partial] <- missing_text_like(text)
+  failed <- movable & !nzchar(new_text)
+  movable <- movable & !failed
+  new_text[no_offset | removed_partial | failed] <- missing_text_like(text)
   if (is.factor(x)) {
     out <- with_attributes_of(factor(new_text), x)
   } else {
     out[] <- new_text
   }
-  list(values = out, shifted = sum(movable), no_key = sum(no_offset), invalid = 0, partial = sum(removed_partial))
+  list(
+    values = drop_value_labels(out), shifted = sum(movable), no_key = sum(no_offset),
+    invalid = sum(failed), partial = sum(removed_partial)
+  )
 }
 
 shift_detail <- function(shifted) {

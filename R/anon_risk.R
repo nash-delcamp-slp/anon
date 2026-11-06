@@ -313,6 +313,9 @@ risk_quasi_table <- function(data, quasi, key) {
     !all(vapply(data, is.data.frame, logical(1)))) {
     stop("`data` must be a data frame or a named list of data frames.", call. = FALSE)
   }
+  if (anyDuplicated(names(data))) {
+    stop("Dataset names in `data` must be unique.", call. = FALSE)
+  }
 
   specs <- normalize_quasi_specs(quasi, data, single)
   table <- build_quasi_table(data, specs, key)

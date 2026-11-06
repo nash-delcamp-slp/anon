@@ -269,7 +269,11 @@ anon <- function(
     enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
     if (length(enabled_nlp_entities) > 0) {
       nlp_pattern_list <- extract_nlp_patterns(
-        nlp_text_source(x, df_variable_names, df_classes),
+        nlp_text_source(
+          if (inherits(x, "anon_deid_step")) x$data else x,
+          df_variable_names,
+          df_classes
+        ),
         enabled_nlp_entities
       )
       if (length(nlp_pattern_list) > 0) {
@@ -287,7 +291,28 @@ anon <- function(
   compiled <- if (!is.null(.compiled)) .compiled else compile_patterns(pattern_replacements)
 
   # Dispatch based on object type (using the inner apply_patterns function)
-  if (is.character(x) || is.factor(x)) {
+  if (inherits(x, "anon_deid_step")) {
+    # Redact the step's data but keep the step, so print() and JSON still show
+    # only its log.
+    step_data <- anon(
+      x$data,
+      pattern_list = pattern_list,
+      default_replacement = default_replacement,
+      check_approximate = check_approximate,
+      max_distance = max_distance,
+      df_variable_names = df_variable_names,
+      df_classes = df_classes,
+      check_names = check_names,
+      check_labels = check_labels,
+      .self = TRUE,
+      .pattern_replacements = pattern_replacements,
+      .compiled = compiled
+    )
+    approximate_warnings <- c(approximate_warnings, attr(step_data, "approximate_warnings"))
+    attr(step_data, "approximate_warnings") <- NULL
+    result <- x
+    result$data <- step_data
+  } else if (is.character(x) || is.factor(x)) {
     if (is.factor(x)) {
       levels(x) <- apply_patterns(
         levels(x),
@@ -480,7 +505,7 @@ anon <- function(
     }
   }
 
-  if (isFALSE(.self)) {
+  if (isFALSE(.self) && !inherits(result, "anon_deid_step")) {
     result <- new_anon_context(result)
   }
   result

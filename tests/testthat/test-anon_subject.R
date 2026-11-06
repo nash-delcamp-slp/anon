@@ -498,3 +498,75 @@ test_that("steps record structured settings without the seed value", {
   expect_true(step$settings$subject_ids$seeded)
   expect_false(any(grepl("123|456", unlist(step$settings))))
 })
+
+test_that("anon() on a step redacts its data and keeps the log-only presentation", {
+  d <- data.frame(USUBJID = c("01-701-1015", "01-701-1023"), XDTC = c("2020-01-01", "2020-02-01"),
+                  NOTE = c("Alice", "Bob"))
+  step <- anon_subject_dates(d, seed = 1)
+  redacted <- anon(step, pattern_list = list("[NAME]" = "Alice"))
+  expect_s3_class(redacted, "anon_deid_step")
+  expect_equal(redacted$data$NOTE, c("[NAME]", "Bob"))
+  shown <- c(capture.output(print(redacted)), as_anon_json(redacted))
+  expect_false(any(grepl("01-701", shown, fixed = TRUE)))
+  nested <- anon(list(step = step))
+  expect_s3_class(nested$step, "anon_deid_step")
+})
+
+test_that("duplicate dataset names are rejected", {
+  two <- list(dm = data.frame(USUBJID = "a"), dm = data.frame(USUBJID = "b"))
+  expect_error(anon_subject_ids(two), "must be unique")
+  expect_error(anon_subject_dates(two), "must be unique")
+  expect_error(anon_risk(list(dm = data.frame(USUBJID = "a", X = 1), dm = data.frame(USUBJID = "b", X = 1)), list(dm = "X")), "must be unique")
+})
+
+test_that("value labels are dropped from shifted QVAL", {
+  skip_if_not_installed("haven")
+  q <- data.frame(USUBJID = "a", QNAM = "X")
+  q$QVAL <- haven::labelled("2014-02-10", labels = c(D = "2014-02-10"))
+  out <- anon_subject_dates(list(supp = q), seed = 1)$data$supp$QVAL
+  expect_null(attr(out, "labels"))
+  expect_false(as.character(out) == "2014-02-10")
+})
+
+test_that("a step nested in a list serializes as its log", {
+  step <- anon_subject_ids(data.frame(USUBJID = c("01-701-1015", "01-701-1023")), seed = 1)
+  json <- as_anon_json(list(step = step))
+  expect_match(json, '"kind": "anon_deid_step"', fixed = TRUE)
+  expect_false(grepl("01-701", json, fixed = TRUE))
+})
+
+test_that("native dates shifted outside years 0001-9999 are removed and counted", {
+  # Whichever way the 40-day offset goes, one of the two dates leaves the range
+  d <- data.frame(USUBJID = c("a", "a"), D = as.Date(c("9999-12-31", "0001-01-01")))
+  d$T <- as.POSIXct(c("9999-12-31 08:00:00", "0001-01-01 08:00:00"), tz = "UTC")
+  msgs <- character(0)
+  result <- withCallingHandlers(
+    anon_subject_dates(d, vars = c("D", "T"), min_days = 40, max_days = 40, seed = 3),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_equal(sum(is.na(result$data$D)), 1)
+  expect_equal(sum(is.na(result$data$T)), 1)
+  expect_true(any(grepl("outside years 0001-9999", msgs)))
+  expect_equal(result$log$n_removed[result$log$variable %in% "D"], 1L)
+})
+
+test_that("QVAL dates that can't be shifted are removed and logged as removed", {
+  qv <- data.frame(USUBJID = c("a", "b"), QNAM = "X", QVAL = c("9999-12-31", "0001-01-01"))
+  msgs <- character(0)
+  result <- withCallingHandlers(
+    anon_subject_dates(list(supp = qv), min_days = 40, max_days = 40, seed = 3),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  row <- result$log[result$log$variable %in% "QVAL", ]
+  # One of the two always falls outside 0001-9999 whichever way it moves
+  expect_equal(row$n_changed + row$n_removed, 2L)
+  expect_gte(row$n_removed, 1L)
+  expect_true(any(grepl("outside years 0001-9999", msgs)))
+  expect_true(any(is.na(result$data$supp$QVAL)))
+})
