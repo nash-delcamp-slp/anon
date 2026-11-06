@@ -84,7 +84,7 @@ test_that("anon_subject_ids() keeps secrets only when asked, out of print and JS
   json <- as_anon_json(result)
   expect_match(json, '"kind": "anon_deid_step"', fixed = TRUE)
   expect_false(grepl("01-701", json, fixed = TRUE))
-  expect_error(anon_secrets(anon_subject_ids(data, seed = 4)), "No secrets were kept")
+  expect_error(anon_secrets(anon_subject_ids(data, seed = 4)), "holds no secrets")
 })
 
 test_that("the log records when a seed made the result reproducible", {
@@ -209,10 +209,7 @@ test_that("unshifted ISO dates and unkeyed datasets with dates or IDs give warni
     expect_warning(anon_subject_dates(d, seed = 13), "contain dates that were not shifted: ae.AESTTPT"),
     "Datasets without `USUBJID` were left unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
   )
-  expect_warning(
-    expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)"),
-    "still contain original `USUBJID` values, possibly inside text: raw.usubjid"
-  )
+  expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)")
 })
 
 test_that("RSUBJID is mapped through the pseudonyms; other key columns are flagged", {
@@ -599,13 +596,20 @@ test_that("duplicate column names are rejected", {
 
 test_that("four-digit numbers in mixed columns are not shifted as years", {
   fa <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "1500", "2000", "POSITIVE"))
-  out <- anon_subject_dates(fa, vars = "FAORRES", seed = 1)$data$FAORRES
+  expect_warning(
+    out <- anon_subject_dates(fa, vars = "FAORRES", seed = 1)$data$FAORRES,
+    "bare four-digit numbers that were kept"
+  )
   expect_equal(out[2:4], c("1500", "2000", "POSITIVE"))
   expect_false(out[1] == "2014-03-05")
 
   supp <- data.frame(USUBJID = "a", QNAM = "X", QVAL = c("1000", "1000/2000", "2014-03-05"))
   expect_equal(anon_subject_dates(list(suppx = supp), seed = 1)$data$suppx$QVAL[1:2], c("1000", "1000/2000"))
-  expect_equal(anon_subject_dates(list(suppx = supp), vars = "QVAL", seed = 1)$data$suppx$QVAL[1:2], c("1000", "1000/2000"))
+  expect_warning(
+    out <- anon_subject_dates(list(suppx = supp), vars = "QVAL", seed = 1)$data$suppx$QVAL,
+    "suppx.QVAL"
+  )
+  expect_equal(out[1:2], c("1000", "1000/2000"))
 })
 
 test_that("date columns left out of vars, SAS-formatted dates and dates in text are flagged", {
@@ -630,8 +634,13 @@ test_that("date columns left out of vars, SAS-formatted dates and dates in text 
 test_that("dates kept in mixed columns and QVAL are flagged", {
   fa <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "05JAN2014", "Visit 2014-01-05", "POSITIVE"))
   expect_warning(anon_subject_dates(fa, vars = "FAORRES", seed = 1), "not shifted: data.FAORRES")
-  ok <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "POSITIVE", "1500"))
+  ok <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "POSITIVE"))
   expect_no_warning(anon_subject_dates(ok, vars = "FAORRES", seed = 1))
+  text <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01",
+                     COM = c("seen 5 Jan 2014", "Jan 5, 2014", "dob 1/2/1980", "MAY 2 TABLETS"))
+  expect_warning(anon_subject_dates(text, seed = 1), "not shifted: data.COM")
+  text$COM <- "MAY 2 TABLETS, 10 mg"
+  expect_no_warning(anon_subject_dates(text, seed = 1))
 
   supp <- data.frame(USUBJID = "a", QNAM = c("X", "Y"), QVAL = c("Diagnosed 2009-03-04", "2014-03-05"))
   expect_warning(anon_subject_dates(list(suppx = supp), seed = 1), "not shifted: suppx.QVAL")
@@ -724,7 +733,7 @@ test_that("anon() on a step drops its secrets", {
   st <- anon_subject_ids(data.frame(USUBJID = c("a", "b")), keep_secrets = TRUE, seed = 1)
   a <- anon(st, pattern_list = list("a"))
   expect_null(a$secrets)
-  expect_error(anon_secrets(a), "No secrets were kept")
+  expect_error(anon_secrets(a), "holds no secrets")
   expect_s3_class(anon_secrets(st)$subject_ids, "tbl_df")
 })
 
@@ -743,4 +752,74 @@ test_that("steps inside an environment or list are described dataset by dataset"
   expect_error(anon_data_summary(e, selection = "nope"), "Unknown objects")
   state <- anon_app_initial_state(e)
   expect_setequal(state$raw_names, c("one", "step$dm", "step$vs"))
+})
+
+test_that("bare years in a vars column are shifted only when the column holds only years", {
+  dm <- data.frame(USUBJID = c("a", "b", "c"), BRTHYR = c("1980", "1975", "UNK"))
+  expect_warning(
+    out <- anon_subject_dates(dm, vars = "BRTHYR", seed = 1)$data$BRTHYR,
+    "bare four-digit numbers that were kept.*data.BRTHYR"
+  )
+  expect_equal(out, dm$BRTHYR)
+
+  # The rule is decided across all datasets with the column.
+  d <- list(
+    a = data.frame(USUBJID = "a", BRTHYR = "1980"),
+    b = data.frame(USUBJID = "b", BRTHYR = c("1975", "UNK"))
+  )
+  expect_warning(out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data, "a.BRTHYR, b.BRTHYR")
+  expect_equal(out$a$BRTHYR, "1980")
+
+  d$b$BRTHYR <- c("1975", NA)
+  out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data
+  expect_false(out$a$BRTHYR == "1980")
+  expect_false(out$b$BRTHYR[1] == "1975")
+})
+
+test_that("keys made only of digits are not searched for in text", {
+  d <- list(
+    dm = data.frame(USUBJID = as.character(1:30), VISIT = "WEEK 2", DTC = "2014-01-15"),
+    ts = data.frame(TSVAL = "15")
+  )
+  expect_no_warning(anon_subject_ids(d, seed = 1))
+})
+
+test_that("anon_subject_dates() treats user-defined missing keys and dates as missing", {
+  skip_if_not_installed("haven")
+  d <- data.frame(XXDTC = c("2020-01-01", "2020-01-02", "2020-01-03"))
+  d$USUBJID <- haven::labelled_spss(c("A1", "A2", "-9"), na_values = "-9")
+  d$AEDTC <- haven::labelled_spss(c("2020-01-01", "UNKN", "2020-01-03"), na_values = "UNKN")
+  expect_warning(
+    result <- anon_subject_dates(d, keep_secrets = TRUE, seed = 1),
+    "date value\\(s\\) in rows without a `USUBJID` were removed"
+  )
+  expect_setequal(anon_secrets(result)$date_offsets$key, c("A1", "A2"))
+  expect_true(is.na(vctrs::vec_data(result$data$AEDTC)[2]))
+  expect_s3_class(result$data$USUBJID, "haven_labelled_spss")
+})
+
+test_that("SAS formats for parts of a date are flagged, and dotted dataset names are kept", {
+  ad <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", YR = 19000, WK = 19000)
+  attr(ad$YR, "format.sas") <- "YEAR4"
+  attr(ad$WK, "format.sas") <- "WEEKDATX"
+  expect_warning(anon_subject_dates(ad, seed = 1), "data.YR, data.WK")
+
+  d <- list(dm = data.frame(USUBJID = "a"), my.ts = data.frame(X = "2014-01-01"))
+  expect_warning(anon_subject_dates(d, seed = 1), "my.ts \\(X\\)")
+})
+
+test_that("step datasets can't clash with other object names", {
+  st <- anon_subject_ids(list(dm = data.frame(USUBJID = "a"), vs = data.frame(USUBJID = "a")), seed = 1)
+  e <- new.env()
+  assign("step", st, envir = e)
+  assign("step$dm", data.frame(USUBJID = "01-701-1015"), envir = e)
+  expect_error(anon_inventory(e), "clash with datasets of a de-identification step: step\\$dm")
+
+  dup <- list(a = data.frame(x = 1), a = data.frame(y = 2))
+  expect_equal(nrow(anon_inventory(dup)), 2)
+
+  e2 <- new.env()
+  assign("step", st, envir = e2)
+  assign("other", data.frame(x = 1), envir = e2)
+  expect_equal(anon_app_initial_state(e2, initial_selection = "step")$selected, c("step$dm", "step$vs"))
 })

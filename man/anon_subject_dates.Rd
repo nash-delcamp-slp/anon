@@ -31,8 +31,9 @@ values that are ISO 8601 dates with more than a bare year are shifted too
 numbers; the unshifted-dates warning does not cover them). In columns not
 named \verb{*DTC}, such as \code{QVAL} or a result column given in \code{vars}, only the
 values that are dates are shifted and other values are kept; bare
-four-digit numbers are kept too, unless every value of a \code{vars} column is
-a date (such as a column of birth years). Columns given in
+four-digit numbers are kept too (with a warning for \code{vars} columns),
+unless every value of the column, in every dataset, is a bare year (such
+as a column of birth years). Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
 dates.}
 
@@ -77,7 +78,8 @@ format and any time part. Date columns keep their type, and POSIXct columns
 keep their type, time zone and clock time (the calendar date moves, so a
 shift across a daylight saving change keeps 08:00 at 08:00). Column
 attributes such as variable labels are kept; value labels (haven \code{labels})
-are dropped. A clock time that doesn't exist on the new date (inside a
+are dropped, and haven user-defined missing values (\code{na_values}, \code{na_range})
+in the key and date columns become plain missing values. A clock time that doesn't exist on the new date (inside a
 daylight saving gap) moves forward by the gap. Study day variables (\code{--DY}) are not
 changed and stay consistent with the shifted full dates, because each
 subject's dates all move together.
@@ -99,9 +101,11 @@ real trial dates can narrow down subjects' offsets. A warning lists any other
 column in a keyed dataset that holds dates but was not shifted: Date or
 POSIXct columns left out of \code{vars}, numeric columns with a SAS date format
 (in a separate warning; convert them to Date or POSIXct to shift them), and
-text columns with ISO 8601 dates as whole values, or ISO 8601 or DDMONYYYY
-dates inside text (which can't be shifted), including the values kept in
-mixed columns such as \code{QVAL}. It also lists any dataset without \code{key} that has such
+text columns with ISO 8601 dates as whole values, or dates inside text
+(which can't be shifted) written as ISO 8601, with a month name
+(\verb{05JAN2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}) or with slashes and a four-digit
+year (\code{01/05/2014}), including the values kept in mixed columns such as
+\code{QVAL}. Other formats are not detected. It also lists any dataset without \code{key} that has such
 columns or a column named like \code{key} in another case.
 
 Random numbers come from R's random number generator; see

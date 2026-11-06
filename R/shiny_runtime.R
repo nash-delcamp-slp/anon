@@ -846,7 +846,7 @@ resolve_report_selection <- function(
       return(raw_names)
     }
 
-    return(intersect(initial_selection, raw_names))
+    return(intersect(expand_step_selection(initial_selection, raw_names), raw_names))
   }
 
   intersect(current_selected %||% character(0), raw_names)

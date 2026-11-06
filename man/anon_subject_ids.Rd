@@ -74,8 +74,8 @@ and are removed (set to missing), with a warning. \code{key}, \code{also} and
 
 A warning lists any other character or factor column (values or factor
 levels), in any dataset, that still contains original key values as whole
-values or as whole words inside text (checked for character keys only, since
-numeric keys match many unrelated codes), and
+values or as whole words inside text (checked for character keys that are
+not made only of digits, since numbers match many unrelated codes), and
 any dataset without \code{key} that has an \code{also} or \code{key_cols} column or a column
 named like \code{key} in another case.
 Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not

@@ -328,23 +328,46 @@ normalize_object_source <- function(envir, selection = NULL) {
 
 # Replace each de-identification step with its data: a single data frame keeps
 # the step's name, and a list of datasets becomes one object per dataset,
-# named like `step$dm`.
-# The name each object came from is kept in the "origin" attribute.
+# named like `step$dm`. The name each object came from is kept in the "origin"
+# attribute. A spliced name that is already used is an error, so a step's
+# dataset can't be confused with another object.
 splice_steps <- function(objects) {
-  out <- stats::setNames(list(), character(0))
+  out <- list()
+  out_names <- character(0)
   origin <- character(0)
-  for (name in names(objects)) {
-    obj <- objects[[name]]
+  for (i in seq_along(objects)) {
+    name <- names(objects)[i]
+    obj <- objects[[i]]
     if (inherits(obj, "anon_deid_step") && !is.data.frame(obj$data)) {
-      out[paste0(name, "$", names(obj$data))] <- obj$data
-      origin <- c(origin, rep(name, length(obj$data)))
+      new_names <- paste0(name, "$", names(obj$data))
+      out <- c(out, unname(obj$data))
     } else {
-      out[name] <- list(if (inherits(obj, "anon_deid_step")) obj$data else obj)
-      origin <- c(origin, name)
+      new_names <- name
+      out <- c(out, list(if (inherits(obj, "anon_deid_step")) obj$data else obj))
     }
+    out_names <- c(out_names, new_names)
+    origin <- c(origin, rep(name, length(new_names)))
   }
+  spliced <- out_names[out_names != origin]
+  clash <- unique(c(intersect(spliced, names(objects)), spliced[duplicated(spliced)]))
+  if (length(clash) > 0) {
+    stop(
+      "Object names clash with datasets of a de-identification step: ",
+      paste(clash, collapse = ", "), ". Rename the objects or the steps.",
+      call. = FALSE
+    )
+  }
+  names(out) <- out_names
   attr(out, "origin") <- origin
   out
+}
+
+# Selected names, with a step's name standing for all of its datasets
+# (`step$dm`, `step$vs`).
+expand_step_selection <- function(selection, raw_names) {
+  unique(unlist(lapply(selection, function(name) {
+    if (name %in% raw_names) name else raw_names[startsWith(raw_names, paste0(name, "$"))]
+  })))
 }
 
 get_inventory_row <- function(name, obj) {
