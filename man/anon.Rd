@@ -53,6 +53,11 @@ which variable classes should be anonymized:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
+Class names are matched case-insensitively against \code{class()} of each column. \code{"double"}
+also matches plain double columns (not \code{Date} or \code{POSIXct}). Character columns also match
+\code{"double"}/\code{"numeric"}, \code{"integer"}, \code{"Date"} or \code{"POSIXct"} when every non-missing,
+non-blank value parses as that type (dates as ISO 8601); a replacement function then
+receives the parsed values.
 This parameter is combined with the global option \code{getOption("anon.df_classes")}.
 }}
 
@@ -74,8 +79,8 @@ and global options are ignored and only explicitly provided parameters are used.
 pairs passed down during recursive calls to avoid recomputing them for each column or
 list element. Default is \code{NULL}, which triggers normal computation.}
 
-\item{.compiled}{List for internal use only. Pre-compiled pattern groups containing
-grouped regex objects, digest tokens, and fixed token matchers. Passed down during
+\item{.compiled}{List for internal use only. Pre-compiled pattern groups and the
+combined single-pass regex. Passed down during
 recursive calls to avoid recompiling patterns. Default is \code{NULL}.}
 }
 \value{

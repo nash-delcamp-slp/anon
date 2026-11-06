@@ -26,6 +26,11 @@
 #'   which variable classes should be anonymized:
 #'   - Unnamed elements: variables with matching classes are replaced with `default_replacement`
 #'   - Named elements: class names are keys, value can be either a replacement value or a function
+#'   Class names are matched case-insensitively against `class()` of each column. `"double"`
+#'   also matches plain double columns (not `Date` or `POSIXct`). Character columns also match
+#'   `"double"`/`"numeric"`, `"integer"`, `"Date"` or `"POSIXct"` when every non-missing,
+#'   non-blank value parses as that type (dates as ISO 8601); a replacement function then
+#'   receives the parsed values.
 #'   This parameter is combined with the global option `getOption("anon.df_classes")`.
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names). Default is `TRUE`.
@@ -40,8 +45,8 @@
 #' @param .pattern_replacements List for internal use only. Pre-computed pattern replacement
 #'   pairs passed down during recursive calls to avoid recomputing them for each column or
 #'   list element. Default is `NULL`, which triggers normal computation.
-#' @param .compiled List for internal use only. Pre-compiled pattern groups containing
-#'   grouped regex objects, digest tokens, and fixed token matchers. Passed down during
+#' @param .compiled List for internal use only. Pre-compiled pattern groups and the
+#'   combined single-pass regex. Passed down during
 #'   recursive calls to avoid recompiling patterns. Default is `NULL`.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
@@ -199,44 +204,7 @@ anon <- function(
   apply_patterns <- function(text, compiled, check_approximate, max_distance) {
     if (length(compiled$groups) == 0) return(text)
 
-    result <- text
-
-    for (i in seq_along(compiled$groups)) {
-      grp <- compiled$groups[[i]]
-
-      result <- tryCatch(
-        stringr::str_replace_all(result, grp$compiled_regex, grp$token),
-        error = function(e) {
-          # If combined regex fails, fall back to individual replacements
-          for (pat in grp$patterns) {
-            result <<- tryCatch(
-              stringr::str_replace_all(
-                result,
-                stringr::regex(pat, ignore_case = TRUE),
-                grp$token
-              ),
-              error = function(e2) {
-                stringr::str_replace_all(
-                  result,
-                  stringr::fixed(pat),
-                  grp$token
-                )
-              }
-            )
-          }
-          result
-        }
-      )
-    }
-
-    # Finalize: replace protected tokens with actual replacement values
-    for (i in seq_along(compiled$token_map)) {
-      result <- stringr::str_replace_all(
-        result,
-        compiled$fixed_tokens[[i]],
-        compiled$token_map[[i]]
-      )
-    }
+    result <- replace_compiled(text, compiled)
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
@@ -304,35 +272,14 @@ anon <- function(
 
   # Helper function to get replacement value for a variable class
   get_class_replacement <- function(var, df_classes, default_replacement) {
-    if (is.null(df_classes)) {
+    rule <- find_df_class_rule(var, df_classes)
+    if (is.null(rule)) {
       return(NULL)
     }
-
-    var_classes <- class(var)
-
-    if (is.null(names(df_classes))) {
-      # Unnamed vector - check if any class matches
-      if (any(tolower(var_classes) %in% tolower(df_classes))) {
-        return(default_replacement)
-      }
-    } else {
-      # Named vector - check for exact match and return the assigned value
-      for (class_name in names(df_classes)) {
-        if (tolower(class_name) %in% tolower(var_classes)) {
-          replacement <- df_classes[[class_name]]
-          return(apply_replacement(replacement, var))
-        }
-      }
-      # Also check unnamed elements
-      unnamed_elements <- df_classes[names(df_classes) == ""]
-      if (
-        length(unnamed_elements) > 0 &&
-          any(tolower(var_classes) %in% tolower(unnamed_elements))
-      ) {
-        return(default_replacement)
-      }
+    if (is.null(rule$replacement)) {
+      return(default_replacement)
     }
-    return(NULL)
+    apply_replacement(rule$replacement, rule$value)
   }
 
   # Use pre-computed pattern_replacements if available (recursive calls)
@@ -342,7 +289,10 @@ anon <- function(
     # Handle automatic/provided NLP anonymization
     enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
     if (length(enabled_nlp_entities) > 0) {
-      nlp_pattern_list <- extract_nlp_patterns(x, enabled_nlp_entities)
+      nlp_pattern_list <- extract_nlp_patterns(
+        nlp_text_source(x, df_variable_names, df_classes),
+        enabled_nlp_entities
+      )
       if (length(nlp_pattern_list) > 0) {
         pattern_list <- c(pattern_list, nlp_pattern_list)
       }
@@ -559,13 +509,173 @@ anon <- function(
 
 # helpers -----------------------------------------------------------------
 
-# Pre-compile pattern groups, digest tokens, and regex objects
+# Find the df_classes rule that applies to a vector. Named rules are checked
+# first, in order, then unnamed ones. Returns NULL when nothing matches, or a
+# list with the rule's `replacement` (NULL for unnamed rules, meaning the
+# default replacement) and the `value` to pass to a replacement function.
+find_df_class_rule <- function(var, df_classes) {
+  if (is.null(df_classes) || isFALSE(df_classes) || length(df_classes) == 0) {
+    return(NULL)
+  }
+
+  rule_names <- names(df_classes)
+  if (is.null(rule_names)) {
+    rule_names <- rep("", length(df_classes))
+  }
+
+  for (i in which(rule_names != "")) {
+    value <- match_df_class(var, rule_names[i])
+    if (!is.null(value)) {
+      return(list(replacement = df_classes[[i]], value = value$value))
+    }
+  }
+
+  for (i in which(rule_names == "")) {
+    for (class_name in as.character(unlist(df_classes[[i]]))) {
+      value <- match_df_class(var, class_name)
+      if (!is.null(value)) {
+        return(list(replacement = NULL, value = value$value))
+      }
+    }
+  }
+
+  NULL
+}
+
+# Check whether a vector matches a df_classes class name (case-insensitive).
+# A vector matches its own classes. Plain double vectors (not Date, POSIXct or
+# other classed doubles) also match "double". A character vector matches
+# "double"/"numeric", "integer", "Date" or "POSIXct"/"POSIXt" when every
+# non-missing, non-blank value parses as that type. Returns NULL for no match,
+# or list(value = ...) holding the vector, parsed when it was character.
+match_df_class <- function(var, class_name) {
+  cls <- tolower(class_name)
+
+  if (cls %in% tolower(class(var))) {
+    return(list(value = var))
+  }
+  if (cls == "double" && is.double(var) && is.numeric(var)) {
+    return(list(value = var))
+  }
+  if (is.character(var)) {
+    parsed <- parse_character_as(var, cls)
+    if (!is.null(parsed)) {
+      return(list(value = parsed))
+    }
+  }
+  NULL
+}
+
+# Parse a character vector as the given class when every non-missing,
+# non-blank value converts. Missing and blank values become NA. Returns NULL
+# when any value does not convert or when there are no values to check.
+parse_character_as <- function(x, cls) {
+  present <- !is.na(x) & trimws(x) != ""
+  values <- trimws(x[present])
+  if (length(values) == 0) {
+    return(NULL)
+  }
+
+  iso_date <- "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+  iso_datetime <- "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?$"
+
+  parsed <- switch(
+    cls,
+    double = ,
+    numeric = {
+      num <- suppressWarnings(as.numeric(values))
+      if (all(is.finite(num))) num else NULL
+    },
+    integer = {
+      num <- suppressWarnings(as.numeric(values))
+      if (all(is.finite(num)) && all(num == round(num)) &&
+        all(abs(num) <= .Machine$integer.max)) {
+        as.integer(num)
+      } else {
+        NULL
+      }
+    },
+    date = {
+      dates <- if (all(grepl(iso_date, values))) {
+        as.Date(values, format = "%Y-%m-%d")
+      }
+      if (!is.null(dates) && !anyNA(dates)) dates else NULL
+    },
+    posixct = ,
+    posixt = {
+      is_date <- grepl(iso_date, values)
+      is_datetime <- grepl(iso_datetime, values)
+      if (all(is_date | is_datetime) && any(is_datetime)) {
+        times <- as.POSIXct(
+          values,
+          tz = "UTC",
+          tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
+        )
+        if (!anyNA(times)) times else NULL
+      }
+    },
+    NULL
+  )
+
+  if (is.null(parsed)) {
+    return(NULL)
+  }
+
+  out <- rep(parsed[NA_integer_], length(x))
+  out[present] <- parsed
+  out
+}
+
+# Whether a data frame column is replaced wholesale by df_variable_names or
+# df_classes, in which case its text is not used to find NLP entities.
+column_replaced_wholesale <- function(col_name, col, df_variable_names, df_classes) {
+  if (!is.null(df_variable_names) && !isFALSE(df_variable_names)) {
+    rule_names <- names(df_variable_names)
+    if (is.null(rule_names)) {
+      rule_names <- rep("", length(df_variable_names))
+    }
+    listed <- c(
+      rule_names[rule_names != ""],
+      as.character(unlist(df_variable_names[rule_names == ""]))
+    )
+    if (col_name %in% listed) {
+      return(TRUE)
+    }
+  }
+  !is.null(find_df_class_rule(col, df_classes))
+}
+
+# The part of `x` whose text is searched for NLP entities: data frame columns
+# that are replaced wholesale are dropped, recursively through lists.
+nlp_text_source <- function(x, df_variable_names, df_classes) {
+  if (is.data.frame(x)) {
+    keep <- !vapply(
+      names(x),
+      function(col_name) {
+        column_replaced_wholesale(col_name, x[[col_name]], df_variable_names, df_classes)
+      },
+      logical(1)
+    )
+    return(x[keep])
+  }
+  if (is.list(x)) {
+    return(lapply(x, nlp_text_source, df_variable_names, df_classes))
+  }
+  x
+}
+
+# Compile all pattern groups into one regex with a named capture group per
+# replacement value. Replacing in a single pass means a later group can never
+# match inside text produced by an earlier one. At any position, groups are
+# tried in order, and patterns within a group in order. Patterns that are not
+# valid regular expressions are matched literally.
 compile_patterns <- function(pattern_replacements) {
   if (length(pattern_replacements) == 0) {
     return(list(
       groups = list(),
-      token_map = character(0),
-      fixed_tokens = list(),
+      regex = NULL,
+      group_names = character(0),
+      replacements = character(0),
       all_patterns = character(0)
     ))
   }
@@ -580,34 +690,138 @@ compile_patterns <- function(pattern_replacements) {
     all_patterns <- c(all_patterns, pat)
   }
 
-  # Build compiled groups with pre-computed regex and digest tokens
   groups <- vector("list", length(replacement_groups))
-  token_map <- character(length(replacement_groups))
-  fixed_tokens <- vector("list", length(replacement_groups))
+  group_names <- paste0("anonGroup", seq_along(replacement_groups))
 
   for (i in seq_along(replacement_groups)) {
-    repl <- names(replacement_groups)[i]
-    patterns <- replacement_groups[[i]]
-    token <- digest::digest(repl, algo = "xxhash64")
-    combined <- paste0("(?:", paste(patterns, collapse = "|"), ")")
-
-    groups[[i]] <- list(
-      replacement = repl,
-      patterns = patterns,
-      token = token,
-      compiled_regex = stringr::regex(combined, ignore_case = TRUE)
+    patterns <- vapply(
+      replacement_groups[[i]],
+      as_valid_regex,
+      character(1),
+      USE.NAMES = FALSE
     )
-    token_map[i] <- repl
-    names(token_map)[i] <- token
-    fixed_tokens[[i]] <- stringr::fixed(token)
+    groups[[i]] <- list(
+      replacement = names(replacement_groups)[i],
+      patterns = patterns
+    )
   }
+
+  regex <- paste0(
+    "(?<", group_names, ">",
+    vapply(groups, function(g) combine_group_patterns(g$patterns), character(1)),
+    ")",
+    collapse = "|"
+  )
 
   list(
     groups = groups,
-    token_map = token_map,
-    fixed_tokens = fixed_tokens,
+    regex = regex,
+    group_names = group_names,
+    replacements = names(replacement_groups),
     all_patterns = all_patterns
   )
+}
+
+# Join a group's patterns into one alternation. Consecutive whole-value
+# patterns (see whole_value_patterns()) share a single pair of boundary
+# assertions: "(?<!B)(?:a|b)(?!B)" matches the same text as
+# "(?<!B)a(?!B)|(?<!B)b(?!B)", and compiles far faster because ICU builds each
+# case-insensitive [[:alnum:]] set once instead of once per entity.
+combine_group_patterns <- function(patterns) {
+  prefix <- whole_value_prefix
+  suffix <- whole_value_suffix
+  is_whole <- startsWith(patterns, prefix) & endsWith(patterns, suffix) &
+    nchar(patterns) > nchar(prefix) + nchar(suffix)
+  runs <- rle(is_whole)
+  ends <- cumsum(runs$lengths)
+  starts <- ends - runs$lengths + 1
+
+  pieces <- character(length(runs$lengths))
+  for (k in seq_along(pieces)) {
+    run <- patterns[starts[k]:ends[k]]
+    if (runs$values[k] && length(run) > 1) {
+      inner <- substr(run, nchar(prefix) + 1, nchar(run) - nchar(suffix))
+      pieces[k] <- paste0(prefix, "(?:", paste(inner, collapse = "|"), ")", suffix)
+    } else {
+      pieces[k] <- paste(run, collapse = "|")
+    }
+  }
+  paste(pieces, collapse = "|")
+}
+
+# Return a pattern unchanged if it compiles as a regular expression, otherwise
+# an escaped version that matches it literally.
+as_valid_regex <- function(pattern) {
+  valid <- tryCatch(
+    {
+      stringi::stri_detect_regex("", pattern)
+      TRUE
+    },
+    error = function(e) FALSE
+  )
+  if (valid) pattern else escape_regex_chars(pattern)
+}
+
+# Replace every match of the compiled regex with the replacement value of the
+# group that matched. Each distinct string is processed once.
+replace_compiled <- function(text, compiled) {
+  if (length(compiled$groups) == 0 || length(text) == 0) {
+    return(text)
+  }
+
+  opts <- stringi::stri_opts_regex(case_insensitive = TRUE)
+  keys <- unique(text[!is.na(text)])
+  if (length(keys) == 0) {
+    return(text)
+  }
+
+  if (length(compiled$groups) == 1) {
+    # One replacement value: no need to find out which group matched.
+    literal <- gsub("([\\\\$])", "\\\\\\1", compiled$replacements)
+    replaced <- stringi::stri_replace_all_regex(
+      keys,
+      compiled$regex,
+      literal,
+      opts_regex = opts
+    )
+    return(replaced[match(text, keys)])
+  }
+
+  hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
+  if (!any(hit)) {
+    return(text)
+  }
+
+  hit_text <- keys[hit]
+  matches <- stringi::stri_match_all_regex(
+    hit_text,
+    compiled$regex,
+    opts_regex = opts,
+    cg_missing = NA_character_
+  )
+  locations <- stringi::stri_locate_all_regex(
+    hit_text,
+    compiled$regex,
+    opts_regex = opts
+  )
+
+  # Which named group matched each match, across all strings
+  group_cols <- do.call(
+    rbind,
+    lapply(matches, function(m) m[, compiled$group_names, drop = FALSE])
+  )
+  group_idx <- max.col(!is.na(group_cols), ties.method = "first")
+  n_matches <- vapply(locations, nrow, integer(1))
+  owner <- factor(rep(seq_along(hit_text), n_matches), levels = seq_along(hit_text))
+
+  replaced <- keys
+  replaced[hit] <- stringi::stri_sub_all_replace(
+    hit_text,
+    from = lapply(locations, function(loc) loc[, "start"]),
+    to = lapply(locations, function(loc) loc[, "end"]),
+    replacement = unname(split(compiled$replacements[group_idx], owner))
+  )
+  replaced[match(text, keys)]
 }
 
 # Helper function for approximate distance matching

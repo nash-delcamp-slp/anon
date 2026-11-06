@@ -54,7 +54,18 @@ entity extraction with pattern expansion and anonymization.
 These functions:
 \enumerate{
 \item Use NLP to extract potentially sensitive information of the specified type
-\item Extend patterns using \code{\link{more_patterns}} for comprehensive matching
+from the distinct text values. Values without letters or digits and
+hexadecimal identifiers are not sent to the NLP model.
+\item Turn each entity into a pattern that matches only as a whole value (not
+preceded or followed by a letter, a digit, or a decimal separator next to
+a digit). For name-like entity types (\code{"PERSON"}, \code{"ORG"},
+\code{"NORP"}, \code{"FAC"}, \code{"GPE"}, \code{"LOC"}, \code{"PRODUCT"},
+\code{"EVENT"}, \code{"WORK_OF_ART"}, \code{"PROPN"}), each word of the
+entity is also matched as a whole word, excluding stopwords and
+number-only words. A name part that is also a common word (e.g.
+"Grace") is then redacted wherever that word appears. For \code{"DATE"} and
+\code{"TIME"}, ISO 8601 dates (\code{YYYY-MM}, \code{YYYY-MM-DD}, with optional
+time) and times (\code{HH:MM}, \code{HH:MM:SS}) are also matched by pattern.
 \item Apply \code{\link{anon}} to anonymize the identified patterns
 }
 
