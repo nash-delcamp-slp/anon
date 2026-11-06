@@ -97,10 +97,9 @@ anon_date_shift <- function(
     x_dates <- x_clean
   }
 
-  center_date <- parse_center_date(center_date)
-
   # Calculate the offset from original center to new center
   if (is.null(offset)) {
+    center_date <- parse_center_date(center_date)
     original_center <- mean(x_dates, na.rm = TRUE)
     offset <- as.numeric(center_date - original_center)
   }
@@ -173,14 +172,19 @@ parse_center_date <- function(center_date) {
 }
 
 # Classify ISO 8601 strings and give each a reference date: the date itself
-# for full dates, the middle of the month (day 15) or year (2 July) for
+# for full dates (optionally with a time of hours, minutes, seconds and a UTC
+# offset), the middle of the month (day 15) or year (2 July) for
 # partial dates. Values that are not ISO 8601 dates have kind "invalid".
 parse_iso8601_dates <- function(x) {
   kind <- rep("empty", length(x))
   reference <- rep(as.Date(NA), length(x))
   present <- !is.na(x) & nzchar(trimws(x))
 
-  is_full <- present & grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}(T.*)?$", x)
+  time_part <- paste0(
+    "T([01][0-9]|2[0-3])(:[0-5][0-9](:[0-5][0-9](\\.[0-9]+)?)?)?",
+    "(Z|[+-][0-9]{2}(:?[0-9]{2})?)?"
+  )
+  is_full <- present & grepl(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}(", time_part, ")?$"), x)
   is_month <- present & grepl("^[0-9]{4}-[0-9]{2}$", x)
   is_year <- present & grepl("^[0-9]{4}$", x)
 

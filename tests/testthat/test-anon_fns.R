@@ -694,3 +694,21 @@ test_that("anon_date_shift() centers character input on center_date", {
   expect_equal(result[1:2], c("2024-06-01T10:00", "2024-06-03"))
   expect_error(anon_date_shift(x, scramble = TRUE), "scramble")
 })
+
+test_that("anon_date_shift() ignores center_date when offset is given", {
+  expect_equal(
+    anon_date_shift(as.Date("2023-01-15"), offset = 1, center_date = "unused"),
+    as.Date("2023-01-16")
+  )
+})
+
+test_that("anon_date_shift() removes date-times with an invalid time part", {
+  expect_warning(
+    result <- anon_date_shift(
+      c("2014-01-02T99:99", "2014-01-02Tunknown", "2014-01-02T08:61", "2014-01-02T23:59:59+05:30"),
+      offset = 1
+    ),
+    "3 values are not ISO 8601 dates and were removed"
+  )
+  expect_equal(result, c("", "", "", "2014-01-03T23:59:59+05:30"))
+})
