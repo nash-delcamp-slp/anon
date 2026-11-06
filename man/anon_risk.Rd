@@ -4,7 +4,7 @@
 \alias{anon_risk}
 \title{Measure re-identification risk from quasi-identifiers}
 \usage{
-anon_risk(data, quasi, key = "USUBJID", k = 11)
+anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
 }
 \arguments{
 \item{data}{A data frame, or a named list of data frames linked by \code{key}.}
@@ -20,18 +20,22 @@ vary by row, such as baseline height and weight in \code{vs}.}
 must have the same type (character or factor, or numeric) in every
 dataset used.}
 
-\item{k}{Target smallest group size. The default, 11, is the cell size that
-Health Canada equates with its encouraged re-identification risk threshold
-of 0.09 for public release of clinical information. Note that \code{1 / 11} is
-about 0.0909, slightly above 0.09; see Details.}
+\item{max_risk}{Highest acceptable re-identification risk for any subject
+(the maximum risk, \code{1 / k} for the smallest group). The target group size
+is the smallest \code{k} with \code{1 / k <= max_risk}. The default, 0.09, is the
+threshold Health Canada and EMA encourage for public release of clinical
+information, and requires groups of at least 12. Health Canada equates
+0.09 with a cell size of 11, but \code{1 / 11} is about 0.0909; to use groups of
+11, pass \code{max_risk = 1/11}. See Details.}
 }
 \value{
 An object of class \code{"anon_risk"}, a list with:
 \itemize{
-\item \code{summary}: one row with \code{n_subjects}, \code{n_quasi}, \code{k_target},
-\code{n_unique} (subjects in a group of one), \code{min_k}, \code{max_risk}
-(\code{1 / min_k}), \code{avg_risk} (mean of \code{1 / k}), \code{n_below_k},
-\code{prop_below_k} and \code{meets_target} (\code{min_k >= k_target}).
+\item \code{summary}: one row with \code{n_subjects}, \code{n_quasi}, \code{max_risk_target},
+\code{k_target} (the group size it requires), \code{n_unique} (subjects in a
+group of one), \code{min_k}, \code{max_risk} (\code{1 / min_k}), \code{avg_risk} (mean of
+\code{1 / k}), \code{n_below_k} (subjects in groups smaller than \code{k_target}),
+\code{prop_below_k} and \code{meets_target} (\code{max_risk <= max_risk_target}).
 \item \code{drivers}: one row per quasi-identifier with the number of distinct
 non-missing values (\code{n_values}), the number of missing values
 (\code{n_missing}), and \code{n_unique_without}, \code{n_below_k_without},
@@ -75,7 +79,9 @@ EMA's Anonymisation Report Form Instructions (EMA/482639/2023) state that
 re-identification risk threshold (risk=0.09)" and describe the target as a
 maximum "that should not be exceeded"
 (\url{https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf}).
-Both set the threshold for public release of clinical documents; using it for
+Because \code{1 / 11} (about 0.0909) exceeds 0.09, the default requires groups of
+at least 12 so that the threshold is never exceeded; \code{max_risk = 1/11}
+follows Health Canada's stated cell size instead. Both set the threshold for public release of clinical documents; using it for
 other sharing is a deliberately conservative choice. GDPR and HIPAA set no
 numerical threshold. Meeting the target is evidence about re-identification
 risk from the chosen quasi-identifiers, not proof that data is anonymous or
@@ -93,7 +99,7 @@ dm <- data.frame(
   AGE = c(60, 60, 60, 70, 70, 85),
   SEX = c("F", "F", "F", "M", "M", "M")
 )
-anon_risk(dm, quasi = c("AGE", "SEX"), k = 3)
+anon_risk(dm, quasi = c("AGE", "SEX"), max_risk = 1/3)
 
 vs <- data.frame(
   USUBJID = rep(dm$USUBJID, each = 2),
@@ -108,7 +114,7 @@ anon_risk(
     anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN",
                       filter = ~ VSBLFL == "Y")
   ),
-  k = 2
+  max_risk = 0.5
 )
 
 }

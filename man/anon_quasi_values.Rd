@@ -4,16 +4,23 @@
 \alias{anon_quasi_values}
 \title{Specify quasi-identifier values that vary by row}
 \usage{
-anon_quasi_values(dataset, test, tests, result, filter = NULL, names = tests)
+anon_quasi_values(
+  dataset,
+  test_col,
+  tests,
+  result_col,
+  filter = NULL,
+  names = tests
+)
 }
 \arguments{
 \item{dataset}{Name of the dataset in the list passed to \code{\link[=anon_risk]{anon_risk()}}.}
 
-\item{test}{Name of the column holding test codes (e.g. \code{"VSTESTCD"}).}
+\item{test_col}{Name of the column holding test codes (e.g. \code{"VSTESTCD"}).}
 
 \item{tests}{Test codes to use (e.g. \code{c("HEIGHT", "WEIGHT")}).}
 
-\item{result}{Name of the column holding the result (e.g. \code{"VSSTRESN"}).}
+\item{result_col}{Name of the column holding the result (e.g. \code{"VSSTRESN"}).}
 
 \item{filter}{Optional one-sided formula evaluated in the dataset to select
 rows, e.g. \code{~ VSBLFL == "Y"} for baseline values. Variables not found in
@@ -31,7 +38,7 @@ An object of class \code{"anon_quasi_values"}.
 \description{
 Describes how to take one value per subject from a long dataset, such as a
 findings domain, for use in \code{\link[=anon_risk]{anon_risk()}}. For each test code in \code{tests},
-the first non-missing \code{result} value per subject (in row order, after
+the first non-missing \code{result_col} value per subject (in row order, after
 \code{filter}) becomes a quasi-identifier.
 }
 \examples{

@@ -17,10 +17,13 @@
 #' @param key Name of the subject identifier column shared by the datasets. It
 #'   must have the same type (character or factor, or numeric) in every
 #'   dataset used.
-#' @param k Target smallest group size. The default, 11, is the cell size that
-#'   Health Canada equates with its encouraged re-identification risk threshold
-#'   of 0.09 for public release of clinical information. Note that `1 / 11` is
-#'   about 0.0909, slightly above 0.09; see Details.
+#' @param max_risk Highest acceptable re-identification risk for any subject
+#'   (the maximum risk, `1 / k` for the smallest group). The target group size
+#'   is the smallest `k` with `1 / k <= max_risk`. The default, 0.09, is the
+#'   threshold Health Canada and EMA encourage for public release of clinical
+#'   information, and requires groups of at least 12. Health Canada equates
+#'   0.09 with a cell size of 11, but `1 / 11` is about 0.0909; to use groups of
+#'   11, pass `max_risk = 1/11`. See Details.
 #'
 #' @details
 #' Subjects are all non-missing key values found in the datasets used by
@@ -45,7 +48,9 @@
 #' re-identification risk threshold (risk=0.09)" and describe the target as a
 #' maximum "that should not be exceeded"
 #' (<https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf>).
-#' Both set the threshold for public release of clinical documents; using it for
+#' Because `1 / 11` (about 0.0909) exceeds 0.09, the default requires groups of
+#' at least 12 so that the threshold is never exceeded; `max_risk = 1/11`
+#' follows Health Canada's stated cell size instead. Both set the threshold for public release of clinical documents; using it for
 #' other sharing is a deliberately conservative choice. GDPR and HIPAA set no
 #' numerical threshold. Meeting the target is evidence about re-identification
 #' risk from the chosen quasi-identifiers, not proof that data is anonymous or
@@ -58,10 +63,11 @@
 #' loss. Use it to decide what to try next, then measure again.
 #'
 #' @return An object of class `"anon_risk"`, a list with:
-#'   - `summary`: one row with `n_subjects`, `n_quasi`, `k_target`,
-#'     `n_unique` (subjects in a group of one), `min_k`, `max_risk`
-#'     (`1 / min_k`), `avg_risk` (mean of `1 / k`), `n_below_k`,
-#'     `prop_below_k` and `meets_target` (`min_k >= k_target`).
+#'   - `summary`: one row with `n_subjects`, `n_quasi`, `max_risk_target`,
+#'     `k_target` (the group size it requires), `n_unique` (subjects in a
+#'     group of one), `min_k`, `max_risk` (`1 / min_k`), `avg_risk` (mean of
+#'     `1 / k`), `n_below_k` (subjects in groups smaller than `k_target`),
+#'     `prop_below_k` and `meets_target` (`max_risk <= max_risk_target`).
 #'   - `drivers`: one row per quasi-identifier with the number of distinct
 #'     non-missing values (`n_values`), the number of missing values
 #'     (`n_missing`), and `n_unique_without`, `n_below_k_without`,
@@ -81,7 +87,7 @@
 #'   AGE = c(60, 60, 60, 70, 70, 85),
 #'   SEX = c("F", "F", "F", "M", "M", "M")
 #' )
-#' anon_risk(dm, quasi = c("AGE", "SEX"), k = 3)
+#' anon_risk(dm, quasi = c("AGE", "SEX"), max_risk = 1/3)
 #'
 #' vs <- data.frame(
 #'   USUBJID = rep(dm$USUBJID, each = 2),
@@ -96,20 +102,20 @@
 #'     anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN",
 #'                       filter = ~ VSBLFL == "Y")
 #'   ),
-#'   k = 2
+#'   max_risk = 0.5
 #' )
 #'
 #' @export
-anon_risk <- function(data, quasi, key = "USUBJID", k = 11) {
-  validate_k_target(k)
+anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09) {
+  k_target <- risk_k_target(max_risk)
   table <- risk_quasi_table(data, quasi, key)
   quasi_names <- setdiff(names(table), key)
   group_k <- quasi_group_sizes(table[quasi_names])
 
   structure(
     list(
-      summary = risk_summary(group_k, k, length(quasi_names)),
-      drivers = risk_drivers(table[quasi_names], k),
+      summary = risk_summary(group_k, max_risk, k_target, length(quasi_names)),
+      drivers = risk_drivers(table[quasi_names], k_target),
       quasi = quasi_names,
       key = key
     ),
@@ -149,13 +155,13 @@ anon_risk_subjects <- function(data, quasi, key = "USUBJID") {
 #'
 #' Describes how to take one value per subject from a long dataset, such as a
 #' findings domain, for use in [anon_risk()]. For each test code in `tests`,
-#' the first non-missing `result` value per subject (in row order, after
+#' the first non-missing `result_col` value per subject (in row order, after
 #' `filter`) becomes a quasi-identifier.
 #'
 #' @param dataset Name of the dataset in the list passed to [anon_risk()].
-#' @param test Name of the column holding test codes (e.g. `"VSTESTCD"`).
+#' @param test_col Name of the column holding test codes (e.g. `"VSTESTCD"`).
 #' @param tests Test codes to use (e.g. `c("HEIGHT", "WEIGHT")`).
-#' @param result Name of the column holding the result (e.g. `"VSSTRESN"`).
+#' @param result_col Name of the column holding the result (e.g. `"VSSTRESN"`).
 #' @param filter Optional one-sided formula evaluated in the dataset to select
 #'   rows, e.g. `~ VSBLFL == "Y"` for baseline values. Variables not found in
 #'   the dataset are looked up where the formula was created. It must return
@@ -172,8 +178,8 @@ anon_risk_subjects <- function(data, quasi, key = "USUBJID") {
 #'                   filter = ~ VSBLFL == "Y")
 #'
 #' @export
-anon_quasi_values <- function(dataset, test, tests, result, filter = NULL, names = tests) {
-  for (arg in c("dataset", "test", "result")) {
+anon_quasi_values <- function(dataset, test_col, tests, result_col, filter = NULL, names = tests) {
+  for (arg in c("dataset", "test_col", "result_col")) {
     value <- get(arg)
     if (!is.character(value) || length(value) != 1 || is.na(value) || !nzchar(value)) {
       stop("`", arg, "` must be a single string.", call. = FALSE)
@@ -197,9 +203,9 @@ anon_quasi_values <- function(dataset, test, tests, result, filter = NULL, names
   structure(
     list(
       dataset = dataset,
-      test = test,
+      test_col = test_col,
       tests = tests,
-      result = result,
+      result_col = result_col,
       filter = filter,
       names = names
     ),
@@ -214,8 +220,10 @@ print.anon_risk <- function(x, ...) {
   cat("======================\n\n")
   cat("Quasi-identifiers:", paste(x$quasi, collapse = ", "), "\n")
   cat("Subjects:", s$n_subjects, "\n")
-  cat("Smallest group (k):", s$min_k, " Target k:", s$k_target, "\n")
+  cat("Target: maximum risk", format(signif(s$max_risk_target, 3)),
+      paste0("(groups of at least ", s$k_target, ")"), "\n")
   cat("Maximum risk:", format(signif(s$max_risk, 3)),
+      paste0("(smallest group: ", s$min_k, ")"),
       " Average risk:", format(signif(s$avg_risk, 3)), "\n")
   cat("Unique subjects:", s$n_unique, "\n")
   cat("Subjects below target:", s$n_below_k,
@@ -240,10 +248,14 @@ as_anon_payload.anon_risk <- function(x, path = "$") {
 
 # helpers -----------------------------------------------------------------
 
-validate_k_target <- function(k) {
-  if (!is.numeric(k) || length(k) != 1 || !is.finite(k) || k < 1 || k != round(k)) {
-    stop("`k` must be a single whole number of at least 1.", call. = FALSE)
+# Smallest group size k with 1 / k <= max_risk. The tolerance keeps exact
+# reciprocals such as 0.1 (k = 10) from rounding up.
+risk_k_target <- function(max_risk) {
+  if (!is.numeric(max_risk) || length(max_risk) != 1 || !is.finite(max_risk) ||
+    max_risk <= 0 || max_risk > 1) {
+    stop("`max_risk` must be a single number greater than 0 and at most 1.", call. = FALSE)
   }
+  ceiling(1 / max_risk - sqrt(.Machine$double.eps))
 }
 
 # One row per subject: the key (character) and one column per quasi-identifier.
@@ -403,13 +415,13 @@ quasi_columns_by_subject <- function(df, spec, key, keys) {
 }
 
 quasi_values_by_subject <- function(df, spec, key, keys) {
-  missing <- setdiff(c(spec$test, spec$result), names(df))
+  missing <- setdiff(c(spec$test_col, spec$result_col), names(df))
   if (length(missing) > 0) {
     stop("Column `", missing[1], "` not found in `", dataset_label(spec$dataset), "`.", call. = FALSE)
   }
 
-  keep <- !is.na(df[[key]]) & !is.na(df[[spec$test]]) &
-    df[[spec$test]] %in% spec$tests & !is.na(df[[spec$result]])
+  keep <- !is.na(df[[key]]) & !is.na(df[[spec$test_col]]) &
+    df[[spec$test_col]] %in% spec$tests & !is.na(df[[spec$result_col]])
   if (!is.null(spec$filter)) {
     selected <- rlang::eval_tidy(rlang::as_quosure(spec$filter), data = df)
     if (!is.logical(selected) || !length(selected) %in% c(1L, nrow(df))) {
@@ -421,7 +433,7 @@ quasi_values_by_subject <- function(df, spec, key, keys) {
   df_keys <- key_as_character(df[[key]])
 
   values <- lapply(spec$tests, function(test) {
-    in_test <- df[[spec$test]] == test
+    in_test <- df[[spec$test_col]] == test
     if (!any(in_test)) {
       warning(
         "No values for `", test, "` in `", spec$dataset, "`",
@@ -431,7 +443,7 @@ quasi_values_by_subject <- function(df, spec, key, keys) {
       )
     }
     test_keys <- df_keys[in_test]
-    test_values <- df[[spec$result]][in_test]
+    test_values <- df[[spec$result_col]][in_test]
     first <- !duplicated(test_keys)
     test_values[first][match(keys, test_keys[first])]
   })
@@ -452,12 +464,13 @@ quasi_group_sizes <- function(quasi_table) {
   tabulate(ids)[ids]
 }
 
-risk_summary <- function(group_k, k_target, n_quasi) {
+risk_summary <- function(group_k, max_risk_target, k_target, n_quasi) {
   n <- length(group_k)
   min_k <- min(group_k)
   tibble::tibble(
     n_subjects = n,
     n_quasi = n_quasi,
+    max_risk_target = max_risk_target,
     k_target = k_target,
     n_unique = sum(group_k == 1),
     min_k = min_k,

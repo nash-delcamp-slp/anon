@@ -9,7 +9,7 @@ risk_dm <- function() {
 }
 
 test_that("anon_risk() measures group sizes and risk per subject", {
-  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX"), k = 3)
+  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX"), max_risk = 1/3)
 
   expect_s3_class(risk, "anon_risk")
   subjects <- anon_risk_subjects(risk_dm(), quasi = c("AGE", "SEX"))
@@ -24,13 +24,14 @@ test_that("anon_risk() measures group sizes and risk per subject", {
   expect_equal(s$max_risk, 1)
   expect_equal(s$avg_risk, mean(1 / c(4, 4, 4, 4, 2, 2, 1, 1)))
   expect_equal(s$k_target, 3)
+  expect_equal(s$max_risk_target, 1/3)
   expect_equal(s$n_below_k, 4)
   expect_equal(s$prop_below_k, 0.5)
   expect_false(s$meets_target)
 })
 
 test_that("anon_risk() reports which variables drive the risk", {
-  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX", "RACE"), k = 3)
+  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX", "RACE"), max_risk = 1/3)
   drivers <- risk$drivers
 
   expect_equal(drivers$variable[1], "AGE")
@@ -49,7 +50,7 @@ test_that("anon_risk() ranks drivers by remaining unique subjects when all stay 
     AGE = c(60, 61, 62, 63),
     SEX = c("F", "F", "M", "M")
   )
-  drivers <- anon_risk(dm, quasi = c("AGE", "SEX"), key = "USUBJID", k = 5)$drivers
+  drivers <- anon_risk(dm, quasi = c("AGE", "SEX"), key = "USUBJID", max_risk = 1/5)$drivers
   expect_equal(drivers$variable, c("AGE", "SEX"))
   expect_equal(drivers$n_unique_without, c(0, 4))
 })
@@ -62,7 +63,7 @@ test_that("anon_quasi_values() warns when a test has no values", {
       list(vs = vs),
       quasi = list(anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN",
                                      filter = ~ VSBLFL == "Y")),
-      k = 1
+      max_risk = 1
     ),
     "No values for `HEIGHT` in `vs` after `filter`"
   )
@@ -70,7 +71,7 @@ test_that("anon_quasi_values() warns when a test has no values", {
 
 test_that("anon_risk() meets the target when every group is large enough", {
   dm <- risk_dm()[1:4, ]
-  risk <- anon_risk(dm, quasi = c("AGE", "SEX"), k = 4)
+  risk <- anon_risk(dm, quasi = c("AGE", "SEX"), max_risk = 1/4)
   expect_true(risk$summary$meets_target)
   expect_equal(risk$summary$max_risk, 0.25)
 })
@@ -95,7 +96,7 @@ test_that("anon_risk() combines quasi-identifiers from several datasets", {
     dm = "SEX",
     anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN", filter = ~ VSBLFL == "Y")
   )
-  risk <- anon_risk(list(dm = dm, vs = vs), quasi = quasi, k = 2)
+  risk <- anon_risk(list(dm = dm, vs = vs), quasi = quasi, max_risk = 1/2)
 
   expect_equal(risk$quasi, c("SEX", "HEIGHT", "WEIGHT"))
   expect_equal(anon_risk_subjects(list(dm = dm, vs = vs), quasi = quasi)$k, c(4, 4, 4, 4, 3, 3, 1, 3))
@@ -110,7 +111,7 @@ test_that("anon_quasi_values() uses the first value per subject and names column
   risk <- anon_risk(
     list(vs = vs),
     quasi = list(anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN", names = "BL_WEIGHT")),
-    k = 1
+    max_risk = 1
   )
   expect_equal(risk$quasi, "BL_WEIGHT")
   expect_equal(risk$summary$n_subjects, 2)
@@ -130,14 +131,15 @@ test_that("anon_risk() counts subjects missing from a quasi dataset", {
 test_that("anon_risk() prefixes column names that appear in more than one dataset", {
   a <- data.frame(USUBJID = c("x", "y"), SITE = c("1", "2"))
   b <- data.frame(USUBJID = c("x", "y"), SITE = c("A", "A"))
-  risk <- anon_risk(list(a = a, b = b), quasi = list(a = "SITE", b = "SITE"), k = 1)
+  risk <- anon_risk(list(a = a, b = b), quasi = list(a = "SITE", b = "SITE"), max_risk = 1)
   expect_equal(risk$quasi, c("a.SITE", "b.SITE"))
 })
 
 test_that("anon_risk() validates its inputs", {
   dm <- risk_dm()
-  expect_error(anon_risk(dm, quasi = "AGE", k = 0), "`k` must be a single whole number of at least 1")
-  expect_error(anon_risk(dm, quasi = "AGE", k = 2.5), "`k` must be")
+  expect_error(anon_risk(dm, quasi = "AGE", max_risk = 0), "`max_risk` must be a single number greater than 0 and at most 1")
+  expect_error(anon_risk(dm, quasi = "AGE", max_risk = 1.5), "`max_risk` must be")
+  expect_error(anon_risk(dm, quasi = "AGE", max_risk = NA), "`max_risk` must be")
   expect_error(anon_risk(dm, quasi = "HEIGHT"), "Column `HEIGHT` not found in `data`")
   expect_error(anon_risk(dm, quasi = "AGE", key = "ID"), "Key column `ID` not found in `data`")
   expect_error(anon_risk(list(dm = dm), quasi = list(vs = "X")), "Dataset `vs` not found")
@@ -149,11 +151,12 @@ test_that("anon_risk() validates its inputs", {
 })
 
 test_that("anon_risk() print and JSON payload omit subject-level data", {
-  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX"), k = 3)
+  risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX"), max_risk = 1/3)
 
   output <- paste(capture.output(print(risk)), collapse = "\n")
   expect_match(output, "Re-identification risk", fixed = TRUE)
-  expect_match(output, "Smallest group (k): 1", fixed = TRUE)
+  expect_match(output, "Target: maximum risk 0.333 (groups of at least 3)", fixed = TRUE)
+  expect_match(output, "Maximum risk: 1 (smallest group: 1)", fixed = TRUE)
   expect_false(grepl("S01", output, fixed = TRUE))
 
   payload <- as_anon_payload(risk)
@@ -238,7 +241,7 @@ test_that("anon_risk() groups by exact values without separator collisions", {
   expect_equal(anon_risk_subjects(d, quasi = c("A", "B"))$k, c(1, 1, 1, 1))
 
   n <- data.frame(USUBJID = 1:2, X = c(0.1 + 0.2, 0.3))
-  risk <- anon_risk(n, quasi = "X", k = 1)
+  risk <- anon_risk(n, quasi = "X", max_risk = 1)
   expect_equal(risk$summary$n_unique, 2)
   expect_equal(risk$drivers$n_values, 2)
 
@@ -248,7 +251,7 @@ test_that("anon_risk() groups by exact values without separator collisions", {
 
 test_that("anon_risk() warns about missing keys and rejects empty data and name clashes", {
   dm <- data.frame(USUBJID = c("a", NA, "b", NA), AGE = c(60, 61, 62, 63))
-  expect_warning(risk <- anon_risk(dm, quasi = "AGE", k = 1), "2 row\\(s\\) with a missing `USUBJID` were dropped")
+  expect_warning(risk <- anon_risk(dm, quasi = "AGE", max_risk = 1), "2 row\\(s\\) with a missing `USUBJID` were dropped")
   expect_equal(risk$summary$n_subjects, 2)
 
   expect_error(anon_risk(dm[0, ], quasi = "AGE"), "No subjects found")
@@ -262,14 +265,24 @@ test_that("anon_risk() warns about missing keys and rejects empty data and name 
 })
 
 test_that("anon_risk() drivers handle a single quasi-identifier and report average risk", {
-  risk <- anon_risk(risk_dm(), quasi = "AGE", k = 3)
+  risk <- anon_risk(risk_dm(), quasi = "AGE", max_risk = 1/3)
   expect_equal(risk$drivers$min_k_without, 8)
   expect_equal(risk$drivers$avg_risk_without, 1 / 8)
 })
 
-test_that("anon_risk() with k = 11 reports a maximum risk of 1/11", {
+test_that("anon_risk() default 0.09 requires groups of 12; 1/11 allows 11", {
   dm <- data.frame(USUBJID = 1:11, SEX = "F")
   risk <- anon_risk(dm, quasi = "SEX")
-  expect_true(risk$summary$meets_target)
+  expect_equal(risk$summary$k_target, 12)
+  expect_equal(risk$summary$max_risk_target, 0.09)
+  expect_false(risk$summary$meets_target)
   expect_equal(risk$summary$max_risk, 1 / 11)
+
+  risk <- anon_risk(dm, quasi = "SEX", max_risk = 1/11)
+  expect_equal(risk$summary$k_target, 11)
+  expect_true(risk$summary$meets_target)
+
+  expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 0.1)$summary$k_target, 10)
+  expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 0.2)$summary$k_target, 5)
+  expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 1)$summary$k_target, 1)
 })
