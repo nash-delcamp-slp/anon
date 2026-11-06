@@ -47,7 +47,8 @@ An object of class \code{"anon_deid_step"}: a list with \code{data} (the
 transformed data, in the same form as the input), \code{log} (a tibble with
 \code{step}, \code{dataset}, \code{variable}, \code{n_changed}, \code{n_removed} and \code{detail}; the
 first row of each step records its settings; earlier steps are included
-when \code{data} was a step result) and
+when \code{data} was a step result), \code{settings} (a named list with each step's
+arguments, without the seed value) and
 \code{secrets} (\code{NULL} unless \code{keep_secrets = TRUE} here or in an earlier step).
 Saving the object (for example with \code{\link[=saveRDS]{saveRDS()}}) also saves its secrets.
 }

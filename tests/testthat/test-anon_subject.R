@@ -174,7 +174,7 @@ test_that("year-only dates always change year; month dates keep month precision"
   expect_true(all((as.integer(out$BRTHDTC) > 1950) == (off > 0)))
   expect_match(out$MHSTDTC, "^[0-9]{4}-[0-9]{2}$")
   expect_true(all(out$MHSTDTC != "2014-03"))
-  expect_equal(anon_subject_dates(d, partial = "remove", seed = 10)$data$BRTHDTC, rep("", 300))
+  expect_true(all(is.na(anon_subject_dates(d, partial = "remove", seed = 10)$data$BRTHDTC)))
 })
 
 test_that("anon_date_shift() keeps its year-only behaviour", {
@@ -261,7 +261,7 @@ test_that("narrow or zero-including offset ranges warn", {
 test_that("invalid dates are logged as removed, not shifted", {
   d <- data.frame(USUBJID = c("a", "b"), XDTC = c("2020-02-30", "UNK"))
   expect_warning(result <- anon_subject_dates(d, seed = 18), "2 value\\(s\\) are not recognised ISO 8601 dates")
-  expect_match(result$log$detail[result$log$variable %in% "XDTC"], "0 value\\(s\\) shifted, 2 removed \\(not ISO 8601\\)")
+  expect_match(result$log$detail[result$log$variable %in% "XDTC"], "0 value\\(s\\) shifted, 2 removed \\(not a recognised date, or year out of range\\)")
   expect_true(all(is.na(result$data$XDTC)))
 })
 
@@ -410,4 +410,91 @@ test_that("log has numeric counts and records settings", {
 test_that("anon_risk() accepts a step result", {
   step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("a", "b"), SEX = "F")), seed = 1)
   expect_equal(anon_risk(step, quasi = list(dm = "SEX"), max_risk = 1)$summary$n_subjects, 2)
+})
+
+test_that("invalid UTF-8 in a date column does not crash the dates step", {
+  d <- data.frame(USUBJID = c("a", "b"), XDTC = c("2020-01-01", "caf\xe9"))
+  expect_warning(out <- anon_subject_dates(d, seed = 1)$data, "not recognised ISO 8601 dates")
+  expect_true(is.na(out$XDTC[2]))
+})
+
+test_that("years before 1000 keep four digits", {
+  expect_equal(anon_date_shift("0001-01-05", offset = 40), "0001-02-14")
+  expect_equal(anon_date_shift("0500-01", offset = 40), "0500-02")
+})
+
+test_that("mixed result columns in vars keep their non-date values", {
+  fa <- data.frame(USUBJID = "a", FAORRES = c("2014-01-02", "MILD", "2014-03", "SEVERE"))
+  result <- anon_subject_dates(fa, vars = "FAORRES", keep_secrets = TRUE, seed = 1)
+  out <- result$data$FAORRES
+  expect_equal(out[c(2, 4)], c("MILD", "SEVERE"))
+  expect_false(any(out[c(1, 3)] == fa$FAORRES[c(1, 3)]))
+})
+
+test_that("SDTM times with unknown parts, time-only values and durations are handled", {
+  d <- data.frame(USUBJID = "a", XDTC = c("2003-12-15T-:15", "2003-12-15T13:-:17", "-----T07:15", "--12-15", "2014-01-01/P1D"))
+  result <- suppressWarnings(anon_subject_dates(d, keep_secrets = TRUE, min_days = 40, max_days = 40, seed = 1))
+  off <- anon_secrets(result)$date_offsets$offset_days
+  out <- result$data$XDTC
+  expect_equal(substring(out[1:2], 11), c("T-:15", "T13:-:17"))
+  expect_equal(as.numeric(as.Date(substr(out[1], 1, 10)) - as.Date("2003-12-15")), off)
+  expect_equal(out[3], "-----T07:15")
+  expect_true(is.na(out[4]))
+  expect_match(out[5], "/P1D$")
+})
+
+test_that("year-and-day QVAL dates are shifted", {
+  supp <- data.frame(USUBJID = "a", QNAM = "X", QVAL = "2014---15")
+  out <- anon_subject_dates(list(suppae = supp), seed = 1)$data$suppae
+  expect_false(out$QVAL == "2014---15")
+  expect_match(out$QVAL, "^[0-9]{4}---15$")
+})
+
+test_that("partial = \"remove\" uses the column's missing value and counts partials", {
+  d <- data.frame(USUBJID = "a", AESTDTC = c("2014-01-02", "2014-03", "2014", "2014-01/2014-02-01", NA))
+  result <- anon_subject_dates(d, partial = "remove", seed = 1)
+  out <- result$data$AESTDTC
+  expect_false(is.na(out[1]))
+  expect_true(all(is.na(out[2:5])))
+  row <- result$log[result$log$variable %in% "AESTDTC", ]
+  expect_equal(row$n_changed, 1L)
+  expect_match(row$detail, "3 removed \\(partial\\)")
+})
+
+test_that("row names are reset so they can't hold keys", {
+  dm <- data.frame(USUBJID = c("S1", "S2"))
+  rownames(dm) <- dm$USUBJID
+  expect_equal(rownames(anon_subject_ids(dm, seed = 1)$data), c("1", "2"))
+  one <- data.frame(USUBJID = "S1")
+  rownames(one) <- "S1"
+  expect_equal(rownames(anon_subject_ids(one, seed = 1)$data), "1")
+})
+
+test_that("SPSS missing-value codes are dropped with value labels", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("a", "b"))
+  d$SUBJID <- haven::labelled_spss(c(1015, 1028), na_values = c(-9, 1028))
+  out <- anon_subject_ids(d, seed = 1)$data$SUBJID
+  expect_null(attr(out, "na_values"))
+  expect_null(attr(out, "na_range"))
+})
+
+test_that("narrow ranges that include 0 give both warnings", {
+  d <- data.frame(USUBJID = "a", X = as.Date("2020-01-01"))
+  msgs <- character(0)
+  withCallingHandlers(anon_subject_dates(d, min_days = 0, max_days = 1, seed = 1),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  expect_true(any(grepl("keep their real dates", msgs)))
+  expect_true(any(grepl("possible offsets", msgs)))
+})
+
+test_that("steps record structured settings without the seed value", {
+  step <- anon_subject_ids(suppressWarnings(anon_subject_dates(subject_data(), seed = 123)), seed = 456)
+  expect_named(step$settings, c("subject_dates", "subject_ids"))
+  expect_equal(step$settings$subject_dates$max_days, 365)
+  expect_true(step$settings$subject_ids$seeded)
+  expect_false(any(grepl("123|456", unlist(step$settings))))
 })

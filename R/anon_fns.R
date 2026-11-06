@@ -11,9 +11,14 @@
 #'
 #' Character input is read as ISO 8601 and returned as character in the same
 #' format and precision: a full date (`2014-01-02`) is shifted and any time part
-#' after `T` is kept as is. Partial dates (`2014-03`, `2014`) are handled by
-#' `partial`. Empty strings and `NA` are returned unchanged, and other values
-#' are removed with a warning.
+#' (after `T`, `t` or a space) is kept as is. Partial dates (`2014-03`, `2014`,
+#' and the SDTM forms `2014-03--T08:00` and `2014---15`) are handled by
+#' `partial`. Both date ends of an interval (`2014-01-02/2014-01-05`) are
+#' shifted; a duration end (`2014-01-02/P1D`) is kept. Time-only values
+#' (`-----T07:15`), durations, empty strings and `NA` are returned unchanged.
+#' Other values, including a month and day without a year (`--12-15`), and
+#' values whose shifted year would fall outside 0001-9999, are removed with a
+#' warning.
 #'
 #' @param x A Date, POSIXct or ISO 8601 character vector to anonymize
 #' @param center_date New center point for the date range (default: current
@@ -176,26 +181,34 @@ parse_center_date <- function(center_date) {
 # offset ("full"); year and month ("month"); year, month and a time with the
 # day unknown, as in SDTM "2014-01--T08:00" ("month_time"); year only
 # ("year"); year and day with the month unknown, as in SDTM "2014---15"
-# ("year_day"); and intervals "start/end" of these ("interval"). The reference
-# is the date itself, the middle of the month (day 15) or of the year
-# (2 July), or for intervals the start's reference. Other non-blank values have
-# kind "invalid".
+# ("year_day"); a time with no date, as in SDTM "-----T07:15" ("time_only");
+# an ISO 8601 duration such as "P1D" ("duration"); and intervals "start/end"
+# where each end is a date or a duration and at least one is a date
+# ("interval"). Times may use "T", "t" or a space, may have an unknown hour or
+# minute ("T-:15", "T13:-:17", as in SDTM), and fractional seconds with "." or
+# ",". The reference is the date itself, the middle of the month (day 15) or of
+# the year (2 July), or for intervals the first date end's reference; time-only
+# values and durations have none. Other non-blank values, including a month
+# and day with no year ("--12-15"), have kind "invalid".
 parse_iso8601_dates <- function(x) {
   x <- as.character(x)
   kind <- rep("empty", length(x))
   reference <- rep(as.Date(NA), length(x))
   present <- !is.na(x) & !grepl("^[[:space:]]*$", x, useBytes = TRUE)
 
-  time_part <- paste0(
-    "T([01][0-9]|2[0-3])(:[0-5][0-9](:[0-5][0-9](\\.[0-9]+)?)?)?",
+  clock <- paste0(
+    "(-|[01][0-9]|2[0-3])(:(-|[0-5][0-9])(:[0-5][0-9]([.,][0-9]+)?)?)?",
     "(Z|[+-][0-9]{2}(:?[0-9]{2})?)?"
   )
   match <- function(pattern) present & grepl(pattern, x, useBytes = TRUE)
-  is_full <- match(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}(", time_part, ")?$"))
+  is_full <- match(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ]", clock, ")?$"))
   is_month <- match("^[0-9]{4}-[0-9]{2}$")
-  is_month_time <- match(paste0("^[0-9]{4}-[0-9]{2}--", time_part, "$"))
+  is_month_time <- match(paste0("^[0-9]{4}-[0-9]{2}--[Tt]", clock, "$"))
   is_year <- match("^[0-9]{4}$")
   is_year_day <- match("^[0-9]{4}---(0[1-9]|[12][0-9]|3[01])$")
+  is_time_only <- match(paste0("^-----[Tt]", clock, "$"))
+  is_duration <- match("^-?P([0-9]+([.,][0-9]+)?[YMWD])*(T([0-9]+([.,][0-9]+)?[HMS])+)?$") &
+    grepl("[0-9]", x, useBytes = TRUE)
   is_interval <- present & grepl("/", x, fixed = TRUE, useBytes = TRUE)
 
   reference[is_full] <- as.Date(substr(x[is_full], 1, 10), format = "%Y-%m-%d", optional = TRUE)
@@ -209,19 +222,27 @@ parse_iso8601_dates <- function(x) {
   kind[is_month_time] <- "month_time"
   kind[is_year] <- "year"
   kind[is_year_day] <- "year_day"
+  kind[is_time_only] <- "time_only"
+  kind[is_duration & !is_interval] <- "duration"
 
+  date_kinds <- c("full", "month", "month_time", "year", "year_day")
   if (any(is_interval)) {
     parts <- strsplit(x[is_interval], "/", fixed = TRUE)
-    ends_ok <- vapply(parts, function(p) {
-      length(p) == 2 && all(parse_iso8601_dates(p)$kind %in% c("full", "month", "month_time", "year", "year_day"))
+    end_kinds <- lapply(parts, function(p) if (length(p) == 2) parse_iso8601_dates(p)$kind else "invalid")
+    ends_ok <- vapply(end_kinds, function(k) {
+      length(k) == 2 && all(k %in% c(date_kinds, "duration")) && any(k %in% date_kinds)
     }, logical(1))
-    starts <- vapply(parts, `[`, character(1), 1)
+    first_date <- vapply(seq_along(parts), function(i) {
+      if (!ends_ok[i]) return(NA_character_)
+      parts[[i]][which(end_kinds[[i]] %in% date_kinds)[1]]
+    }, character(1))
     kind[is_interval][ends_ok] <- "interval"
-    reference[is_interval][ends_ok] <- parse_iso8601_dates(starts[ends_ok])$reference
+    reference[is_interval][ends_ok] <- parse_iso8601_dates(first_date[ends_ok])$reference
   }
 
   kind[present & kind == "empty"] <- "invalid"
-  kind[kind != "invalid" & kind != "empty" & is.na(reference)] <- "invalid"
+  needs_reference <- !kind %in% c("invalid", "empty", "time_only", "duration")
+  kind[needs_reference & is.na(reference)] <- "invalid"
 
   list(kind = kind, reference = reference)
 }
@@ -269,15 +290,17 @@ shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
 
   shifted_year <- as.integer(format(shifted, "%Y"))
   in_range <- !is.na(shifted_year) & shifted_year >= 1 & shifted_year <= 9999
+  # Years before 1000 are written with four digits on every platform.
+  year_text <- sprintf("%04d", shifted_year)
 
   full <- kind == "full"
-  out[full] <- paste0(format(shifted[full], "%Y-%m-%d"), substring(x[full], 11))
+  out[full] <- paste0(year_text[full], format(shifted[full], "-%m-%d"), substring(x[full], 11))
   out_of_range[full] <- !in_range[full]
 
   partial_kinds <- c("month", "month_time", "year", "year_day")
   if (partial == "shift") {
     month_like <- kind %in% c("month", "month_time")
-    out[month_like] <- paste0(format(shifted[month_like], "%Y-%m"), substring(x[month_like], 8))
+    out[month_like] <- paste0(year_text[month_like], format(shifted[month_like], "-%m"), substring(x[month_like], 8))
     out_of_range[month_like] <- !in_range[month_like]
 
     year_like <- kind %in% c("year", "year_day")

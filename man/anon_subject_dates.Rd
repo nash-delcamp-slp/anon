@@ -26,9 +26,11 @@ without the \code{key} column are returned unchanged.}
 factor column whose name ends in \code{DTC} (any case; ISO 8601 dates, as in
 SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}.
 In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
-values that are ISO 8601 dates with at least year and month are shifted
-too (year-only values are left alone because they can't be told apart from
-numbers; the unshifted-dates warning does not cover them). Columns given in
+values that are ISO 8601 dates with more than a bare year are shifted too
+(year-only values are left alone because they can't be told apart from
+numbers; the unshifted-dates warning does not cover them). In columns not
+named \verb{*DTC}, such as \code{QVAL} or a result column given in \code{vars}, only the
+values that are dates are shifted and other values are kept. Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
 dates.}
 
@@ -84,8 +86,11 @@ the same subject can change (for example a start month can end up after an
 end date).
 
 Dates in rows without a key cannot be tied to a subject's offset and are
-removed, with a warning. Values that are not recognised ISO 8601 dates, or
-whose year would fall outside 0001-9999, are removed with a warning. Text
+removed, with a warning. In \verb{*DTC} columns, values that are not recognised
+ISO 8601 dates, or whose year would fall outside 0001-9999, are removed with
+a warning; this includes a month and day without a year (\code{"--12-15"}).
+Time-only values (\code{"-----T07:15"}) and durations (\code{"P1D"}) have no date and
+are kept. Text
 columns given in \code{vars} must contain at least one recognised date. Datasets without the \code{key} column (for example trial-level domains
 such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
 real trial dates can narrow down subjects' offsets. A warning lists any other

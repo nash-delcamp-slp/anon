@@ -45,9 +45,14 @@ example dose and sample times), pass the same \code{offset} to every call.
 
 Character input is read as ISO 8601 and returned as character in the same
 format and precision: a full date (\code{2014-01-02}) is shifted and any time part
-after \code{T} is kept as is. Partial dates (\code{2014-03}, \code{2014}) are handled by
-\code{partial}. Empty strings and \code{NA} are returned unchanged, and other values
-are removed with a warning.
+(after \code{T}, \code{t} or a space) is kept as is. Partial dates (\code{2014-03}, \code{2014},
+and the SDTM forms \code{2014-03--T08:00} and \code{2014---15}) are handled by
+\code{partial}. Both date ends of an interval (\code{2014-01-02/2014-01-05}) are
+shifted; a duration end (\code{2014-01-02/P1D}) is kept. Time-only values
+(\code{-----T07:15}), durations, empty strings and \code{NA} are returned unchanged.
+Other values, including a month and day without a year (\code{--12-15}), and
+values whose shifted year would fall outside 0001-9999, are removed with a
+warning.
 }
 \examples{
 dates <- as.Date(c("2023-01-15", "2023-02-20", "2023-03-10"))

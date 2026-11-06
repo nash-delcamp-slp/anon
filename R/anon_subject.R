@@ -60,7 +60,8 @@
 #'   transformed data, in the same form as the input), `log` (a tibble with
 #'   `step`, `dataset`, `variable`, `n_changed`, `n_removed` and `detail`; the
 #'   first row of each step records its settings; earlier steps are included
-#'   when `data` was a step result) and
+#'   when `data` was a step result), `settings` (a named list with each step's
+#'   arguments, without the seed value) and
 #'   `secrets` (`NULL` unless `keep_secrets = TRUE` here or in an earlier step).
 #'   Saving the object (for example with [saveRDS()]) also saves its secrets.
 #'
@@ -159,7 +160,11 @@ anon_subject_ids <- function(
     new_ids <- if (any_numeric_key(data[keyed], key)) numbers else pseudonyms
     list(subject_ids = tibble::tibble(key = keys, pseudonym = new_ids))
   }
-  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous)
+  settings <- list(subject_ids = list(
+    key = key, also = also, key_cols = key_cols, prefix = prefix,
+    keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed)
+  ))
+  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
 #' Shift each subject's dates by a random offset
@@ -177,9 +182,11 @@ anon_subject_ids <- function(
 #'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
 #'   SDTM) and every Date or POSIXct column, in each dataset that has the `key`.
 #'   In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
-#'   values that are ISO 8601 dates with at least year and month are shifted
-#'   too (year-only values are left alone because they can't be told apart from
-#'   numbers; the unshifted-dates warning does not cover them). Columns given in
+#'   values that are ISO 8601 dates with more than a bare year are shifted too
+#'   (year-only values are left alone because they can't be told apart from
+#'   numbers; the unshifted-dates warning does not cover them). In columns not
+#'   named `*DTC`, such as `QVAL` or a result column given in `vars`, only the
+#'   values that are dates are shifted and other values are kept. Columns given in
 #'   `vars` must be Date, POSIXct, or character or factor columns of ISO 8601
 #'   dates.
 #' @param max_days,min_days Each subject's offset is drawn uniformly from the
@@ -215,8 +222,11 @@ anon_subject_ids <- function(
 #' end date).
 #'
 #' Dates in rows without a key cannot be tied to a subject's offset and are
-#' removed, with a warning. Values that are not recognised ISO 8601 dates, or
-#' whose year would fall outside 0001-9999, are removed with a warning. Text
+#' removed, with a warning. In `*DTC` columns, values that are not recognised
+#' ISO 8601 dates, or whose year would fall outside 0001-9999, are removed with
+#' a warning; this includes a month and day without a year (`"--12-15"`).
+#' Time-only values (`"-----T07:15"`) and durations (`"P1D"`) have no date and
+#' are kept. Text
 #' columns given in `vars` must contain at least one recognised date. Datasets without the `key` column (for example trial-level domains
 #' such as `TS`, `TV` and `TA`) are left unchanged and listed in the log; their
 #' real trial dates can narrow down subjects' offsets. A warning lists any other
@@ -282,20 +292,24 @@ anon_subject_dates <- function(
     subject_offset <- offsets[match(normalize_keys(df[[key]]), keys)]
 
     for (col in date_vars[[ds]]) {
-      shifted <- shift_dates_by_subject(df[[col]], subject_offset, partial)
+      keep_non_dates <- !grepl("DTC$", col, ignore.case = TRUE)
+      shifted <- shift_dates_by_subject(df[[col]], subject_offset, partial, keep_non_dates)
       df[[col]] <- shifted$values
       totals <- totals + c(shifted$no_key, shifted$invalid)
-      log <- deid_log_add(log, ds, col, shift_detail(shifted), shifted$shifted, shifted$no_key + shifted$invalid)
+      log <- deid_log_add(
+        log, ds, col, shift_detail(shifted), shifted$shifted,
+        shifted$no_key + shifted$invalid + shifted$partial
+      )
     }
 
     if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
-      shifted <- shift_qval_dates(df$QVAL, subject_offset)
+      shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
       df$QVAL <- shifted$values
       totals <- totals + c(shifted$no_key, 0)
-      if (shifted$shifted + shifted$no_key > 0) {
+      if (shifted$shifted + shifted$no_key + shifted$partial > 0) {
         log <- deid_log_add(
-          log, ds, "QVAL", paste0(shift_detail(shifted), " (ISO 8601 dates only)"),
-          shifted$shifted, shifted$no_key
+          log, ds, "QVAL", paste0(shift_detail(shifted), " (date values only)"),
+          shifted$shifted, shifted$no_key + shifted$partial
         )
       }
     }
@@ -319,7 +333,11 @@ anon_subject_dates <- function(
   secrets <- if (isTRUE(keep_secrets)) {
     list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
   }
-  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous)
+  settings <- list(subject_dates = list(
+    key = key, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
+    keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed)
+  ))
+  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
 #' Read the secrets kept by a de-identification step
@@ -381,9 +399,11 @@ as_anon_payload.anon_deid_step <- function(x, path = "$") {
 
 # Secrets live in an environment so that print(), anon() and JSON output never
 # show them by accident. Logs and secrets from an earlier step are carried on.
-new_deid_step <- function(data, log, secrets, previous = NULL) {
+new_deid_step <- function(data, log, secrets, previous = NULL, settings = list()) {
   if (!is.null(previous)) {
     log <- rbind(previous$log, log)
+    settings <- c(previous$settings, settings)
+    names(settings) <- make.unique(names(settings), sep = "_")
     if (!is.null(previous$secrets)) {
       secrets <- c(mget(ls(previous$secrets), envir = previous$secrets), secrets)
       names(secrets) <- make.unique(names(secrets), sep = "_")
@@ -395,7 +415,7 @@ new_deid_step <- function(data, log, secrets, previous = NULL) {
     class(secrets_env) <- "anon_secrets"
   }
   structure(
-    list(data = data, log = log, secrets = secrets_env),
+    list(data = data, log = log, settings = settings, secrets = secrets_env),
     class = "anon_deid_step"
   )
 }
@@ -460,12 +480,14 @@ replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x)))
 # dropped when values are replaced or shifted.
 drop_value_labels <- function(x) {
   attr(x, "labels") <- NULL
+  attr(x, "na_values") <- NULL
+  attr(x, "na_range") <- NULL
   x
 }
 
 # Rebuild attributes (labels, formats, extra classes) on a new factor.
 with_attributes_of <- function(new, old) {
-  extra <- attributes(old)[setdiff(names(attributes(old)), c("levels", "class", "names", "labels"))]
+  extra <- attributes(old)[setdiff(names(attributes(old)), c("levels", "class", "names", "labels", "na_values", "na_range"))]
   attributes(new) <- c(attributes(new), extra)
   new
 }
@@ -496,7 +518,8 @@ validate_offset_range <- function(max_days, min_days) {
   n_offsets <- 2 * (max_days - min_days + 1) - (min_days == 0)
   if (min_days == 0) {
     warning("`min_days = 0` lets some subjects keep their real dates.", call. = FALSE)
-  } else if (n_offsets < 30) {
+  }
+  if (n_offsets < 30) {
     warning("Only ", n_offsets, " possible offsets; offsets are easy to guess.", call. = FALSE)
   }
 }
@@ -545,35 +568,43 @@ sample_with_seed <- function(n, size, seed = NULL) {
 # Shift each value by its subject's offset (days), keeping the column's type and
 # attributes. Values without an offset, and text that is not ISO 8601, are
 # removed. Returns the new values and counts.
-shift_dates_by_subject <- function(x, offset, partial) {
+shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE) {
   if (inherits(x, "haven_labelled")) {
-    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial)
+    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial, keep_non_dates)
     attrs <- attributes(x)
-    attrs$labels <- NULL
+    attrs[c("labels", "na_values", "na_range")] <- NULL
     attributes(shifted$values) <- attrs
     return(shifted)
   }
   if (is.factor(x)) {
-    shifted <- shift_dates_by_subject(as.character(x), offset, partial)
+    shifted <- shift_dates_by_subject(as.character(x), offset, partial, keep_non_dates)
     shifted$values <- with_attributes_of(factor(shifted$values), x)
     return(shifted)
   }
 
-  present <- if (is.character(x)) !is.na(x) & nzchar(trimws(x)) else !is.na(x)
-  no_offset <- present & is.na(offset)
+  present <- if (is.character(x)) !is.na(x) & !grepl("^[[:space:]]*$", x, useBytes = TRUE) else !is.na(x)
   use <- ifelse(is.na(offset), 0, offset)
   invalid <- rep(FALSE, length(x))
+  removed_partial <- rep(FALSE, length(x))
+  unchanged <- rep(FALSE, length(x))
 
   out <- x
   if (is.character(x)) {
-    new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
     kinds <- parse_iso8601_dates(x)$kind
-    removed_partial <- partial == "remove" & kinds %in% c("month", "month_time", "year", "year_day")
-    invalid <- present & !no_offset & !removed_partial & !nzchar(new_values)
+    # Values with no date to shift: time-only values and durations, and in
+    # mixed columns (not named *DTC) values that aren't dates at all.
+    unchanged <- present & (kinds %in% c("time_only", "duration") | (keep_non_dates & kinds == "invalid"))
+    no_offset <- present & !unchanged & is.na(offset)
+    new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
+    if (partial == "remove") {
+      removed_partial <- present & !no_offset & is_partial_date(x, kinds)
+    }
+    invalid <- present & !unchanged & !no_offset & !removed_partial & !nzchar(new_values)
     out[] <- new_values
-    out[no_offset] <- missing_text_like(x)
-    out[invalid] <- missing_text_like(x)
+    out[unchanged] <- x[unchanged]
+    out[no_offset | invalid | removed_partial] <- missing_text_like(x)
   } else if (inherits(x, "POSIXct")) {
+    no_offset <- present & is.na(offset)
     tz <- attr(x, "tzone", exact = TRUE)
     tz <- if (is.null(tz) || length(tz) == 0) "" else tz[[1]]
     lt <- as.POSIXlt(x, tz = tz)
@@ -582,6 +613,7 @@ shift_dates_by_subject <- function(x, offset, partial) {
     out[] <- as.POSIXct(lt, tz = tz)
     out[no_offset] <- NA
   } else {
+    no_offset <- present & is.na(offset)
     out[] <- x + use
     out[no_offset] <- NA
   }
@@ -589,38 +621,55 @@ shift_dates_by_subject <- function(x, offset, partial) {
 
   list(
     values = out,
-    shifted = sum(present & !no_offset & !invalid),
+    shifted = sum(present & !unchanged & !no_offset & !invalid & !removed_partial),
     no_key = sum(no_offset),
-    invalid = sum(invalid)
+    invalid = sum(invalid),
+    partial = sum(removed_partial)
   )
 }
 
-# Shift QVAL values that are full ISO 8601 dates; other values are untouched.
-shift_qval_dates <- function(x, offset) {
+# Partial dates, including intervals with a partial end.
+is_partial_date <- function(x, kinds = parse_iso8601_dates(x)$kind) {
+  partial_kinds <- c("month", "month_time", "year", "year_day")
+  out <- kinds %in% partial_kinds
+  is_interval <- which(kinds == "interval")
+  if (length(is_interval) > 0) {
+    ends <- strsplit(x[is_interval], "/", fixed = TRUE)
+    out[is_interval] <- vapply(ends, function(e) any(parse_iso8601_dates(e)$kind %in% partial_kinds), logical(1))
+  }
+  out
+}
+
+# Shift QVAL values that are ISO 8601 dates with more than a bare year (which
+# can't be told apart from a number); other values are untouched.
+shift_qval_dates <- function(x, offset, partial = "shift") {
   text <- as.character(x)
-  is_date <- parse_iso8601_dates(text)$kind %in% c("full", "month", "month_time", "interval")
+  kinds <- parse_iso8601_dates(text)$kind
+  is_date <- kinds %in% c("full", "month", "month_time", "year_day", "interval")
   out <- x
   if (!any(is_date)) {
     if (is.factor(x)) out <- with_attributes_of(factor(text), x)
-    return(list(values = out, shifted = 0, no_key = 0, invalid = 0))
+    return(list(values = out, shifted = 0, no_key = 0, invalid = 0, partial = 0))
   }
   no_offset <- is_date & is.na(offset)
-  movable <- is_date & !no_offset
+  removed_partial <- if (partial == "remove") is_date & !no_offset & is_partial_date(text, kinds) else rep(FALSE, length(text))
+  movable <- is_date & !no_offset & !removed_partial
   new_text <- text
   new_text[movable] <- suppressWarnings(shift_iso8601(text[movable], offset[movable], "shift", year_step = TRUE))
-  new_text[no_offset] <- missing_text_like(text)
+  new_text[no_offset | removed_partial] <- missing_text_like(text)
   if (is.factor(x)) {
     out <- with_attributes_of(factor(new_text), x)
   } else {
     out[] <- new_text
   }
-  list(values = out, shifted = sum(movable), no_key = sum(no_offset), invalid = 0)
+  list(values = out, shifted = sum(movable), no_key = sum(no_offset), invalid = 0, partial = sum(removed_partial))
 }
 
 shift_detail <- function(shifted) {
   removed <- c(
     if (shifted$no_key > 0) paste0(shifted$no_key, " removed (no key)"),
-    if (shifted$invalid > 0) paste0(shifted$invalid, " removed (not ISO 8601)")
+    if (shifted$invalid > 0) paste0(shifted$invalid, " removed (not a recognised date, or year out of range)"),
+    if (isTRUE(shifted$partial > 0)) paste0(shifted$partial, " removed (partial)")
   )
   paste(c(paste0(shifted$shifted, " value(s) shifted"), removed), collapse = ", ")
 }
@@ -660,7 +709,8 @@ warn_unshifted_iso_dates <- function(data, keyed, date_vars, key, qval_processed
   if (length(hits) > 0) {
     warning(
       "These columns contain ISO 8601 dates but were not shifted: ",
-      paste(hits, collapse = ", "), ". Add them to `vars` or remove them.",
+      paste(hits, collapse = ", "),
+      ". Add them to `vars` (in columns not named *DTC only the date values are shifted) or remove them.",
       call. = FALSE
     )
   }
@@ -741,12 +791,13 @@ any_numeric_key <- function(data, key) {
 # The order of rows within a subject, and of rows without a key, is kept.
 sort_by_new_key <- function(df, idx, numbers) {
   if (nrow(df) < 2) {
+    if (!tibble::is_tibble(df)) rownames(df) <- NULL
     return(df)
   }
-  automatic_names <- !tibble::is_tibble(df) && identical(rownames(df), as.character(seq_len(nrow(df))))
   ord <- order(numbers[idx], seq_len(nrow(df)), na.last = TRUE)
   df <- vctrs::vec_slice(df, ord)
-  if (automatic_names) {
+  if (!tibble::is_tibble(df)) {
+    # Row names can hold original keys or reveal the original order.
     rownames(df) <- NULL
   }
   df
