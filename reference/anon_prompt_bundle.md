@@ -22,7 +22,8 @@ anon_prompt_bundle(
 
 - report:
 
-  Optional object created by [`anon_report()`](anon_report.md).
+  Optional object created by
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md).
 
 - text:
 
@@ -31,7 +32,7 @@ anon_prompt_bundle(
 - comparison:
 
   Optional object created by
-  [`anon_compare_text()`](anon_compare_text.md).
+  [`anon_compare_text()`](https://nash-delcamp-slp.github.io/anon/reference/anon_compare_text.md).
 
 - format:
 

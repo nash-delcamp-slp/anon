@@ -3,9 +3,11 @@
 This function creates a named list of default replacement values for
 different types of NLP entity-based anonymization. It provides a
 centralized way to manage default replacements for entities anonymized
-in [`anon_nlp_entities()`](anon_nlp_entities.md) and
-[`anon_nlp_proper_nouns()`](anon_nlp_entities.md) when set as the global
-option `anon.nlp_default_replacements`.
+in
+[`anon_nlp_entities()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
+and
+[`anon_nlp_proper_nouns()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
+when set as the global option `anon.nlp_default_replacements`.
 
 ## Usage
 
@@ -111,7 +113,8 @@ nlp_default_replacements(
 - propn:
 
   Default replacement for proper nouns (default: "\[PROPN\]"). This only
-  applies to [`anon_nlp_proper_nouns()`](anon_nlp_entities.md).
+  applies to
+  [`anon_nlp_proper_nouns()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md).
 
 ## Value
 

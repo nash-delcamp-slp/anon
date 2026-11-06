@@ -26,9 +26,10 @@ anon_options(
 
 - default_replacement:
 
-  Default replacement text used by [`anon()`](anon.md) and NLP helpers
-  when no more specific replacement is provided. Stored in
-  `anon.default_replacement`.
+  Default replacement text used by
+  [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+  and NLP helpers when no more specific replacement is provided. Stored
+  in `anon.default_replacement`.
 
 - pattern_list:
 
@@ -48,27 +49,33 @@ anon_options(
 - nlp_auto:
 
   NLP auto-redaction configuration stored in `anon.nlp_auto`. Use
-  [`nlp_auto()`](nlp_auto.md) to build this value.
+  [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+  to build this value.
 
 - nlp_default_replacements:
 
   Default NLP replacement labels stored in
   `anon.nlp_default_replacements`. Use
-  [`nlp_default_replacements()`](nlp_default_replacements.md) to build
-  this value.
+  [`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
+  to build this value.
 
 - example_values_n:
 
   Default `example_values_n` used by
-  [`anon_data_summary()`](anon_data_summary.md) and
-  [`anon_report()`](anon_report.md). Stored in `anon.example_values_n`.
+  [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
+  and
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md).
+  Stored in `anon.example_values_n`.
 
 - example_rows:
 
   Default `example_rows` spec used by
-  [`anon_data_summary()`](anon_data_summary.md) and
-  [`anon_report()`](anon_report.md). Stored in `anon.example_rows`. Use
-  [`anon_example_rows()`](anon_example_rows.md) to build this value.
+  [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
+  and
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md).
+  Stored in `anon.example_rows`. Use
+  [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
+  to build this value.
 
 ## Value
 
@@ -100,11 +107,11 @@ Supported options are:
 Use `NULL` to clear an option. For structured option values, these
 helpers are available:
 
-- [`nlp_auto()`](nlp_auto.md)
+- [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
 
-- [`nlp_default_replacements()`](nlp_default_replacements.md)
+- [`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
 
-- [`anon_example_rows()`](anon_example_rows.md)
+- [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
 
 ## Examples
 

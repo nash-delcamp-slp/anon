@@ -104,9 +104,10 @@ anon(
 - nlp_auto:
 
   List of logical values with names corresponding to entity names. Can
-  be generated with [`nlp_auto()`](nlp_auto.md) and can be set as the
-  `anon.nlp_auto` global option. This argument overrides the global
-  option.
+  be generated with
+  [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+  and can be set as the `anon.nlp_auto` global option. This argument
+  overrides the global option.
 
 - .self:
 
@@ -186,30 +187,37 @@ The following global options affect function behavior:
 - `anon.nlp_auto`:
 
   List of logical values indicating which NLP entity types should be
-  automatically anonymized. Use [`nlp_auto()`](nlp_auto.md) to generate
-  this list. Override the option by setting the `nlp_auto` argument.
+  automatically anonymized. Use
+  [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+  to generate this list. Override the option by setting the `nlp_auto`
+  argument.
 
 - `anon.nlp_default_replacements`:
 
   Default NLP replacement labels. Use
-  [`nlp_default_replacements()`](nlp_default_replacements.md) to
-  generate this list.
+  [`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
+  to generate this list.
 
 - `anon.example_values_n`:
 
   Default `example_values_n` used by
-  [`anon_data_summary()`](anon_data_summary.md) and
-  [`anon_report()`](anon_report.md).
+  [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
+  and
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md).
 
 - `anon.example_rows`:
 
   Default `example_rows` specification used by
-  [`anon_data_summary()`](anon_data_summary.md) and
-  [`anon_report()`](anon_report.md). Use
-  [`anon_example_rows()`](anon_example_rows.md) to generate this value.
+  [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
+  and
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md).
+  Use
+  [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
+  to generate this value.
 
-See [`anon_options()`](anon_options.md) for a central helper that lists
-and sets all supported `anon.*` options.
+See
+[`anon_options()`](https://nash-delcamp-slp.github.io/anon/reference/anon_options.md)
+for a central helper that lists and sets all supported `anon.*` options.
 
 To set global options:
 

@@ -38,7 +38,8 @@ nlp_get_proper_nouns(x)
   "PERSON", "NORP", "FAC", "ORG", "GPE", "LOC", "PRODUCT", "EVENT",
   "WORK_OF_ART", "LAW", "LANGUAGE", "DATE", "TIME", "PERCENT", "MONEY",
   "QUANTITY", "ORDINAL", "CARDINAL". See
-  [nlp_entity_sets](nlp_entity_sets.md) for collections of entity types.
+  [nlp_entity_sets](https://nash-delcamp-slp.github.io/anon/reference/nlp_entity_sets.md)
+  for collections of entity types.
 
 - return_list:
 

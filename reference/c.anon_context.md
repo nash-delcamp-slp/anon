@@ -1,7 +1,8 @@
 # Combine anon_context objects
 
 This method allows combining multiple anonymized objects created by
-[`anon()`](anon.md) or [`anon_data_summary()`](anon_data_summary.md)
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md) or
+[`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
 using [`c()`](https://rdrr.io/r/base/c.html). The result maintains the
 anonymized content and provides a print method suitable for LLM context.
 An additional header is included in printed output for named elements.

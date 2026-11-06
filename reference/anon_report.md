@@ -59,9 +59,10 @@ anon_report(
 
   Optional example-row specification for data frames. Use `NULL` to
   disable examples, a single number to request that many rows per data
-  frame, or [`anon_example_rows()`](anon_example_rows.md) to build a
-  spec with explicit arguments such as `n`, `key`, `method`, and
-  `n_key_values`.
+  frame, or
+  [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
+  to build a spec with explicit arguments such as `n`, `key`, `method`,
+  and `n_key_values`.
 
 - check_approximate:
 
@@ -117,9 +118,10 @@ anon_report(
 - nlp_auto:
 
   List of logical values with names corresponding to entity names. Can
-  be generated with [`nlp_auto()`](nlp_auto.md) and can be set as the
-  `anon.nlp_auto` global option. This argument overrides the global
-  option.
+  be generated with
+  [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+  and can be set as the `anon.nlp_auto` global option. This argument
+  overrides the global option.
 
 ## Value
 

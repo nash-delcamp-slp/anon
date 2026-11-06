@@ -2,9 +2,10 @@
 
 This function creates a named list of logical values indicating which
 types of NLP entities should be automatically anonymized when using the
-core [`anon()`](anon.md) function. It provides a centralized way to
-manage automatic NLP anonymization settings when set as the global
-option `anon.nlp_auto`.
+core
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+function. It provides a centralized way to manage automatic NLP
+anonymization settings when set as the global option `anon.nlp_auto`.
 
 ## Usage
 

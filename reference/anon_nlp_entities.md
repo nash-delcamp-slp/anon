@@ -39,11 +39,13 @@ anon_nlp_places(x, ...)
   "PERSON", "NORP", "FAC", "ORG", "GPE", "LOC", "PRODUCT", "EVENT",
   "WORK_OF_ART", "LAW", "LANGUAGE", "DATE", "TIME", "PERCENT", "MONEY",
   "QUANTITY", "ORDINAL", "CARDINAL". See
-  [nlp_entity_sets](nlp_entity_sets.md) for collections of entity types.
+  [nlp_entity_sets](https://nash-delcamp-slp.github.io/anon/reference/nlp_entity_sets.md)
+  for collections of entity types.
 
 - ...:
 
-  Additional arguments passed to [`anon`](anon.md)
+  Additional arguments passed to
+  [`anon`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
 
 ## Value
 
@@ -69,7 +71,9 @@ These functions:
     8601 dates (`YYYY-MM`, `YYYY-MM-DD`, with optional time) and times
     (`HH:MM`, `HH:MM:SS`) are also matched by pattern.
 
-3.  Apply [`anon`](anon.md) to anonymize the identified patterns
+3.  Apply
+    [`anon`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+    to anonymize the identified patterns
 
 Available entity types:
 
@@ -96,8 +100,8 @@ Available entity types:
 The `anon.nlp_default_replacements` global option affects the default
 replacement values used by these functions when no `default_replacement`
 argument is explicitly provided. See
-[`nlp_default_replacements()`](nlp_default_replacements.md) to generate
-the content for the option.
+[`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
+to generate the content for the option.
 
 ## Examples
 

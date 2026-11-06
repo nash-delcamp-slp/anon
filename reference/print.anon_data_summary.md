@@ -17,7 +17,7 @@ print(x, ...)
 - x:
 
   An object of class `"anon_data_summary"` created by
-  [`anon_data_summary()`](anon_data_summary.md)
+  [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
 
 - ...:
 

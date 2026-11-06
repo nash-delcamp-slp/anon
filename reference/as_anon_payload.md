@@ -2,8 +2,9 @@
 
 Normalize supported anon objects into a structured payload suitable for
 downstream AI/tooling use or for conversion with
-[`as_anon_json()`](as_anon_json.md). Unsupported custom classes error
-with the object path to make failures easy to diagnose.
+[`as_anon_json()`](https://nash-delcamp-slp.github.io/anon/reference/as_anon_json.md).
+Unsupported custom classes error with the object path to make failures
+easy to diagnose.
 
 ## Usage
 

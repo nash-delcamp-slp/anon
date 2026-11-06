@@ -2,10 +2,11 @@
 
 This function creates a summary of all objects (primarily data frames)
 in a specified environment or list, then anonymizes the results using
-the same pattern matching approach as [`anon()`](anon.md). It provides
-structural information about data frames including dimensions, variable
-details, and memory usage while protecting sensitive information through
-pattern-based redaction.
+the same pattern matching approach as
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md).
+It provides structural information about data frames including
+dimensions, variable details, and memory usage while protecting
+sensitive information through pattern-based redaction.
 
 ## Usage
 
@@ -64,9 +65,10 @@ anon_data_summary(
 
   Optional example-row specification for data frames. Use `NULL` to
   disable examples, a single number to request that many rows per data
-  frame, or [`anon_example_rows()`](anon_example_rows.md) to build a
-  spec with explicit arguments such as `n`, `key`, `method`, and
-  `n_key_values`.
+  frame, or
+  [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
+  to build a spec with explicit arguments such as `n`, `key`, `method`,
+  and `n_key_values`.
 
 - check_approximate:
 
@@ -82,9 +84,10 @@ anon_data_summary(
 - nlp_auto:
 
   List of logical values with names corresponding to entity names. Can
-  be generated with [`nlp_auto()`](nlp_auto.md) and can be set as the
-  `anon.nlp_auto` global option. This argument overrides the global
-  option.
+  be generated with
+  [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+  and can be set as the `anon.nlp_auto` global option. This argument
+  overrides the global option.
 
 ## Value
 
@@ -117,8 +120,9 @@ The function operates in a few key steps:
 2.  Creates structured output with summary statistics and detailed
     information about data frames
 
-3.  Applies anonymization using [`anon()`](anon.md) with the provided
-    patterns
+3.  Applies anonymization using
+    [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+    with the provided patterns
 
 For data frames, the function captures:
 
@@ -136,7 +140,8 @@ in a readable format while maintaining the anonymization.
 
 ## See also
 
-[`anon()`](anon.md) for the underlying anonymization function
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+for the underlying anonymization function
 
 ## Examples
 

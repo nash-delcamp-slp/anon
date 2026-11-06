@@ -47,8 +47,10 @@ a_new_hope_intro <- c(
 
 ## Core Anonymization with `anon()`
 
-The main [`anon()`](reference/anon.md) function and helper `anon_*()`
-support anonymization of various R objects.
+The main
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+function and helper `anon_*()` support anonymization of various R
+objects.
 
 ### Vector Anonymization
 
@@ -142,13 +144,14 @@ launch.
 Many functions in the anon package reference global `anon.*` options
 that make it easy to configure default behaviors across workflows.
 
-Use [`anon_options()`](reference/anon_options.md) as the central helper
-for these settings. It is a thin wrapper around base
-[`options()`](https://rdrr.io/r/base/options.html) for the supported
-anon package options:
+Use
+[`anon_options()`](https://nash-delcamp-slp.github.io/anon/reference/anon_options.md)
+as the central helper for these settings. It is a thin wrapper around
+base [`options()`](https://rdrr.io/r/base/options.html) for the
+supported anon package options:
 
-- [`anon_options()`](reference/anon_options.md) with no arguments
-  returns the current supported `anon.*` values.
+- [`anon_options()`](https://nash-delcamp-slp.github.io/anon/reference/anon_options.md)
+  with no arguments returns the current supported `anon.*` values.
 - `anon_options(...)` sets those same underlying global options and
   invisibly returns the previous values, matching the values returned by
   [`options()`](https://rdrr.io/r/base/options.html).
@@ -157,8 +160,8 @@ anon package options:
 
 You can still call [`options()`](https://rdrr.io/r/base/options.html)
 directly, but the examples below use
-[`anon_options()`](reference/anon_options.md) so all supported package
-options are configured in one consistent way.
+[`anon_options()`](https://nash-delcamp-slp.github.io/anon/reference/anon_options.md)
+so all supported package options are configured in one consistent way.
 
 ``` r
 
@@ -306,8 +309,8 @@ old_options <- anon_options(default_replacement = NULL)
 
 Set `nlp_default_replacements` to define replacement values for
 different entity types. Use
-[`nlp_default_replacements()`](reference/nlp_default_replacements.md) to
-create the list input.
+[`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
+to create the list input.
 
 ``` r
 
@@ -361,8 +364,9 @@ old_options <- anon_options(nlp_default_replacements = NULL)
 ### Enabling Automatic NLP Entity Anonymization
 
 Set `nlp_auto` to control which entity types are automatically
-anonymized. Use [`nlp_auto()`](reference/nlp_auto.md) to create the list
-input.
+anonymized. Use
+[`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
+to create the list input.
 
 ``` r
 
@@ -433,11 +437,12 @@ old_options <- anon_options(nlp_auto = NULL)
 ### Setting Default Data Summary Examples
 
 Set `example_values_n` and `example_rows` to control the default example
-content used by [`anon_data_summary()`](reference/anon_data_summary.md),
-[`anon_report()`](reference/anon_report.md), and the Shiny app’s initial
-data-summary settings. Use
-[`anon_example_rows()`](reference/anon_example_rows.md) to create the
-row-example specification.
+content used by
+[`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md),
+[`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md),
+and the Shiny app’s initial data-summary settings. Use
+[`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
+to create the row-example specification.
 
 ``` r
 
@@ -538,18 +543,18 @@ detect and anonymize different types of named entities in text.
 
 The package provides specific functions for different entity types:
 
-- [`anon_nlp_entities()`](reference/anon_nlp_entities.md): Detect and
-  anonymize select entities. By default, all entities.
-- [`anon_nlp_people()`](reference/anon_nlp_entities.md): Detect and
-  anonymize person names
-- [`anon_nlp_organizations()`](reference/anon_nlp_entities.md): Detect
-  and anonymize organization names
-- [`anon_nlp_places()`](reference/anon_nlp_entities.md): Detect and
-  anonymize locations (cities, countries, etc.)
-- [`anon_nlp_dates()`](reference/anon_nlp_entities.md): Detect and
-  anonymize dates
-- [`anon_nlp_numbers()`](reference/anon_nlp_entities.md): Detect and
-  anonymize monetary amounts and percentages
+- [`anon_nlp_entities()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize select entities. By default, all entities.
+- [`anon_nlp_people()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize person names
+- [`anon_nlp_organizations()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize organization names
+- [`anon_nlp_places()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize locations (cities, countries, etc.)
+- [`anon_nlp_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize dates
+- [`anon_nlp_numbers()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
+  Detect and anonymize monetary amounts and percentages
 
 ``` r
 
@@ -587,8 +592,10 @@ anon_nlp_numbers(a_new_hope_intro)
 
 ## Data Environment Summary
 
-The [`anon_data_summary()`](reference/anon_data_summary.md) function
-provides an anonymized overview of the data in your environment:
+The
+[`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
+function provides an anonymized overview of the data in your
+environment:
 
 ``` r
 
