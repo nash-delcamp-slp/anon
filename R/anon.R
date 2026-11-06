@@ -312,6 +312,20 @@ anon <- function(
     attr(step_data, "approximate_warnings") <- NULL
     result <- x
     result$data <- step_data
+    # The log and settings name datasets and columns; apply the patterns to
+    # their text too. Counts are left alone.
+    for (col in c("dataset", "variable", "detail")) {
+      result$log[[col]] <- apply_patterns(result$log[[col]], compiled, FALSE, max_distance)
+    }
+    result$settings <- rapply(
+      result$settings,
+      function(v) apply_patterns(v, compiled, FALSE, max_distance),
+      classes = "character",
+      how = "replace"
+    )
+    if (isTRUE(check_names) && length(result$settings) > 0) {
+      names(result$settings) <- apply_patterns(names(result$settings), compiled, FALSE, max_distance)
+    }
   } else if (is.character(x) || is.factor(x)) {
     if (is.factor(x)) {
       levels(x) <- apply_patterns(

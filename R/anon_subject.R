@@ -427,6 +427,7 @@ as_dataset_list <- function(data) {
     data <- data$data
   }
   if (is.data.frame(data)) {
+    check_unique_columns(list(data = data))
     return(list(data = list(data = data), unwrap = function(x) x[[1]], previous = previous))
   }
   if (!is.list(data) || is.null(names(data)) || any(names(data) == "") ||
@@ -436,7 +437,19 @@ as_dataset_list <- function(data) {
   if (anyDuplicated(names(data))) {
     stop("Dataset names in `data` must be unique.", call. = FALSE)
   }
+  check_unique_columns(data)
   list(data = data, unwrap = function(x) x, previous = previous)
+}
+
+# Columns are processed by name, so a repeated name would leave all but the
+# first copy untouched.
+check_unique_columns <- function(data) {
+  for (ds in names(data)) {
+    dup <- names(data[[ds]])[duplicated(names(data[[ds]]))]
+    if (length(dup) > 0) {
+      stop("Column names in `", ds, "` must be unique; `", dup[1], "` repeats.", call. = FALSE)
+    }
+  }
 }
 
 keyed_datasets <- function(data, key) {

@@ -316,6 +316,7 @@ risk_quasi_table <- function(data, quasi, key) {
   if (anyDuplicated(names(data))) {
     stop("Dataset names in `data` must be unique.", call. = FALSE)
   }
+  check_unique_columns(data)
 
   specs <- normalize_quasi_specs(quasi, data, single)
   table <- build_quasi_table(data, specs, key)

@@ -570,3 +570,21 @@ test_that("QVAL dates that can't be shifted are removed and logged as removed", 
   expect_true(any(grepl("outside years 0001-9999", msgs)))
   expect_true(any(is.na(result$data$supp$QVAL)))
 })
+
+test_that("anon() on a step applies its patterns to the log and settings", {
+  step <- anon_subject_dates(list(Alice = data.frame(USUBJID = c("a", "b"), XDTC = c("2020-01-01", "2020-02-01"))),
+                             vars = "XDTC", seed = 1)
+  redacted <- anon(step, pattern_list = list("[NAME]" = "Alice"))
+  expect_named(redacted$data, "[NAME]")
+  expect_false(any(grepl("Alice", unlist(redacted$log[c("dataset", "variable", "detail")]), fixed = TRUE)))
+  expect_equal(redacted$log$n_changed, step$log$n_changed)
+  expect_false(grepl("Alice", as_anon_json(redacted), fixed = TRUE))
+  expect_false(any(grepl("Alice", capture.output(print(redacted)), fixed = TRUE)))
+})
+
+test_that("duplicate column names are rejected", {
+  d <- data.frame(USUBJID = "a", AESTDTC = "2020-01-01", AESTDTC = "2020-02-01", check.names = FALSE)
+  expect_error(anon_subject_dates(d), "`AESTDTC` repeats")
+  expect_error(anon_subject_ids(list(ae = d)), "Column names in `ae` must be unique")
+  expect_error(anon_risk(d, quasi = "USUBJID", key = "AESTDTC"), "must be unique")
+})
