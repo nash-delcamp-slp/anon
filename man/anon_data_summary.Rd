@@ -13,7 +13,9 @@ anon_data_summary(
   example_rows = getOption("anon.example_rows"),
   check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  df_variable_names = NULL,
+  df_classes = NULL
 )
 }
 \arguments{
@@ -40,7 +42,9 @@ example values.}
 \item{example_rows}{Optional example-row specification for data frames.
 Use \code{NULL} to disable examples, a single number to request that many rows
 per data frame, or \code{\link[=anon_example_rows]{anon_example_rows()}} to build a spec with explicit
-arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}.}
+arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}. Rows are
+chosen on the source values, so \code{key} and \code{value} refer to the data as
+passed in.}
 
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is
@@ -52,6 +56,27 @@ matches using string distance. Default is
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
 This argument overrides the global option.}
+
+\item{df_variable_names}{For data frames, a character vector or named list
+specifying which variable names should be anonymized:
+\itemize{
+\item Unnamed elements: variables are replaced with \code{default_replacement}
+\item Named elements: variable names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option \code{getOption("anon.df_variable_names")}.
+}}
+
+\item{df_classes}{For data frames, a character vector or named list specifying
+which variable classes should be anonymized:
+\itemize{
+\item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
+\item Named elements: class names are keys, value can be either a replacement value or a function
+Class names are matched case-insensitively against \code{class()} of each column. \code{"double"}
+also matches plain double columns (not \code{Date} or \code{POSIXct}). Character columns also match
+\code{"double"}/\code{"numeric"}, \code{"integer"}, \code{"Date"} or \code{"POSIXct"} when every non-missing,
+non-blank value parses as that type (dates as ISO 8601); a replacement function then
+receives the parsed values.
+This parameter is combined with the global option \code{getOption("anon.df_classes")}.
+}}
 }
 \value{
 An object of class \code{"anon_data_summary"} containing:
@@ -84,6 +109,13 @@ The function operates in a few key steps:
 \item Creates structured output with summary statistics and detailed information about data frames
 \item Applies anonymization using \code{\link[=anon]{anon()}} with the provided patterns
 }
+
+Example values and example rows are taken from a copy of each data frame
+with the \code{df_variable_names} and \code{df_classes} rules applied (combined with
+their global options, as in \code{\link[=anon]{anon()}}), so replaced columns show their
+replacements. Structure statistics such as data types, distinct counts and
+missing values describe the data as passed in. Patterns and NLP are then
+applied to the whole summary.
 
 For data frames, the function captures:
 \itemize{

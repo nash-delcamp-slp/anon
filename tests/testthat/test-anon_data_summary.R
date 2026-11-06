@@ -536,3 +536,79 @@ test_that("print.anon_data_summary() shows example rows and multiple scenarios",
   expect_match(output, "Example Scenario 1 (USUBJID = 01):", fixed = TRUE)
   expect_match(output, "Example Scenario 2 (USUBJID = 02):", fixed = TRUE)
 })
+
+test_that("anon_data_summary() applies column rules to example values and rows", {
+  dm <- data.frame(
+    USUBJID = c("01-701-1015", "01-701-1023"),
+    BRTHDTC = c("1950-12-26", "1948-07-22"),
+    AGE = c(63, 64),
+    stringsAsFactors = FALSE
+  )
+  vs <- data.frame(USUBJID = c("01-701-1015", "01-701-1015"), VSORRES = c("64", "83"))
+  key <- c("01-701-1015" = "SUBJ-1", "01-701-1023" = "SUBJ-2")
+
+  summary <- anon_data_summary(
+    list(dm = dm, vs = vs),
+    df_variable_names = list(USUBJID = ~ unname(key[.x]), BRTHDTC = "[DATE]"),
+    df_classes = list(numeric = ~ .x * 0),
+    example_values_n = 2,
+    example_rows = anon_example_rows(n = 2, key = "USUBJID", method = "first")
+  )
+
+  shared <- paste(capture.output(print(summary)), collapse = "\n")
+  expect_false(grepl("01-701-", shared, fixed = TRUE))
+  expect_false(grepl("1950-12-26", shared, fixed = TRUE))
+
+  variables <- summary$data_frames$variables$dm
+  expect_equal(variables$example_values[[1]], c("SUBJ-1", "SUBJ-2"))
+  expect_equal(variables$example_values[[2]], "[DATE]")
+  # Structure statistics describe the source data
+  expect_equal(variables$n_distinct[variables$variable == "BRTHDTC"], 2)
+  expect_equal(variables$data_type[variables$variable == "AGE"], "numeric")
+
+  scenario <- summary$examples$scenario
+  expect_equal(scenario$value, "SUBJ-1")
+  expect_equal(scenario$tables$dm$USUBJID, "SUBJ-1")
+  expect_equal(scenario$tables$dm$AGE, 0)
+  expect_equal(scenario$tables$vs$USUBJID, c("SUBJ-1", "SUBJ-1"))
+})
+
+test_that("anon_data_summary() selects example rows on source values", {
+  df <- data.frame(ID = c("a", "b", "c"), X = c("1", "2", "3"))
+  key <- c(a = "P1", b = "P2", c = "P3")
+
+  summary <- anon_data_summary(
+    list(df = df),
+    df_variable_names = list(ID = ~ unname(key[.x])),
+    example_rows = anon_example_rows(n = 1, key = "ID", value = "b")
+  )
+  expect_equal(summary$examples$scenario$value, "P2")
+  expect_equal(summary$examples$scenario$tables$df$X, "2")
+
+  summary <- anon_data_summary(
+    list(df = df),
+    df_variable_names = list(ID = ~ unname(key[.x])),
+    example_rows = anon_example_rows(n = 2, method = "last")
+  )
+  expect_equal(summary$examples$rows$df$ID, c("P2", "P3"))
+})
+
+test_that("anon_data_summary() and anon_report() use global column rules", {
+  old <- options(
+    anon.df_variable_names = list(ID = "[ID]"),
+    anon.df_classes = "integer"
+  )
+  on.exit(options(old), add = TRUE)
+
+  objects <- list(df = data.frame(ID = c("a", "b"), N = 1:2))
+  summary <- anon_data_summary(objects, example_values_n = 2)
+  expect_equal(summary$data_frames$variables$df$example_values[[1]], "[ID]")
+
+  report <- anon_report(
+    objects,
+    example_rows = anon_example_rows(n = 1, method = "first"),
+    df_variable_names = list(N = "[N]")
+  )
+  expect_equal(report$data_summary$examples$rows$df$ID, "[ID]")
+  expect_equal(report$data_summary$examples$rows$df$N, "[N]")
+})

@@ -128,7 +128,7 @@ test_that("as_anon_json() errors on unsupported custom classes", {
   )
 })
 
-test_that("anon_report() forwards example options and nlp_auto to anon_data_summary()", {
+test_that("anon_report() forwards example options, nlp_auto and column rules to anon_data_summary()", {
   summary_call <- new.env(parent = emptyenv())
 
   local_mocked_bindings(
@@ -141,8 +141,12 @@ test_that("anon_report() forwards example options and nlp_auto to anon_data_summ
       example_rows = NULL,
       check_approximate = FALSE,
       max_distance = 2,
-      nlp_auto = NULL
+      nlp_auto = NULL,
+      df_variable_names = NULL,
+      df_classes = NULL
     ) {
+      summary_call$df_variable_names <- df_variable_names
+      summary_call$df_classes <- df_classes
       summary_call$example_values_n <- example_values_n
       summary_call$example_rows <- example_rows
       summary_call$nlp_auto <- nlp_auto
@@ -164,10 +168,14 @@ test_that("anon_report() forwards example options and nlp_auto to anon_data_summ
     list(study = "Alice"),
     example_values_n = 2,
     example_rows = spec,
-    nlp_auto = list(person = TRUE, org = TRUE)
+    nlp_auto = list(person = TRUE, org = TRUE),
+    df_variable_names = list(ID = "[ID]"),
+    df_classes = "Date"
   )
 
   expect_s3_class(report, "anon_report")
+  expect_equal(summary_call$df_variable_names, list(ID = "[ID]"))
+  expect_equal(summary_call$df_classes, "Date")
   expect_equal(summary_call$example_values_n, 2)
   expect_equal(summary_call$example_rows, spec)
   expect_equal(summary_call$nlp_auto, list(person = TRUE, org = TRUE))
