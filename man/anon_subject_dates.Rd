@@ -28,10 +28,10 @@ SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}.
 In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
 values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
-numbers; the unshifted-dates warning does not cover them). In columns not
+numbers; a warning names the columns where they were kept). In columns not
 named \verb{*DTC}, such as \code{QVAL} or a result column given in \code{vars}, only the
 values that are dates are shifted and other values are kept; bare
-four-digit numbers are kept too (with a warning for \code{vars} columns),
+four-digit numbers are kept too (with a warning),
 unless every value of the column, in every dataset, is a bare year (such
 as a column of birth years). Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601

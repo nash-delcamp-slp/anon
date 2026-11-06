@@ -344,14 +344,21 @@ anon_app_server <- function(
     })
 
     shiny::observeEvent(input$scan_environment, {
-      refreshed_state <- anon_app_initial_state(
-        envir = envir,
-        pattern_list = active_rules(),
-        default_replacement = active_default_replacement(),
-        initial_selection = initial_selection,
-        current_selected = input$selected_objects,
-        selection_initialized = TRUE
+      refreshed_state <- tryCatch(
+        anon_app_initial_state(
+          envir = envir,
+          pattern_list = active_rules(),
+          default_replacement = active_default_replacement(),
+          initial_selection = initial_selection,
+          current_selected = input$selected_objects,
+          selection_initialized = TRUE
+        ),
+        error = function(e) {
+          shiny::showNotification(conditionMessage(e), type = "error")
+          NULL
+        }
       )
+      shiny::req(refreshed_state)
 
       current_objects_data(refreshed_state$objects)
       inventory_data(refreshed_state$inventory)
@@ -369,15 +376,22 @@ anon_app_server <- function(
     shiny::observeEvent(input$generate_report, {
       shiny::req(length(input$selected_objects %||% character(0)) > 0)
 
-      report <- anon_report(
-        envir = envir,
-        selection = input$selected_objects,
-        pattern_list = active_rules(),
-        default_replacement = active_default_replacement(),
-        example_values_n = active_data_summary_options()$example_values_n,
-        example_rows = build_data_summary_example_rows(active_data_summary_options()),
-        nlp_auto = active_report_nlp_auto()
+      report <- tryCatch(
+        anon_report(
+          envir = envir,
+          selection = input$selected_objects,
+          pattern_list = active_rules(),
+          default_replacement = active_default_replacement(),
+          example_values_n = active_data_summary_options()$example_values_n,
+          example_rows = build_data_summary_example_rows(active_data_summary_options()),
+          nlp_auto = active_report_nlp_auto()
+        ),
+        error = function(e) {
+          shiny::showNotification(conditionMessage(e), type = "error")
+          NULL
+        }
       )
+      shiny::req(report)
 
       report_data(report)
     }, ignoreInit = TRUE)
@@ -692,6 +706,7 @@ anon_app_initial_state <- function(
   selection_initialized = FALSE
 ) {
   objects <- normalize_object_source(envir)
+  origin <- attr(objects, "origin")
   inventory <- anon_inventory(
     objects,
     pattern_list = pattern_list,
@@ -701,7 +716,7 @@ anon_app_initial_state <- function(
   raw_names <- names(objects)
   selected <- resolve_report_selection(
     raw_names = raw_names,
-    initial_selection = initial_selection,
+    initial_selection = expand_step_selection(initial_selection, raw_names, origin),
     current_selected = current_selected,
     selection_initialized = selection_initialized
   )
@@ -846,7 +861,7 @@ resolve_report_selection <- function(
       return(raw_names)
     }
 
-    return(intersect(expand_step_selection(initial_selection, raw_names), raw_names))
+    return(intersect(initial_selection, raw_names))
   }
 
   intersect(current_selected %||% character(0), raw_names)

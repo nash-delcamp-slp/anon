@@ -196,10 +196,10 @@ anon_subject_ids <- function(
 #'   In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
 #'   values that are ISO 8601 dates with more than a bare year are shifted too
 #'   (year-only values are left alone because they can't be told apart from
-#'   numbers; the unshifted-dates warning does not cover them). In columns not
+#'   numbers; a warning names the columns where they were kept). In columns not
 #'   named `*DTC`, such as `QVAL` or a result column given in `vars`, only the
 #'   values that are dates are shifted and other values are kept; bare
-#'   four-digit numbers are kept too (with a warning for `vars` columns),
+#'   four-digit numbers are kept too (with a warning),
 #'   unless every value of the column, in every dataset, is a bare year (such
 #'   as a column of birth years). Columns given in
 #'   `vars` must be Date, POSIXct, or character or factor columns of ISO 8601
@@ -290,7 +290,9 @@ anon_subject_dates <- function(
   data <- input$data
   keyed <- keyed_datasets(data, key)
   for (ds in keyed) {
-    data[[ds]][[key]] <- zap_user_missing(data[[ds]][[key]])
+    for (col in intersect(c(key, vars), names(data[[ds]]))) {
+      data[[ds]][[col]] <- zap_user_missing(data[[ds]][[col]])
+    }
   }
   keys <- subject_keys(data[keyed], key)
 
@@ -344,6 +346,9 @@ anon_subject_dates <- function(
 
     if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
       shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
+      if (shifted$kept_years > 0) {
+        kept_years <- c(kept_years, paste0(ds, ".QVAL"))
+      }
       df$QVAL <- shifted$values
       totals <- totals + c(shifted$no_key, shifted$invalid)
       if (shifted$shifted + shifted$no_key + shifted$invalid + shifted$partial > 0) {
@@ -369,7 +374,7 @@ anon_subject_dates <- function(
   }
   if (length(kept_years) > 0) {
     warning(
-      "These `vars` columns hold bare four-digit numbers that were kept, because the column ",
+      "These columns hold bare four-digit numbers that were kept, because the column ",
       "also holds other values: ", paste(kept_years, collapse = ", "),
       ". If they are years, they still show real years; redact or remove them.",
       call. = FALSE
@@ -414,8 +419,8 @@ anon_secrets <- function(x) {
   }
   if (is.null(x$secrets)) {
     stop(
-      "This step holds no secrets: run the steps with `keep_secrets = TRUE`, and read them ",
-      "before anon(), which drops them.",
+      "This step holds no secrets: run the steps with `keep_secrets = TRUE`. anon() returns a ",
+      "copy without secrets, so read them from the step you passed to anon().",
       call. = FALSE
     )
   }
@@ -725,20 +730,18 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
 }
 
 # Whether a text column holds only bare years (ignoring missing and blank
-# values) in every dataset that has it.
+# values) in every dataset that has it as text, and has some value somewhere.
 holds_only_years <- function(data, col) {
-  all(vapply(data, function(df) {
-    if (!col %in% names(df)) {
-      return(TRUE)
-    }
+  checks <- vapply(data, function(df) {
     x <- df[[col]]
-    if (!is.character(x) && !is.factor(x) && !inherits(x, "haven_labelled")) {
-      return(FALSE)
+    if (is.null(x) || inherits(x, c("Date", "POSIXct"))) {
+      return(NA)
     }
-    x <- as.character(vctrs::vec_data(x))
+    x <- if (is.factor(x)) as.character(x) else as.character(vctrs::vec_data(x))
     x <- x[!is.na(x) & !grepl("^[[:space:]]*$", x, useBytes = TRUE)]
-    length(x) > 0 && all(is_year_only_value(x))
-  }, logical(1)))
+    if (length(x) == 0) NA else all(is_year_only_value(x))
+  }, logical(1))
+  any(!is.na(checks)) && all(checks, na.rm = TRUE)
 }
 
 # Whether each Date or POSIXct value falls in years 0001-9999, the range ISO
@@ -794,12 +797,13 @@ interval_end_kinds <- function(x, kinds) {
 shift_qval_dates <- function(x, offset, partial = "shift") {
   text <- as.character(x)
   kinds <- parse_iso8601_dates(text)$kind
-  is_date <- kinds %in% c("full", "month", "month_time", "year_day", "interval") &
-    !is_year_only_value(text, kinds)
+  year_only <- !is.na(text) & is_year_only_value(text, kinds)
+  kept_years <- sum(year_only)
+  is_date <- kinds %in% c("full", "month", "month_time", "year_day", "interval") & !year_only
   out <- x
   if (!any(is_date)) {
     if (is.factor(x)) out <- with_attributes_of(factor(text), x)
-    return(list(values = out, shifted = 0, no_key = 0, invalid = 0, partial = 0))
+    return(list(values = out, shifted = 0, no_key = 0, invalid = 0, partial = 0, kept_years = kept_years))
   }
   no_offset <- is_date & is.na(offset)
   removed_partial <- if (partial == "remove") is_date & !no_offset & is_partial_date(text, kinds) else rep(FALSE, length(text))
@@ -816,7 +820,7 @@ shift_qval_dates <- function(x, offset, partial = "shift") {
   }
   list(
     values = drop_value_labels(out), shifted = sum(movable), no_key = sum(no_offset),
-    invalid = sum(failed), partial = sum(removed_partial)
+    invalid = sum(failed), partial = sum(removed_partial), kept_years = kept_years
   )
 }
 
@@ -846,7 +850,11 @@ warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
   hits <- character(0)
   for (ds in names(data)) {
     df <- data[[ds]]
-    cols <- setdiff(names(df), c(skip, names(df)[tolower(names(df)) == tolower(key)]))
+    cols <- if (ds %in% keyed) {
+      setdiff(names(df), c(key, skip))
+    } else {
+      setdiff(names(df), c(skip, names(df)[tolower(names(df)) == tolower(key)]))
+    }
     for (col in cols) {
       values <- text_values(df[[col]])
       if (length(values) > 0 && any(stringi::stri_detect_regex(values, key_pattern), na.rm = TRUE)) {
@@ -971,21 +979,33 @@ iso_date_like_pattern <- "^[0-9]{4}-([0-9]{2}(-[0-9]{2}|--T)|-{2}[0-9]{2})|^[0-9
 # A year-month or full date inside text, e.g. "Seen on 2014-01-05".
 embedded_date_pattern <- "(^|[^0-9-])[0-9]{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?([^0-9-]|$)"
 
+month_names_pattern <- paste0(
+  "(JAN(UARY)?|FEB(RUARY)?|MAR(CH)?|APR(IL)?|MAY|JUNE?|JULY?|AUG(UST)?|",
+  "SEPT?(EMBER)?|OCT(OBER)?|NOV(EMBER)?|DEC(EMBER)?)"
+)
+
 # A date with a month name, e.g. "05JAN2014", "05-Jan-2014", "5 January 2014"
 # or "Jan 5, 2014", as a whole value or inside text.
 month_name_date_pattern <- paste0(
   "(^|[^[:alnum:]])(",
-  "[0-9]{1,2}[ -]?(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*[ -]?[0-9]{2}([0-9]{2})?",
-  "|(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\\.? [0-9]{1,2},? [0-9]{4}",
-  ")([^[:alnum:]]|$)"
+  "[0-9]{1,2}[ -]?", month_names_pattern, "[ -]?[0-9]{2}([0-9]{2})?",
+  "|", month_names_pattern, "\\.? [0-9]{1,2},? [0-9]{4}",
+  ")([^[:alnum:]]|T[0-9]|$)"
 )
 
 # A day/month/year date with a four-digit year, e.g. "01/05/2014".
 slash_date_pattern <- "(^|[^0-9/])[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}([^0-9/]|$)"
 
-# SAS formats that display dates or date-times, or parts of a date (DATE9.,
-# E8601DA., YYMMDD10., DATETIME20., WORDDATE18., YEAR4., MONNAME., ...).
-sas_date_format_pattern <- "^(DATE|E8601D|B8601D|YYMMDD|MMDDYY|DDMMYY|DATETIME|DTDATE|DTWKDAT|DTYEAR|IS8601D|NLDATE|NLDATM|WEEKDAT|WORDDAT|MONYY|YYMON|YYMM|MMYY|YYQ|JULIAN|DTMONYY|DTYYQC|YEAR|MONNAME|DOWNAME|QTR|DAY)"
+# SAS formats that display dates or date-times, or parts of a date: families
+# with variants (E8601DA., YYMMDD10., NLDATE., EURDFDD10., ...), and names
+# matched exactly, with an optional width, so that user-defined formats such
+# as DAYGRP. or YEARCAT. don't match.
+sas_date_format_pattern <- paste0(
+  "^((E8601D|B8601D|IS8601D|YYMMDD|MMDDYY|DDMMYY|YYMM|MMYY|YYQ|NLDATE|NLDATM|EURDF).*",
+  "|(DATE|DATETIME|DATEAMPM|MDYAMPM|DAY|YEAR|QTRR?|MONNAME|DOWNAME|WEEKDAY|JULDAY|JULIAN|",
+  "MONYY|YYMON|WEEK[UVW]|YYWEEK[UVW]|WEEKDATE|WEEKDATX|WORDDATE|WORDDATX|NENGO|MINGUO|HDATE|",
+  "HEBDATE|DTDATE|DTWKDATX|DTYEAR|DTMONYY|DTYYQC)[0-9]*\\.?[0-9]*)$"
+)
 
 # Warn about datasets without the key that hold identifiers or dates, which
 # pass through unchanged.

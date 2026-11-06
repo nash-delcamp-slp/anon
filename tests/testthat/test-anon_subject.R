@@ -604,7 +604,8 @@ test_that("four-digit numbers in mixed columns are not shifted as years", {
   expect_false(out[1] == "2014-03-05")
 
   supp <- data.frame(USUBJID = "a", QNAM = "X", QVAL = c("1000", "1000/2000", "2014-03-05"))
-  expect_equal(anon_subject_dates(list(suppx = supp), seed = 1)$data$suppx$QVAL[1:2], c("1000", "1000/2000"))
+  expect_warning(out <- anon_subject_dates(list(suppx = supp), seed = 1)$data$suppx$QVAL, "suppx.QVAL")
+  expect_equal(out[1:2], c("1000", "1000/2000"))
   expect_warning(
     out <- anon_subject_dates(list(suppx = supp), vars = "QVAL", seed = 1)$data$suppx$QVAL,
     "suppx.QVAL"
@@ -822,4 +823,69 @@ test_that("step datasets can't clash with other object names", {
   assign("step", st, envir = e2)
   assign("other", data.frame(x = 1), envir = e2)
   expect_equal(anon_app_initial_state(e2, initial_selection = "step")$selected, c("step$dm", "step$vs"))
+})
+
+test_that("the years-only rule handles factors, blank datasets and Date columns", {
+  dm <- data.frame(USUBJID = c("a", "b"))
+  dm$BRTHYR <- factor(c("1980", "1975"))
+  out <- anon_subject_dates(dm, vars = "BRTHYR", seed = 1)$data$BRTHYR
+  expect_false(any(as.character(out) %in% c("1980", "1975")))
+
+  d <- list(
+    a = data.frame(USUBJID = c("a", "b"), BRTHYR = c("1980", "1975")),
+    b = data.frame(USUBJID = "c", BRTHYR = ""),
+    c = data.frame(USUBJID = "d", BRTHYR = as.Date("2014-01-01"))
+  )
+  expect_no_warning(out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data)
+  expect_false(any(out$a$BRTHYR %in% c("1980", "1975")))
+})
+
+test_that("a column named like the key in another case is checked in keyed datasets", {
+  d <- list(dm = data.frame(USUBJID = c("01-701-1015", "01-701-1023"), usubjid = c("01-701-1015", "01-701-1023")))
+  expect_warning(anon_subject_ids(d, seed = 1), "inside text: dm.usubjid")
+})
+
+test_that("bare years kept in QVAL are warned about", {
+  supp <- data.frame(USUBJID = "a", QNAM = c("BRTHYR", "X"), QVAL = c("1980", "2014-01-05"))
+  expect_warning(
+    out <- anon_subject_dates(list(suppdm = supp), seed = 1)$data$suppdm$QVAL,
+    "bare four-digit numbers that were kept.*suppdm.QVAL"
+  )
+  expect_equal(out[1], "1980")
+})
+
+test_that("a vars column of user-missing codes is accepted", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("a", "b"), RFSTDTC = "2014-01-01")
+  d$XDT <- haven::labelled_spss(c("UNK", "UNK"), na_values = "UNK")
+  expect_no_error(anon_subject_dates(d, vars = c("RFSTDTC", "XDT"), seed = 1))
+})
+
+test_that("drug names and other text don't look like month-name dates", {
+  co <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01",
+                   CMTRT = c("Take 1 AUGMENTIN 50 mg", "10 NOVOLOG 10 units", "Grade 3 DECREASED 25%"))
+  expect_no_warning(anon_subject_dates(co, seed = 1))
+  co$CMTRT <- "given 06-MAR-2014T10:00"
+  expect_warning(anon_subject_dates(co, seed = 1), "data.CMTRT")
+})
+
+test_that("custom SAS formats with date-like names aren't flagged", {
+  ad <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", GRP = 1, DT = 19000)
+  attr(ad$GRP, "format.sas") <- "DAYGRP"
+  attr(ad$DT, "format.sas") <- "MDYAMPM"
+  expect_warning(anon_subject_dates(ad, seed = 1), "not shifted: data.DT\\.")
+})
+
+test_that("step selection uses where names came from; empty and duplicate steps", {
+  st <- anon_subject_ids(list(dm = data.frame(USUBJID = "a"), vs = data.frame(USUBJID = "a")), seed = 1)
+  e <- new.env()
+  assign("a$b", data.frame(x = 1), envir = e)
+  assign("step", st, envir = e)
+  expect_equal(anon_app_initial_state(e, initial_selection = "a")$selected, character(0))
+  expect_equal(anon_app_initial_state(e, initial_selection = "step")$selected, c("step$dm", "step$vs"))
+
+  empty <- st
+  empty$data <- list()
+  expect_equal(nrow(anon_inventory(list(x = data.frame(y = 1), empty = empty))), 1)
+  expect_error(anon_inventory(list(s = st, s = st)), "same name: s")
 })

@@ -307,7 +307,6 @@ normalize_object_source <- function(envir, selection = NULL) {
 
   objects <- splice_steps(objects)
   origin <- attr(objects, "origin")
-  attr(objects, "origin") <- NULL
 
   if (!is.null(selection)) {
     missing_selection <- setdiff(selection, c(names(objects), origin))
@@ -319,8 +318,9 @@ normalize_object_source <- function(envir, selection = NULL) {
       )
     }
     # A step's name selects all of its datasets.
-    picked <- unlist(lapply(selection, function(name) which(names(objects) == name | origin == name)))
-    objects <- objects[unique(picked)]
+    picked <- unique(unlist(lapply(selection, function(name) which(names(objects) == name | origin == name))))
+    objects <- objects[picked]
+    attr(objects, "origin") <- origin[picked]
   }
 
   objects
@@ -339,7 +339,7 @@ splice_steps <- function(objects) {
     name <- names(objects)[i]
     obj <- objects[[i]]
     if (inherits(obj, "anon_deid_step") && !is.data.frame(obj$data)) {
-      new_names <- paste0(name, "$", names(obj$data))
+      new_names <- if (length(obj$data) > 0) paste0(name, "$", names(obj$data)) else character(0)
       out <- c(out, unname(obj$data))
     } else {
       new_names <- name
@@ -349,11 +349,18 @@ splice_steps <- function(objects) {
     origin <- c(origin, rep(name, length(new_names)))
   }
   spliced <- out_names[out_names != origin]
-  clash <- unique(c(intersect(spliced, names(objects)), spliced[duplicated(spliced)]))
+  clash <- intersect(spliced, names(objects))
   if (length(clash) > 0) {
     stop(
       "Object names clash with datasets of a de-identification step: ",
       paste(clash, collapse = ", "), ". Rename the objects or the steps.",
+      call. = FALSE
+    )
+  }
+  if (anyDuplicated(spliced)) {
+    stop(
+      "Two de-identification steps have the same name: ",
+      paste(unique(origin[out_names %in% spliced[duplicated(spliced)]]), collapse = ", "), ". Rename one of them.",
       call. = FALSE
     )
   }
@@ -363,10 +370,13 @@ splice_steps <- function(objects) {
 }
 
 # Selected names, with a step's name standing for all of its datasets
-# (`step$dm`, `step$vs`).
-expand_step_selection <- function(selection, raw_names) {
+# (`step$dm`, `step$vs`); `origin` is the name each raw name came from.
+expand_step_selection <- function(selection, raw_names, origin = raw_names) {
+  if (is.null(selection)) {
+    return(NULL)
+  }
   unique(unlist(lapply(selection, function(name) {
-    if (name %in% raw_names) name else raw_names[startsWith(raw_names, paste0(name, "$"))]
+    if (name %in% raw_names) name else raw_names[origin == name]
   })))
 }
 
