@@ -76,8 +76,10 @@ A warning lists any other character or factor column (values or factor
 levels), in any dataset, that still contains original key values as whole
 values or as whole words inside text (checked for character keys that are
 not made only of digits, since numbers match many unrelated codes), and
-any dataset without \code{key} that has an \code{also} or \code{key_cols} column or a column
-named like \code{key} in another case.
+any dataset without \code{key} that has a column named like \code{key}, \code{also} or
+\code{key_cols} in any case. In datasets with \code{key}, a column named like one of
+them in another case (such as \code{usubjid} beside \code{USUBJID}) is not replaced
+and is named in a warning.
 Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not
 checked, because short numbers match many unrelated values. Missing values in
 \code{also} columns stay missing. In \code{key}, \code{also} and \code{key_cols} columns, haven

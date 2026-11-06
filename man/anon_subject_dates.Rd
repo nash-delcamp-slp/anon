@@ -103,9 +103,10 @@ POSIXct columns left out of \code{vars}, numeric columns with a SAS date format
 (in a separate warning; convert them to Date or POSIXct to shift them), and
 text columns with ISO 8601 dates as whole values, or dates inside text
 (which can't be shifted) written as ISO 8601, with a month name
-(\verb{05JAN2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}) or with slashes and a four-digit
-year (\code{01/05/2014}), including the values kept in mixed columns such as
-\code{QVAL}. Other formats are not detected. It also lists any dataset without \code{key} that has such
+(\verb{05JAN2014}, \code{UNK-JAN-2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}, \code{JAN2014}) or as
+numbers with separators (\code{01/05/2014}, \code{1/5/14}, \verb{01.05.2014},
+\code{2014/01/05}), including the values kept in mixed columns such as \code{QVAL}.
+Other formats, such as \code{20140105}, are not detected. It also lists any dataset without \code{key} that has such
 columns or a column named like \code{key} in another case.
 
 Random numbers come from R's random number generator; see

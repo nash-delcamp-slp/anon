@@ -44,8 +44,10 @@
 #' levels), in any dataset, that still contains original key values as whole
 #' values or as whole words inside text (checked for character keys that are
 #' not made only of digits, since numbers match many unrelated codes), and
-#' any dataset without `key` that has an `also` or `key_cols` column or a column
-#' named like `key` in another case.
+#' any dataset without `key` that has a column named like `key`, `also` or
+#' `key_cols` in any case. In datasets with `key`, a column named like one of
+#' them in another case (such as `usubjid` beside `USUBJID`) is not replaced
+#' and is named in a warning.
 #' Original values of `also` columns (such as `SUBJID`) elsewhere are not
 #' checked, because short numbers match many unrelated values. Missing values in
 #' `also` columns stay missing. In `key`, `also` and `key_cols` columns, haven
@@ -166,6 +168,7 @@ anon_subject_ids <- function(
   if (!all(vapply(data[keyed], function(df) is.numeric(df[[key]]), logical(1)))) {
     warn_leftover_keys(data, keyed, key, keys, skip = c(also, key_cols))
   }
+  warn_id_name_variants(data, keyed, c(key, also, key_cols))
   warn_unkeyed_identifiers(data, keyed, key, c(also, key_cols), check_dates = FALSE)
 
   secrets <- if (isTRUE(keep_secrets)) {
@@ -251,9 +254,10 @@ anon_subject_ids <- function(
 #' (in a separate warning; convert them to Date or POSIXct to shift them), and
 #' text columns with ISO 8601 dates as whole values, or dates inside text
 #' (which can't be shifted) written as ISO 8601, with a month name
-#' (`05JAN2014`, `5 Jan 2014`, `Jan 5, 2014`) or with slashes and a four-digit
-#' year (`01/05/2014`), including the values kept in mixed columns such as
-#' `QVAL`. Other formats are not detected. It also lists any dataset without `key` that has such
+#' (`05JAN2014`, `UNK-JAN-2014`, `5 Jan 2014`, `Jan 5, 2014`, `JAN2014`) or as
+#' numbers with separators (`01/05/2014`, `1/5/14`, `01.05.2014`,
+#' `2014/01/05`), including the values kept in mixed columns such as `QVAL`.
+#' Other formats, such as `20140105`, are not detected. It also lists any dataset without `key` that has such
 #' columns or a column named like `key` in another case.
 #'
 #' Random numbers come from R's random number generator; see
@@ -311,6 +315,7 @@ anon_subject_dates <- function(
   mixed_cols <- unique(grep("DTC$", unlist(date_vars), ignore.case = TRUE, value = TRUE, invert = TRUE))
   years_only_cols <- Filter(function(col) holds_only_years(data[keyed], col), mixed_cols)
   kept_years <- character(0)
+  kept_qval_years <- character(0)
 
   offsets <- draw_offsets(length(keys), max_days, min_days, seed)
 
@@ -347,7 +352,7 @@ anon_subject_dates <- function(
     if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
       shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
       if (shifted$kept_years > 0) {
-        kept_years <- c(kept_years, paste0(ds, ".QVAL"))
+        kept_qval_years <- c(kept_qval_years, paste0(ds, ".QVAL"))
       }
       df$QVAL <- shifted$values
       totals <- totals + c(shifted$no_key, shifted$invalid)
@@ -377,6 +382,14 @@ anon_subject_dates <- function(
       "These columns hold bare four-digit numbers that were kept, because the column ",
       "also holds other values: ", paste(kept_years, collapse = ", "),
       ". If they are years, they still show real years; redact or remove them.",
+      call. = FALSE
+    )
+  }
+  if (length(kept_qval_years) > 0) {
+    warning(
+      "These QVAL columns hold bare four-digit numbers, which are never shifted because they can't ",
+      "be told apart from other numbers: ", paste(kept_qval_years, collapse = ", "),
+      ". If some are years (such as a birth year), redact or remove them.",
       call. = FALSE
     )
   }
@@ -695,7 +708,7 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
     no_offset <- present & !unchanged & is.na(offset)
     new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
     if (partial == "remove") {
-      removed_partial <- present & !no_offset & is_partial_date(x, kinds)
+      removed_partial <- present & !unchanged & !no_offset & is_partial_date(x, kinds)
     }
     invalid <- present & !unchanged & !no_offset & !removed_partial & !nzchar(new_values)
     out[] <- new_values
@@ -834,9 +847,9 @@ shift_detail <- function(shifted) {
 }
 
 # Warn about text columns, in any dataset, that still contain original keys as
-# whole values or as whole words inside text. The key column and the `skip`
-# columns are not checked: in keyed datasets they were just replaced, and in
-# other datasets warn_unkeyed_identifiers() names them. Keys made only of
+# whole values or as whole words inside text. Columns named like the key or the
+# `skip` columns, in any case, are not checked: they were just replaced, or
+# warn_id_name_variants() or warn_unkeyed_identifiers() names them. Keys made only of
 # digits are not searched for, as they match many unrelated numbers.
 warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
   keys <- valid_utf8_text(keys)
@@ -850,11 +863,7 @@ warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
   hits <- character(0)
   for (ds in names(data)) {
     df <- data[[ds]]
-    cols <- if (ds %in% keyed) {
-      setdiff(names(df), c(key, skip))
-    } else {
-      setdiff(names(df), c(skip, names(df)[tolower(names(df)) == tolower(key)]))
-    }
+    cols <- names(df)[!tolower(names(df)) %in% tolower(c(key, skip))]
     for (col in cols) {
       values <- text_values(df[[col]])
       if (length(values) > 0 && any(stringi::stri_detect_regex(values, key_pattern), na.rm = TRUE)) {
@@ -959,8 +968,9 @@ sas_date_columns <- function(df, cols) {
 
 # Whether a text or factor column holds ISO 8601-like dates as whole values, or
 # dates inside text: ISO 8601, with a month name (05JAN2014, 5 Jan 2014,
-# Jan 5, 2014) or with slashes and a four-digit year (01/05/2014). With `only_non_dates`, values recognised
-# as ISO 8601 dates (which were shifted) are not checked.
+# Jan 5, 2014, JAN2014) or numeric with separators (01/05/2014, 01.05.2014,
+# 2014/01/05). With `only_non_dates`, values recognised as ISO 8601 dates
+# (which were shifted) are not checked.
 has_dates_in_text <- function(x, only_non_dates = FALSE) {
   values <- text_values(x)
   if (only_non_dates && length(values) > 0) {
@@ -984,17 +994,35 @@ month_names_pattern <- paste0(
   "SEPT?(EMBER)?|OCT(OBER)?|NOV(EMBER)?|DEC(EMBER)?)"
 )
 
-# A date with a month name, e.g. "05JAN2014", "05-Jan-2014", "5 January 2014"
-# or "Jan 5, 2014", as a whole value or inside text.
-month_name_date_pattern <- paste0(
-  "(^|[^[:alnum:]])(",
-  "[0-9]{1,2}[ -]?", month_names_pattern, "[ -]?[0-9]{2}([0-9]{2})?",
-  "|", month_names_pattern, "\\.? [0-9]{1,2},? [0-9]{4}",
-  ")([^[:alnum:]]|T[0-9]|$)"
-)
+# A date with a month name, as a whole value or inside text: "05JAN2014",
+# "05-Jan-14", "05/JAN/2014", "UNK-JAN-2014", "5 January 2014",
+# "5th January 2014", "Jan 5, 2014", "Jan 2014", "JAN2014", "2014JAN05". With
+# spaces as separators a four-digit year is required, so "1 MAY 12 HRS" does
+# not match.
+month_name_date_pattern <- local({
+  day <- "([0-9]{1,2}(ST|ND|RD|TH)?|UNK?|UN)"
+  paste0(
+    "(^|[^[:alnum:]])(",
+    day, "[-/]?", month_names_pattern, "[-/]?([0-9]{4}|[0-9]{2})",
+    "|", day, " ", month_names_pattern, ",? [0-9]{4}",
+    "|", month_names_pattern, "\\.? [0-9]{1,2}(ST|ND|RD|TH)?,? [0-9]{4}",
+    "|", month_names_pattern, "[- ]?[0-9]{4}",
+    "|[0-9]{4}", month_names_pattern, "[0-9]{2}",
+    ")([^[:alnum:]]|T[0-9]|$)"
+  )
+})
 
-# A day/month/year date with a four-digit year, e.g. "01/05/2014".
-slash_date_pattern <- "(^|[^0-9/])[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}([^0-9/]|$)"
+# A numeric date with separators: day, month and a two- or four-digit year
+# ("01/05/2014", "1/5/14", "01.05.2014", "01-05-2014"), or a four-digit year
+# first ("2014/01/05").
+slash_date_pattern <- paste0(
+  "(^|[^0-9/.-])(",
+  "[0-9]{1,2}/[0-9]{1,2}/([0-9]{4}|[0-9]{2})",
+  "|[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{4}",
+  "|[0-9]{1,2}-[0-9]{1,2}-[0-9]{4}",
+  "|[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}",
+  ")([^0-9/.-]|$)"
+)
 
 # SAS formats that display dates or date-times, or parts of a date: families
 # with variants (E8601DA., YYMMDD10., NLDATE., EURDFDD10., ...), and names
@@ -1002,7 +1030,7 @@ slash_date_pattern <- "(^|[^0-9/])[0-9]{1,2}/[0-9]{1,2}/[0-9]{4}([^0-9/]|$)"
 # as DAYGRP. or YEARCAT. don't match.
 sas_date_format_pattern <- paste0(
   "^((E8601D|B8601D|IS8601D|YYMMDD|MMDDYY|DDMMYY|YYMM|MMYY|YYQ|NLDATE|NLDATM|EURDF).*",
-  "|(DATE|DATETIME|DATEAMPM|MDYAMPM|DAY|YEAR|QTRR?|MONNAME|DOWNAME|WEEKDAY|JULDAY|JULIAN|",
+  "|(DATE|DATETIME|DATEAMPM|MDYAMPM|DAY|MONTH|YEAR|QTRR?|MONNAME|DOWNAME|WEEKDAY|JULDAY|JULIAN|",
   "MONYY|YYMON|WEEK[UVW]|YYWEEK[UVW]|WEEKDATE|WEEKDATX|WORDDATE|WORDDATX|NENGO|MINGUO|HDATE|",
   "HEBDATE|DTDATE|DTWKDATX|DTYEAR|DTMONYY|DTYYQC)[0-9]*\\.?[0-9]*)$"
 )
@@ -1015,8 +1043,7 @@ warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates) {
     df <- data[[ds]]
     cols <- names(df)
     flagged <- c(
-      intersect(id_cols, cols),
-      cols[tolower(cols) == tolower(key)],
+      cols[tolower(cols) %in% tolower(c(key, id_cols))],
       if (check_dates) dataset_date_vars(df, NULL, key, ds),
       if (check_dates) iso_date_columns(df, cols)
     )
@@ -1028,6 +1055,25 @@ warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates) {
     warning(
       "Datasets without `", key, "` were left unchanged but contain identifiers or dates: ",
       paste(hits, collapse = "; "), ".",
+      call. = FALSE
+    )
+  }
+}
+
+# Warn about columns in keyed datasets named like `key`, `also` or `key_cols`
+# in another case (such as `usubjid` beside `USUBJID`), which were not
+# replaced.
+warn_id_name_variants <- function(data, keyed, id_cols) {
+  hits <- character(0)
+  for (ds in keyed) {
+    cols <- names(data[[ds]])
+    hits <- c(hits, qualify(ds, cols[tolower(cols) %in% tolower(id_cols) & !cols %in% id_cols]))
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These columns are named like identifier columns in another case and were not replaced: ",
+      paste(hits, collapse = ", "),
+      ". Add them to `also` or `key_cols`, or remove them.",
       call. = FALSE
     )
   }

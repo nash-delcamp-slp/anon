@@ -842,14 +842,14 @@ test_that("the years-only rule handles factors, blank datasets and Date columns"
 
 test_that("a column named like the key in another case is checked in keyed datasets", {
   d <- list(dm = data.frame(USUBJID = c("01-701-1015", "01-701-1023"), usubjid = c("01-701-1015", "01-701-1023")))
-  expect_warning(anon_subject_ids(d, seed = 1), "inside text: dm.usubjid")
+  expect_warning(anon_subject_ids(d, seed = 1), "another case and were not replaced: dm.usubjid")
 })
 
 test_that("bare years kept in QVAL are warned about", {
   supp <- data.frame(USUBJID = "a", QNAM = c("BRTHYR", "X"), QVAL = c("1980", "2014-01-05"))
   expect_warning(
     out <- anon_subject_dates(list(suppdm = supp), seed = 1)$data$suppdm$QVAL,
-    "bare four-digit numbers that were kept.*suppdm.QVAL"
+    "QVAL columns hold bare four-digit numbers.*suppdm.QVAL"
   )
   expect_equal(out[1], "1980")
 })
@@ -888,4 +888,46 @@ test_that("step selection uses where names came from; empty and duplicate steps"
   empty$data <- list()
   expect_equal(nrow(anon_inventory(list(x = data.frame(y = 1), empty = empty))), 1)
   expect_error(anon_inventory(list(s = st, s = st)), "same name: s")
+})
+
+test_that("partial = \"remove\" keeps bare numbers in mixed columns", {
+  fa <- data.frame(USUBJID = c("A", "B"), FAORRES = c("1000", "2014-03-02"))
+  expect_warning(
+    out <- anon_subject_dates(fa, vars = "FAORRES", partial = "remove", seed = 1)$data$FAORRES,
+    "bare four-digit numbers that were kept"
+  )
+  expect_equal(out[1], "1000")
+  expect_false(out[2] == "2014-03-02")
+})
+
+test_that("identifier columns named in another case are named in a warning", {
+  digits <- data.frame(USUBJID = c("1001", "1002"), usubjid = c("1001", "1002"))
+  expect_warning(anon_subject_ids(digits, seed = 1), "another case and were not replaced: data.usubjid")
+  num <- data.frame(USUBJID = c(1001, 1002), rsubjid = c("1002", "1001"))
+  expect_warning(anon_subject_ids(num, seed = 1), "data.rsubjid")
+  sub <- data.frame(USUBJID = c("a", "b"), SUBJID = c("1", "2"), subjid = c("1", "2"))
+  expect_warning(anon_subject_ids(sub, seed = 1), "data.subjid")
+  unkeyed <- list(dm = data.frame(USUBJID = "a"), raw = data.frame(subjid = "1"))
+  expect_warning(anon_subject_ids(unkeyed, seed = 1), "raw \\(subjid\\)")
+})
+
+test_that("bare years in QVAL get their own warning", {
+  supp <- data.frame(USUBJID = "a", QNAM = "BRTHYR", QVAL = "1980")
+  expect_warning(anon_subject_dates(list(suppdm = supp), seed = 1), "QVAL columns hold bare four-digit numbers.*suppdm.QVAL")
+})
+
+test_that("more date forms in text are flagged, without common dosing text", {
+  forms <- c("2014/01/05", "01.05.2014", "05/JAN/2014", "UNK-JAN-2014", "2014JAN05", "Jan 2014",
+             "5th January 2014", "1/5/14")
+  for (f in forms) {
+    co <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", COM = paste("seen", f))
+    expect_warning(anon_subject_dates(co, seed = 1), "data.COM", info = f)
+  }
+  co <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01",
+                   COM = c("1 MAY 12 HRS", "Take 2 mar 10", "1/2 tablet", "10-20 mg", "BP 120/80", "1.5-2.0"))
+  expect_no_warning(anon_subject_dates(co, seed = 1))
+
+  ad <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", MO = 19000)
+  attr(ad$MO, "format.sas") <- "MONTH2"
+  expect_warning(anon_subject_dates(ad, seed = 1), "data.MO")
 })

@@ -305,11 +305,12 @@ normalize_object_source <- function(envir, selection = NULL) {
     stop("`envir` must be an environment or a list.", call. = FALSE)
   }
 
+  source_names <- names(objects)
   objects <- splice_steps(objects)
   origin <- attr(objects, "origin")
 
   if (!is.null(selection)) {
-    missing_selection <- setdiff(selection, c(names(objects), origin))
+    missing_selection <- setdiff(selection, c(names(objects), source_names))
     if (length(missing_selection) > 0) {
       stop(
         "Unknown objects in `selection`: ",
@@ -375,9 +376,9 @@ expand_step_selection <- function(selection, raw_names, origin = raw_names) {
   if (is.null(selection)) {
     return(NULL)
   }
-  unique(unlist(lapply(selection, function(name) {
+  as.character(unique(unlist(lapply(selection, function(name) {
     if (name %in% raw_names) name else raw_names[origin == name]
-  })))
+  }))))
 }
 
 get_inventory_row <- function(name, obj) {

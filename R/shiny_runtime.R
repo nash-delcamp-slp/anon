@@ -354,6 +354,8 @@ anon_app_server <- function(
           selection_initialized = TRUE
         ),
         error = function(e) {
+          # Don't leave a report built from earlier rules or objects on show.
+          report_data(NULL)
           shiny::showNotification(conditionMessage(e), type = "error")
           NULL
         }
@@ -387,6 +389,7 @@ anon_app_server <- function(
           nlp_auto = active_report_nlp_auto()
         ),
         error = function(e) {
+          report_data(NULL)
           shiny::showNotification(conditionMessage(e), type = "error")
           NULL
         }
