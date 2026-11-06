@@ -47,21 +47,23 @@ test_that("anon_subject_ids() keeps column types and missing values", {
   out <- anon_subject_ids(data, key = "ID", seed = 2)$data
   expect_type(out$dm$ID, "double")
   expect_type(out$dm$SUBJID, "integer")
+  # Rows are sorted by the new key, with missing keys last
   expect_true(is.na(out$dm$ID[3]))
   expect_true(is.na(out$dm$SUBJID[3]))
-  expect_setequal(out$dm$ID[1:2], c(1, 2))
+  expect_equal(out$dm$ID[1:2], c(1, 2))
   expect_equal(out$dm$SUBJID[1:2], as.integer(out$dm$ID[1:2]))
-  expect_equal(out$vs$ID[1], out$vs$ID[2])
-  expect_equal(out$vs$ID[1], out$dm$ID[2])
+  # X follows its row: dm row with X = 2 had ID 102
+  id_102 <- out$dm$ID[out$dm$X == 2]
+  expect_equal(sum(out$vs$ID == id_102), 2)
+  expect_equal(out$vs$Y[out$vs$ID == id_102], 1:2)
 })
 
 test_that("anon_subject_ids() treats blank keys as missing and accepts a data frame", {
   df <- data.frame(USUBJID = c("a", "", "b"), SUBJID = c("1", "", "2"))
   out <- anon_subject_ids(df, seed = 3)$data
   expect_s3_class(out, "data.frame")
-  expect_equal(out$USUBJID[2], "")
-  expect_equal(out$SUBJID[2], "")
-  expect_setequal(out$USUBJID[c(1, 3)], c("SUBJ-1", "SUBJ-2"))
+  expect_equal(out$USUBJID, c("SUBJ-1", "SUBJ-2", ""))
+  expect_equal(out$SUBJID, c("1", "2", ""))
 })
 
 test_that("anon_subject_ids() errors when a related ID is not one per subject", {
@@ -92,7 +94,10 @@ test_that("the log records when a seed made the result reproducible", {
 
 test_that("anon_subject_dates() shifts each subject's dates by one offset everywhere", {
   data <- subject_data()
-  result <- anon_subject_dates(data, keep_secrets = TRUE, seed = 5)
+  expect_warning(
+    result <- anon_subject_dates(data, keep_secrets = TRUE, seed = 5),
+    "ts \\(TSVAL\\)"
+  )
   out <- result$data
   offsets <- anon_secrets(result)$date_offsets
   off <- stats::setNames(offsets$offset_days, offsets$key)
@@ -255,14 +260,17 @@ test_that("narrow or zero-including offset ranges warn", {
 
 test_that("invalid dates are logged as removed, not shifted", {
   d <- data.frame(USUBJID = c("a", "b"), XDTC = c("2020-02-30", "UNK"))
-  expect_warning(result <- anon_subject_dates(d, seed = 18), "2 value\\(s\\) are not ISO 8601 dates and were removed")
+  expect_warning(result <- anon_subject_dates(d, seed = 18), "2 value\\(s\\) are not recognised ISO 8601 dates")
   expect_match(result$log$detail[result$log$variable %in% "XDTC"], "0 value\\(s\\) shifted, 2 removed \\(not ISO 8601\\)")
   expect_true(all(is.na(result$data$XDTC)))
 })
 
 test_that("steps chain, keeping earlier logs and secrets", {
   data <- subject_data()
-  step <- anon_subject_ids(anon_subject_dates(data, keep_secrets = TRUE, seed = 19), keep_secrets = TRUE, seed = 20)
+  step <- anon_subject_ids(
+    suppressWarnings(anon_subject_dates(data, keep_secrets = TRUE, seed = 19)),
+    keep_secrets = TRUE, seed = 20
+  )
   expect_setequal(unique(step$log$step), c("subject_dates", "subject_ids"))
   expect_named(anon_secrets(step), c("date_offsets", "subject_ids"))
   expect_setequal(anon_secrets(step)$subject_ids$key, data$dm$USUBJID)
@@ -272,6 +280,134 @@ test_that("the global random state is restored after a seeded step", {
   set.seed(99)
   before <- stats::runif(1)
   set.seed(99)
-  anon_subject_dates(subject_data(), seed = 1)
+  suppressWarnings(anon_subject_dates(subject_data(), seed = 1))
   expect_equal(stats::runif(1), before)
+})
+
+test_that("rows are sorted by the new key, keeping order within subjects", {
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:20), SEQ = 1:20)
+  out <- anon_subject_ids(dm, seed = 21)$data
+  expect_equal(out$USUBJID, sort(out$USUBJID))
+  expect_false(identical(out$SEQ, 1:20))
+  expect_equal(rownames(out), as.character(1:20))
+
+  lb <- data.frame(USUBJID = rep(c("A", "B"), each = 3), LBSEQ = c(3, 1, 2, 1, 2, 3))
+  out <- anon_subject_ids(lb, seed = 22)$data
+  by_subject <- unname(split(out$LBSEQ, out$USUBJID))
+  expect_setequal(by_subject, list(c(3, 1, 2), c(1, 2, 3)))
+})
+
+test_that("value labels holding original values are dropped", {
+  skip_if_not_installed("haven")
+  dm <- data.frame(row = 1:2)
+  dm$USUBJID <- haven::labelled(c("01-1015", "01-1023"), labels = c(Smith = "01-1015"))
+  dm$SUBJID <- haven::labelled(c(1015, 1023), labels = c("Pat Smith" = 1015))
+  dm$AESTDTC <- haven::labelled(c("2014-01-01", "2014-02-01"), labels = c(First = "2014-01-01"))
+  out <- anon_subject_dates(anon_subject_ids(dm, seed = 23), seed = 24)$data
+  expect_null(attr(out$USUBJID, "labels"))
+  expect_null(attr(out$SUBJID, "labels"))
+  expect_null(attr(out$AESTDTC, "labels"))
+  expect_false(any(as.character(out$AESTDTC) %in% c("2014-01-01", "2014-02-01")))
+})
+
+test_that("SDTM partial dates and intervals are shifted, not removed", {
+  d <- data.frame(USUBJID = "a", XDTC = c("2014---15", "2014-01--T08:00", "2014-01-02/2014-01-05"))
+  result <- suppressWarnings(anon_subject_dates(d, keep_secrets = TRUE, min_days = 40, max_days = 40, seed = 25))
+  off <- anon_secrets(result)$date_offsets$offset_days
+  out <- result$data$XDTC
+  expect_match(out[1], "^[0-9]{4}---15$")
+  expect_match(out[2], "^[0-9]{4}-[0-9]{2}--T08:00$")
+  ends <- strsplit(out[3], "/")[[1]]
+  expect_equal(as.numeric(as.Date(ends) - as.Date(c("2014-01-02", "2014-01-05"))), c(off, off))
+})
+
+test_that("large max_days is capped and years stay within 0001-9999", {
+  d <- data.frame(USUBJID = "a", XDTC = "2014-01-01")
+  expect_error(anon_subject_dates(d, max_days = 1e7), "from 1 to 3650")
+  msgs <- character(0)
+  withCallingHandlers(
+    anon_subject_dates(data.frame(USUBJID = c("a", "b"), YDTC = c("9999", "9999")), min_days = 400, max_days = 400, seed = 1),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_true(any(grepl("outside years 0001-9999", msgs)))
+})
+
+test_that("offsets cover both directions uniformly and 0 only once", {
+  off <- draw_offsets(20000, max_days = 3, min_days = 0, seed = 1)
+  expect_setequal(unique(off), -3:3)
+  expect_true(all(abs(table(off) / 20000 - 1 / 7) < 0.02))
+  off <- draw_offsets(5000, max_days = 365, min_days = 30, seed = 2)
+  expect_true(all(abs(off) >= 30 & abs(off) <= 365))
+  expect_true(abs(mean(off > 0) - 0.5) < 0.03)
+})
+
+test_that("QVAL dates are flagged when vars skips them, and month dates shift", {
+  supp <- data.frame(USUBJID = c("a", "a"), QNAM = c("A", "B"), QVAL = c("2014-03-05", "2014-03"), XDTC = "2014-01-01")
+  expect_warning(anon_subject_dates(list(suppx = supp), vars = "XDTC", seed = 26), "suppx.QVAL")
+  out <- anon_subject_dates(list(suppx = supp), seed = 26)$data$suppx
+  expect_false(any(out$QVAL == supp$QVAL))
+  expect_match(out$QVAL[2], "^[0-9]{4}-[0-9]{2}$")
+})
+
+test_that("text vars without any dates are rejected", {
+  expect_error(
+    anon_subject_dates(data.frame(USUBJID = "a", AETERM = "headache"), vars = "AETERM"),
+    "`AETERM` in `data` is not a date column"
+  )
+})
+
+test_that("invalid UTF-8 text does not break the steps or leak into warnings", {
+  ae <- data.frame(USUBJID = c("a", "b"), AESTDTC = c("2020-01-01", "2020-02-01"))
+  ae$AETERM <- c("Mr Smith\x92s rash", "ok")
+  msgs <- character(0)
+  withCallingHandlers({
+    anon_subject_ids(list(ae = ae), seed = 27)
+    anon_subject_dates(list(ae = ae), seed = 28)
+  }, warning = function(w) {
+    msgs <<- c(msgs, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+  expect_false(any(grepl("Smith", msgs, useBytes = TRUE)))
+})
+
+test_that("key, also and key_cols must not overlap", {
+  d <- data.frame(USUBJID = c("A", "B"), SUBJID = c("1", "2"), RSUBJID = c("B", "A"))
+  expect_error(anon_subject_ids(d, also = c("USUBJID", "SUBJID")), "must not overlap")
+  expect_error(anon_subject_ids(d, also = "RSUBJID", key_cols = "RSUBJID"), "must not overlap")
+})
+
+test_that("chaining the same step twice keeps both secrets", {
+  d <- data.frame(USUBJID = c("a", "b"))
+  step <- anon_subject_ids(anon_subject_ids(d, keep_secrets = TRUE, seed = 1), keep_secrets = TRUE, seed = 2)
+  expect_named(anon_secrets(step), c("subject_ids", "subject_ids_1"))
+  expect_setequal(anon_secrets(step)$subject_ids$key, c("a", "b"))
+})
+
+test_that("numeric keys do not trigger the leftover-key warning; factor levels do", {
+  d <- data.frame(USUBJID = c(1, 2, 3), ARMCD = c("1", "2", "3"))
+  expect_no_warning(anon_subject_ids(d, seed = 1))
+  f <- data.frame(USUBJID = c("S1", "S2"), OTHER = factor("x", levels = c("x", "S1")))
+  expect_warning(anon_subject_ids(f, seed = 1), "f|data.OTHER")
+})
+
+test_that("unkeyed datasets with ISO dates in text columns are flagged", {
+  d <- list(dm = data.frame(USUBJID = "a"), ts = data.frame(TSPARMCD = "SSTDTC", TSVAL = "2013-06-01"))
+  expect_warning(anon_subject_dates(d, seed = 1), "ts \\(TSVAL\\)")
+})
+
+test_that("log has numeric counts and records settings", {
+  d <- data.frame(USUBJID = c("a", NA), XDTC = c("2020-01-01", "2020-02-01"))
+  log <- suppressWarnings(anon_subject_dates(d, seed = 1))$log
+  row <- log[log$variable %in% "XDTC", ]
+  expect_equal(row$n_changed, 1L)
+  expect_equal(row$n_removed, 1L)
+  expect_match(log$detail[1], "min_days = 30, max_days = 365", fixed = TRUE)
+})
+
+test_that("anon_risk() accepts a step result", {
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("a", "b"), SEX = "F")), seed = 1)
+  expect_equal(anon_risk(step, quasi = list(dm = "SEX"), max_risk = 1)$summary$n_subjects, 2)
 })

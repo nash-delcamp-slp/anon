@@ -682,8 +682,8 @@ test_that("anon_date_shift() shifts or removes partial ISO 8601 dates", {
 
 test_that("anon_date_shift() removes and warns about values that are not ISO 8601 dates", {
   expect_warning(
-    result <- anon_date_shift(c("2014-01-02", "2014---15", "unknown"), offset = 1),
-    "2 values are not ISO 8601 dates and were removed"
+    result <- anon_date_shift(c("2014-01-02", "2014-13-45", "unknown"), offset = 1),
+    "2 values are not recognised ISO 8601 dates"
   )
   expect_equal(result, c("2014-01-03", "", ""))
 })
@@ -708,7 +708,7 @@ test_that("anon_date_shift() removes date-times with an invalid time part", {
       c("2014-01-02T99:99", "2014-01-02Tunknown", "2014-01-02T08:61", "2014-01-02T23:59:59+05:30"),
       offset = 1
     ),
-    "3 values are not ISO 8601 dates and were removed"
+    "3 values are not recognised ISO 8601 dates"
   )
   expect_equal(result, c("", "", "", "2014-01-03T23:59:59+05:30"))
 })

@@ -26,22 +26,26 @@ without the \code{key} column are returned unchanged.}
 factor column whose name ends in \code{DTC} (any case; ISO 8601 dates, as in
 SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}.
 In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
-values that are full ISO 8601 dates are shifted too. Columns given in
+values that are ISO 8601 dates with at least year and month are shifted
+too (year-only values are left alone because they can't be told apart from
+numbers; the unshifted-dates warning does not cover them). Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
 dates.}
 
 \item{max_days, min_days}{Each subject's offset is drawn uniformly from the
 whole numbers between \code{min_days} and \code{max_days} days, earlier or later.
-Defaults 30 and 365. A warning is given when the range is so narrow, or
-includes 0, that offsets are easy to guess or some subjects keep their real
-dates.}
+Defaults 30 and 365; \code{max_days} can be at most 3650. A warning is given
+when the range is so narrow, or includes 0, that offsets are easy to guess
+or some subjects keep their real dates.}
 
 \item{partial}{How to handle partial ISO 8601 dates in character columns:
-\code{"shift"} (default) or \code{"remove"} (replace them with \code{""}). With \code{"shift"},
-a year-and-month date (\code{"2014-03"}) moves the middle of the month by the
-subject's offset and keeps month precision; a year-only date (\code{"2014"})
-moves by whole years, at least one, in the direction of the offset, so the
-real year is never kept.}
+\code{"shift"} (default) or \code{"remove"} (replace them with the column's missing
+value). With \code{"shift"}, a year-and-month date (\code{"2014-03"}, or SDTM
+\code{"2014-03--T08:00"} with the time kept) moves the middle of the month by
+the subject's offset and keeps month precision; a year-only date
+(\code{"2014"}, or SDTM \code{"2014---15"} with the day kept) moves by whole years,
+at least one, in the direction of the offset, so the real year is never
+kept. Both ends of an interval (\code{"2014-01-02/2014-01-05"}) are shifted.}
 
 \item{keep_secrets}{Logical. If \code{TRUE}, keep each subject's offset; read it
 with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}.}
@@ -68,22 +72,27 @@ Full ISO 8601 dates move by exactly the subject's offset and keep their
 format and any time part. Date columns keep their type, and POSIXct columns
 keep their type, time zone and clock time (the calendar date moves, so a
 shift across a daylight saving change keeps 08:00 at 08:00). Column
-attributes such as labels are kept. Study day variables (\code{--DY}) are not
+attributes such as variable labels are kept; value labels (haven \code{labels})
+are dropped. A clock time that doesn't exist on the new date (inside a
+daylight saving gap) moves forward by the gap. Study day variables (\code{--DY}) are not
 changed and stay consistent with the shifted full dates, because each
 subject's dates all move together.
 
-Partial dates are shifted from the middle of their period, so the order
-between a partial date and a full date of the same subject can change (for
-example a start month can end up after an end date).
+Year-and-month dates are shifted from the middle of the month, and year-only
+dates by whole years, so the order between a partial date and a full date of
+the same subject can change (for example a start month can end up after an
+end date).
 
 Dates in rows without a key cannot be tied to a subject's offset and are
-removed, with a warning. Values that are not ISO 8601 dates are removed with
-a warning. Datasets without the \code{key} column (for example trial-level domains
+removed, with a warning. Values that are not recognised ISO 8601 dates, or
+whose year would fall outside 0001-9999, are removed with a warning. Text
+columns given in \code{vars} must contain at least one recognised date. Datasets without the \code{key} column (for example trial-level domains
 such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
 real trial dates can narrow down subjects' offsets. A warning lists any other
 character or factor column in a keyed dataset that contains ISO 8601 dates
-but was not shifted, and any dataset without \code{key} that has date columns or a
-column named like \code{key} in another case.
+but was not shifted, and any dataset without \code{key} that has date columns,
+text columns containing ISO 8601 dates, or a column named like \code{key} in
+another case.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

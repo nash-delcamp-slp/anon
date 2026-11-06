@@ -7,7 +7,8 @@
 anon_risk_subjects(data, quasi, key = "USUBJID")
 }
 \arguments{
-\item{data}{A data frame, or a named list of data frames linked by \code{key}.}
+\item{data}{A data frame, a named list of data frames linked by \code{key}, or
+the result of a de-identification step such as \code{\link[=anon_subject_ids]{anon_subject_ids()}}.}
 
 \item{quasi}{The quasi-identifiers to measure. For a single data frame, a
 character vector of column names. For a list of data frames, a list whose

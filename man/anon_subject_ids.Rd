@@ -44,8 +44,10 @@ afterwards.}
 }
 \value{
 An object of class \code{"anon_deid_step"}: a list with \code{data} (the
-transformed data, in the same form as the input), \code{log} (a tibble of what
-was changed, including earlier steps when \code{data} was a step result) and
+transformed data, in the same form as the input), \code{log} (a tibble with
+\code{step}, \code{dataset}, \code{variable}, \code{n_changed}, \code{n_removed} and \code{detail}; the
+first row of each step records its settings; earlier steps are included
+when \code{data} was a step result) and
 \code{secrets} (\code{NULL} unless \code{keep_secrets = TRUE} here or in an earlier step).
 Saving the object (for example with \code{\link[=saveRDS]{saveRDS()}}) also saves its secrets.
 }
@@ -58,16 +60,22 @@ columns listed in \code{key_cols} that hold other subjects' keys (for example
 \code{RSUBJID}) are mapped through the same pseudonyms.
 }
 \details{
-Pseudonyms are numbered in random order, so they do not reveal the order of
-the original keys. Column types and attributes such as labels are kept:
+Pseudonyms are numbered in random order, and rows of each dataset are then
+sorted by the new key (keeping the order of rows within each subject), so
+neither the pseudonyms nor the row order reveal the order of the original
+keys. Column types and attributes such as variable labels are kept:
 character keys get character pseudonyms, numeric keys get numbers, factors
-stay factors. Missing and blank keys are left as they are. Values of \code{also}
-columns in rows without a key cannot be mapped and are removed (set to
-missing), with a warning.
+stay factors. Value labels (haven \code{labels}), which describe the original
+values, are dropped from replaced columns. Missing and blank keys are left
+as they are. Values of \code{also} columns in rows without a key cannot be mapped
+and are removed (set to missing), with a warning. \code{key}, \code{also} and
+\code{key_cols} must not overlap.
 
-A warning lists any other character or factor column in a keyed dataset that
-still contains original key values, and any dataset without \code{key} that has
-an \code{also} or \code{key_cols} column or a column named like \code{key} in another case.
+A warning lists any other character or factor column (values or factor
+levels) in a keyed dataset that still contains original key values (checked
+for character keys only, since numeric keys match many unrelated codes), and
+any dataset without \code{key} that has an \code{also} or \code{key_cols} column or a column
+named like \code{key} in another case.
 Identifiers embedded inside other text (for example in \code{--SPID}) are not
 detected.
 

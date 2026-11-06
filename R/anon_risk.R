@@ -7,7 +7,8 @@
 #' size and the subject's risk is `1 / k`. Quasi-identifiers can come from
 #' several datasets linked by `key`.
 #'
-#' @param data A data frame, or a named list of data frames linked by `key`.
+#' @param data A data frame, a named list of data frames linked by `key`, or
+#'   the result of a de-identification step such as [anon_subject_ids()].
 #' @param quasi The quasi-identifiers to measure. For a single data frame, a
 #'   character vector of column names. For a list of data frames, a list whose
 #'   named elements are character vectors of columns in the dataset of that
@@ -301,6 +302,9 @@ risk_quasi_table <- function(data, quasi, key) {
   if (key %in% c("k", "risk")) {
     stop("`key` must not be named \"k\" or \"risk\", which are used for results; rename the column first.", call. = FALSE)
   }
+  if (inherits(data, "anon_deid_step")) {
+    data <- data$data
+  }
   single <- is.data.frame(data)
   if (single) {
     data <- list(data = data)
@@ -456,7 +460,7 @@ blank_to_na <- function(x) {
     x <- as.character(x)
   }
   if (is.character(x)) {
-    x[!is.na(x) & trimws(x) == ""] <- NA_character_
+    x[!is.na(x) & grepl("^[[:space:]]*$", x, useBytes = TRUE)] <- NA_character_
   }
   x
 }

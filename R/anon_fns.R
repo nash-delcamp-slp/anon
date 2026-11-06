@@ -171,31 +171,57 @@ parse_center_date <- function(center_date) {
   as.Date(center_date)
 }
 
-# Classify ISO 8601 strings and give each a reference date: the date itself
-# for full dates (optionally with a time of hours, minutes, seconds and a UTC
-# offset), the middle of the month (day 15) or year (2 July) for
-# partial dates. Values that are not ISO 8601 dates have kind "invalid".
+# Classify ISO 8601 strings and give each a reference date. Recognised forms:
+# full dates, optionally with a time of hours, minutes, seconds and a UTC
+# offset ("full"); year and month ("month"); year, month and a time with the
+# day unknown, as in SDTM "2014-01--T08:00" ("month_time"); year only
+# ("year"); year and day with the month unknown, as in SDTM "2014---15"
+# ("year_day"); and intervals "start/end" of these ("interval"). The reference
+# is the date itself, the middle of the month (day 15) or of the year
+# (2 July), or for intervals the start's reference. Other non-blank values have
+# kind "invalid".
 parse_iso8601_dates <- function(x) {
+  x <- as.character(x)
   kind <- rep("empty", length(x))
   reference <- rep(as.Date(NA), length(x))
-  present <- !is.na(x) & nzchar(trimws(x))
+  present <- !is.na(x) & !grepl("^[[:space:]]*$", x, useBytes = TRUE)
 
   time_part <- paste0(
     "T([01][0-9]|2[0-3])(:[0-5][0-9](:[0-5][0-9](\\.[0-9]+)?)?)?",
     "(Z|[+-][0-9]{2}(:?[0-9]{2})?)?"
   )
-  is_full <- present & grepl(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}(", time_part, ")?$"), x)
-  is_month <- present & grepl("^[0-9]{4}-[0-9]{2}$", x)
-  is_year <- present & grepl("^[0-9]{4}$", x)
+  match <- function(pattern) present & grepl(pattern, x, useBytes = TRUE)
+  is_full <- match(paste0("^[0-9]{4}-[0-9]{2}-[0-9]{2}(", time_part, ")?$"))
+  is_month <- match("^[0-9]{4}-[0-9]{2}$")
+  is_month_time <- match(paste0("^[0-9]{4}-[0-9]{2}--", time_part, "$"))
+  is_year <- match("^[0-9]{4}$")
+  is_year_day <- match("^[0-9]{4}---(0[1-9]|[12][0-9]|3[01])$")
+  is_interval <- present & grepl("/", x, fixed = TRUE, useBytes = TRUE)
 
   reference[is_full] <- as.Date(substr(x[is_full], 1, 10), format = "%Y-%m-%d", optional = TRUE)
-  reference[is_month] <- as.Date(paste0(x[is_month], "-15"), format = "%Y-%m-%d", optional = TRUE)
-  reference[is_year] <- as.Date(paste0(x[is_year], "-07-02"), format = "%Y-%m-%d", optional = TRUE)
+  month_like <- is_month | is_month_time
+  reference[month_like] <- as.Date(paste0(substr(x[month_like], 1, 7), "-15"), format = "%Y-%m-%d", optional = TRUE)
+  year_like <- is_year | is_year_day
+  reference[year_like] <- as.Date(paste0(substr(x[year_like], 1, 4), "-07-02"), format = "%Y-%m-%d", optional = TRUE)
 
   kind[is_full] <- "full"
   kind[is_month] <- "month"
+  kind[is_month_time] <- "month_time"
   kind[is_year] <- "year"
-  kind[present & is.na(reference)] <- "invalid"
+  kind[is_year_day] <- "year_day"
+
+  if (any(is_interval)) {
+    parts <- strsplit(x[is_interval], "/", fixed = TRUE)
+    ends_ok <- vapply(parts, function(p) {
+      length(p) == 2 && all(parse_iso8601_dates(p)$kind %in% c("full", "month", "month_time", "year", "year_day"))
+    }, logical(1))
+    starts <- vapply(parts, `[`, character(1), 1)
+    kind[is_interval][ends_ok] <- "interval"
+    reference[is_interval][ends_ok] <- parse_iso8601_dates(starts[ends_ok])$reference
+  }
+
+  kind[present & kind == "empty"] <- "invalid"
+  kind[kind != "invalid" & kind != "empty" & is.na(reference)] <- "invalid"
 
   list(kind = kind, reference = reference)
 }
@@ -206,7 +232,7 @@ iso8601_center_offset <- function(x, center_date) {
   parsed <- parse_iso8601_dates(x)
   usable <- parsed$kind == "full"
   if (!any(usable)) {
-    usable <- parsed$kind %in% c("month", "year")
+    usable <- parsed$kind %in% c("month", "month_time", "year", "year_day", "interval")
   }
   if (!any(usable)) {
     return(0)
@@ -214,43 +240,71 @@ iso8601_center_offset <- function(x, center_date) {
   round(as.numeric(center_date - mean(parsed$reference[usable])))
 }
 
-# With year_step = TRUE, year-only values move by whole years (at least one, in
-# the direction of the offset) instead of from the middle of the year, so a
-# non-zero offset always changes the year.
+# Shift ISO 8601 strings by `offset` days (one value or one per element),
+# keeping each value's format and precision. With year_step = TRUE, year-only
+# values (and year-and-day values) move by whole years, at least one, in the
+# direction of the offset, instead of from the middle of the year, so a
+# non-zero offset always changes the year. Values whose shifted year falls
+# outside 0001-9999, and values that are not recognised ISO 8601 dates, are
+# removed with a warning.
 shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
+  offset <- rep_len(offset, length(x))
   parsed <- parse_iso8601_dates(x)
   kind <- parsed$kind
   shifted <- parsed$reference + offset
   out <- x
+  out_of_range <- rep(FALSE, length(x))
+
+  is_interval <- kind == "interval"
+  if (any(is_interval)) {
+    parts <- strsplit(x[is_interval], "/", fixed = TRUE)
+    starts <- vapply(parts, `[`, character(1), 1)
+    ends <- vapply(parts, `[`, character(1), 2)
+    new_starts <- suppressWarnings(shift_iso8601(starts, offset[is_interval], partial, year_step))
+    new_ends <- suppressWarnings(shift_iso8601(ends, offset[is_interval], partial, year_step))
+    lost <- !nzchar(new_starts) | !nzchar(new_ends)
+    out[is_interval] <- ifelse(lost, "", paste0(new_starts, "/", new_ends))
+    out_of_range[is_interval] <- lost & partial == "shift"
+  }
+
+  shifted_year <- as.integer(format(shifted, "%Y"))
+  in_range <- !is.na(shifted_year) & shifted_year >= 1 & shifted_year <= 9999
 
   full <- kind == "full"
   out[full] <- paste0(format(shifted[full], "%Y-%m-%d"), substring(x[full], 11))
+  out_of_range[full] <- !in_range[full]
 
-  is_partial <- kind %in% c("month", "year")
+  partial_kinds <- c("month", "month_time", "year", "year_day")
   if (partial == "shift") {
-    out[kind == "month"] <- format(shifted[kind == "month"], "%Y-%m")
-    is_year <- kind == "year"
-    if (year_step && any(is_year)) {
-      year_offset <- rep_len(offset, length(x))[is_year]
-      years <- as.integer(x[is_year]) +
-        sign(year_offset) * pmax(1, round(abs(year_offset) / 365.25))
-      out[is_year] <- sprintf("%04d", as.integer(years))
-    } else {
-      out[is_year] <- format(shifted[is_year], "%Y")
+    month_like <- kind %in% c("month", "month_time")
+    out[month_like] <- paste0(format(shifted[month_like], "%Y-%m"), substring(x[month_like], 8))
+    out_of_range[month_like] <- !in_range[month_like]
+
+    year_like <- kind %in% c("year", "year_day")
+    if (any(year_like)) {
+      if (year_step) {
+        years <- as.integer(substr(x[year_like], 1, 4)) +
+          sign(offset[year_like]) * pmax(1, round(abs(offset[year_like]) / 365.25))
+      } else {
+        years <- shifted_year[year_like]
+      }
+      ok <- !is.na(years) & years >= 1 & years <= 9999
+      out[year_like] <- paste0(sprintf("%04d", as.integer(years)), substring(x[year_like], 5))
+      out_of_range[year_like] <- !ok
     }
   } else {
-    out[is_partial] <- ""
+    out[kind %in% partial_kinds] <- ""
   }
 
-  invalid <- kind == "invalid"
-  if (any(invalid)) {
-    n <- sum(invalid)
+  removed <- kind == "invalid" | out_of_range
+  if (any(removed)) {
+    n <- sum(removed)
     warning(
       n, if (n == 1) " value is" else " values are",
-      " not ISO 8601 dates and were removed.",
+      " not recognised ISO 8601 dates, or would fall outside years 0001-9999, and were removed.",
       call. = FALSE
     )
-    out[invalid] <- ""
+    out[removed] <- ""
   }
 
   out
