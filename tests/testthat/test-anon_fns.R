@@ -541,3 +541,36 @@ test_that("anon_phone_number() handles phone embedded in text", {
   expect_true(grepl("anytime", result))
   expect_false(grepl("123-456-7890", result))
 })
+
+test_that("anonymizers return all-missing input unchanged", {
+  expect_equal(anon_email(c(NA_character_, NA_character_)), c(NA_character_, NA_character_))
+  expect_equal(anon_phone_number(NA_character_), NA_character_)
+  expect_equal(anon_num_preserve_distribution(c(NA_real_, NA_real_)), c(NA_real_, NA_real_))
+  expect_equal(anon_num_range(c(NA_real_, NA_real_)), c(NA_real_, NA_real_))
+})
+
+test_that("anon_date_shift() handles POSIXct without a time zone and character dates", {
+  x <- as.POSIXct(c("2023-01-01 10:00:00", "2023-01-03 10:00:00"), tz = "UTC")
+  attr(x, "tzone") <- NULL
+  result <- anon_date_shift(x, center_date = "2024-06-02")
+  expect_s3_class(result, "POSIXct")
+  expect_equal(as.numeric(diff(result), units = "days"), 2)
+
+  result <- anon_date_shift(c("2023-01-01", "2023-01-03"), center_date = "2024-06-02")
+  expect_equal(result, as.Date(c("2024-06-01", "2024-06-03")))
+})
+
+test_that("anon_num_range() equal_count handles unclean and collapsing breaks", {
+  x <- c(1, 2, 3, 4, 5, 6, 7, 8)
+  result <- anon_num_range(x, n_breaks = 2, method = "equal_count", clean_breaks = FALSE)
+  expect_length(unique(result), 2)
+
+  # When fewer than two pretty() breaks fall inside the data, the data range is used
+  result <- anon_num_range(c(1.001, 1.009), n_breaks = 2, method = "equal_count")
+  expect_true(all(!is.na(result)))
+})
+
+test_that("more_patterns() returns nothing for empty or all-missing input", {
+  expect_equal(more_patterns(character(0)), character(0))
+  expect_equal(more_patterns(NA_character_), character(0))
+})

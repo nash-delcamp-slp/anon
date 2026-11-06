@@ -357,6 +357,8 @@ test_that("NLP text source skips columns that are replaced wholesale", {
 
   src <- anon:::nlp_text_source(list(a = df), list(id = "X"), NULL)
   expect_named(src$a, c("conc", "note"))
+
+  expect_equal(anon:::nlp_text_source(c("a", "b"), "id", "double"), c("a", "b"))
 })
 
 test_that("numbered backreferences in user patterns keep their meaning", {
@@ -410,4 +412,38 @@ test_that("POSIXct matching handles ISO offsets and rejects invalid values", {
   result <- anon(df, df_classes = "POSIXct", default_replacement = "X")
   expect_equal(result$tz, c("X", "X"))
   expect_equal(result$bad, df$bad)
+})
+
+test_that("df_variable_names and df_classes combine with their global options", {
+  old <- options(anon.df_variable_names = "b", anon.df_classes = "integer")
+  on.exit(options(old), add = TRUE)
+
+  df <- data.frame(a = "x", b = "y", c = 1L, d = 2.5, stringsAsFactors = FALSE)
+
+  result <- anon(df, default_replacement = "R")
+  expect_equal(unlist(unclass(result)), c(a = "x", b = "R", c = "R", d = "2.5"))
+
+  result <- anon(df, df_variable_names = "a", df_classes = "double", default_replacement = "R")
+  expect_equal(unlist(unclass(result)), c(a = "R", b = "R", c = "R", d = "R"))
+})
+
+test_that("approximate-match warnings from list columns reach the caller", {
+  df <- data.frame(id = 1)
+  df$notes <- list("Alise Smith")
+  expect_warning(
+    anon(df, pattern_list = "Alice Smith", check_approximate = TRUE),
+    "Potential approximate match"
+  )
+})
+
+test_that("compute_approximate_distances() returns empty results when nothing is close", {
+  empty <- list(distances = integer(0), matches = integer(0), matching_strings = character(0))
+  expect_equal(compute_approximate_distances("completely different", "Alice Smith"), empty)
+  expect_equal(compute_approximate_distances("x", "abc"), empty)
+
+  # agrepl() finds a candidate, but the stricter distance check rejects it
+  expect_equal(compute_approximate_distances("Alice Smith and more", "Alice Smyth", max_distance = 1), empty)
+
+  result <- compute_approximate_distances(c("Alise Smith", "Bob"), "Alice Smith")
+  expect_equal(result$matching_strings, "Alise Smith")
 })
