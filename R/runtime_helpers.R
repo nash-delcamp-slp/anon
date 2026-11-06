@@ -25,6 +25,10 @@ anon_inventory <- function(
     objects,
     ~ get_inventory_row(.y, .x)
   )
+  if (length(objects) == 0) {
+    # Keep the inventory columns when there are no objects.
+    inventory <- get_inventory_row("", character(0))[0, ]
+  }
 
   inventory <- anon(
     inventory,
@@ -328,7 +332,7 @@ get_object_kind <- function(obj) {
     "data.frame"
   } else if (is.function(obj)) {
     "function"
-  } else if (is.list(obj)) {
+  } else if (is_container_list(obj)) {
     "list"
   } else if (is.vector(obj) || is.factor(obj)) {
     "vector"
@@ -362,7 +366,7 @@ object_has_text <- function(obj) {
     return(any(vapply(obj, function(col) is.character(col) || is.factor(col), logical(1))))
   }
 
-  if (is.list(obj)) {
+  if (is_container_list(obj)) {
     return(any(vapply(obj, object_has_text, logical(1))))
   }
 
@@ -382,7 +386,7 @@ object_has_labels <- function(obj) {
     )))
   }
 
-  if (is.list(obj)) {
+  if (is_container_list(obj)) {
     return(any(vapply(obj, object_has_labels, logical(1))))
   }
 

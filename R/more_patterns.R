@@ -36,10 +36,6 @@ more_patterns <- function(
   # Remove NA values
   patterns_clean <- patterns[!is.na(patterns)]
 
-  if (length(patterns_clean) == 0) {
-    return(character(0))
-  }
-
   result <- character(0)
 
   # 1. Original items

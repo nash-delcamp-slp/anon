@@ -67,22 +67,31 @@ read_content_docx <- function(path) {
     return("")
   }
 
+  # A table is one block. officer reports a separate doc_index for each table
+  # cell and identifies the table by table_index; older versions give all cells
+  # of a table the same doc_index. Blocks are kept in document order.
+  is_cell <- summary_df$content_type == "table cell"
+  table_id <- if ("table_index" %in% names(summary_df)) {
+    summary_df$table_index
+  } else {
+    summary_df$doc_index
+  }
+  block <- ifelse(is_cell, paste0("table-", table_id), paste0("doc-", summary_df$doc_index))
+  block_order <- tapply(summary_df$doc_index, block, min)
   parts <- character(0)
-  table_indices <- unique(summary_df$doc_index[summary_df$content_type == "table cell"])
 
-  for (idx in unique(summary_df$doc_index)) {
-    rows <- summary_df[summary_df$doc_index == idx, , drop = FALSE]
+  for (id in names(sort(block_order))) {
+    rows <- summary_df[block == id, , drop = FALSE]
 
-    if (rows$content_type[1] == "paragraph") {
+    if (startsWith(id, "table-")) {
+      if (all(c("row_id", "cell_id") %in% names(rows))) {
+        rows <- rows[order(rows$row_id, rows$cell_id), , drop = FALSE]
+        parts <- c(parts, "", format_plain_table(reshape_table_cells(rows)), "")
+      }
+    } else if (rows$content_type[1] == "paragraph") {
       text <- rows$text[!is.na(rows$text) & nzchar(rows$text)]
       if (length(text) > 0) {
         parts <- c(parts, text)
-      }
-    } else if (idx %in% table_indices) {
-      table_cells <- rows[rows$content_type == "table cell", , drop = FALSE]
-      if (nrow(table_cells) > 0 && all(c("row_id", "cell_id") %in% names(table_cells))) {
-        wide <- reshape_table_cells(table_cells)
-        parts <- c(parts, "", format_plain_table(wide), "")
       }
     }
   }
@@ -104,7 +113,8 @@ read_content_pptx <- function(path) {
   doc <- officer::read_pptx(path)
   summary_df <- officer::pptx_summary(doc)
 
-  if (nrow(summary_df) == 0) {
+  # pptx_summary() returns NULL for a deck with no slide text.
+  if (is.null(summary_df) || nrow(summary_df) == 0) {
     return("")
   }
 
@@ -254,6 +264,9 @@ reshape_table_cells <- function(cells) {
   as.data.frame(mat, stringsAsFactors = FALSE)
 }
 
+# Plain-text table with every row and column. Tibbles are converted first
+# because their print method truncates rows and adds type annotations.
 format_plain_table <- function(df) {
-  utils::capture.output(print(df, row.names = FALSE))
+  df <- as.data.frame(df, stringsAsFactors = FALSE)
+  utils::capture.output(print(df, row.names = FALSE, max = .Machine$integer.max))
 }

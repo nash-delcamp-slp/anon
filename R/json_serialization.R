@@ -54,10 +54,6 @@ as_anon_payload.anon_context <- function(x, path = "$") {
   underlying <- x
   class(underlying) <- setdiff(class(x), "anon_context")
 
-  if (length(class(underlying)) == 0L) {
-    attr(underlying, "class") <- NULL
-  }
-
   serialize_supported_value(underlying, path = path)
 }
 
