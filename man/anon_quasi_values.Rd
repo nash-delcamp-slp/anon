@@ -38,8 +38,10 @@ An object of class \code{"anon_quasi_values"}.
 \description{
 Describes how to take one value per subject from a long dataset, such as a
 findings domain, for use in \code{\link[=anon_risk]{anon_risk()}}. For each test code in \code{tests},
-the first non-missing \code{result_col} value per subject (in row order, after
-\code{filter}) becomes a quasi-identifier.
+the first non-missing, non-blank \code{result_col} value per subject (in row
+order, after \code{filter}) becomes a quasi-identifier. Only that value is
+measured; other rows for the same test identify the subject just as well, so
+they need the same treatment before data is shared.
 }
 \examples{
 anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN",

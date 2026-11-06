@@ -28,10 +28,18 @@
 #'
 #' @details
 #' Subjects are all non-missing key values found in the datasets used by
-#' `quasi`; rows with a missing key are dropped with a warning. A subject with no
-#' value for a quasi-identifier (for example, missing from `vs`) gets `NA` for
-#' it, and `NA` is treated as a value of its own when forming groups. Values are
-#' grouped by exact equality.
+#' `quasi`; rows with a missing or blank key are dropped with a warning, and a
+#' warning is given if keys differ only by leading or trailing spaces. A subject
+#' with no value for a quasi-identifier (for example, missing from `vs`) gets
+#' `NA` for it, and `NA` is treated as a value of its own when forming groups.
+#' Blank strings, which is how SAS transport (XPT) files store missing text, are
+#' treated as missing. Values are otherwise grouped by exact equality.
+#'
+#' Risk is measured on one value per subject for each quasi-identifier. A copy
+#' shared with others usually contains every row of a dataset (for example
+#' weight at every visit), and any row can identify a subject as well as the
+#' measured one. The measurement only describes a shared copy if every row of
+#' each quasi-identifier is generalized or removed in the same way.
 #'
 #' Risk is measured against the subjects in `data` only. Health Canada and EMA
 #' allow or encourage measuring risk against a larger reference population,
@@ -79,6 +87,9 @@
 #'     comes first: by `n_below_k_without`, then `n_unique_without`, then
 #'     `avg_risk_without` (all ascending), then the order of `quasi`.
 #'   - `quasi`, `key`: the quasi-identifier names and key used.
+#'   - `sources`: one row per quasi-identifier giving where it comes from:
+#'     `variable`, `dataset`, and either `column` or `test_col`, `test`,
+#'     `result_col` and `filter`.
 #'
 #'   The object holds counts only, no subject-level rows or key values. Use
 #'   [anon_risk_subjects()] for per-subject results.
@@ -124,6 +135,7 @@ anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09) {
       summary = risk_summary(group_k, max_risk, k_target, length(quasi_names)),
       drivers = risk_drivers(table[quasi_names], k_target),
       quasi = quasi_names,
+      sources = attr(table, "sources"),
       key = key
     ),
     class = "anon_risk"
@@ -162,8 +174,10 @@ anon_risk_subjects <- function(data, quasi, key = "USUBJID") {
 #'
 #' Describes how to take one value per subject from a long dataset, such as a
 #' findings domain, for use in [anon_risk()]. For each test code in `tests`,
-#' the first non-missing `result_col` value per subject (in row order, after
-#' `filter`) becomes a quasi-identifier.
+#' the first non-missing, non-blank `result_col` value per subject (in row
+#' order, after `filter`) becomes a quasi-identifier. Only that value is
+#' measured; other rows for the same test identify the subject just as well, so
+#' they need the same treatment before data is shared.
 #'
 #' @param dataset Name of the dataset in the list passed to [anon_risk()].
 #' @param test_col Name of the column holding test codes (e.g. `"VSTESTCD"`).
@@ -267,14 +281,15 @@ as_anon_payload.anon_risk <- function(x, path = "$") {
 
 # helpers -----------------------------------------------------------------
 
-# Smallest group size k with 1 / k <= max_risk. The tolerance keeps exact
-# reciprocals such as 0.1 (k = 10) from rounding up.
+# Smallest group size k with 1 / k <= max_risk. A tolerance of a few units in
+# the last place keeps exact reciprocals such as 0.1 (k = 10) from rounding up
+# without letting a slightly smaller max_risk round down.
 risk_k_target <- function(max_risk) {
   if (!is.numeric(max_risk) || length(max_risk) != 1 || !is.finite(max_risk) ||
     max_risk <= 0 || max_risk > 1) {
     stop("`max_risk` must be a single number greater than 0 and at most 1.", call. = FALSE)
   }
-  ceiling(1 / max_risk - sqrt(.Machine$double.eps))
+  ceiling(1 / max_risk * (1 - 8 * .Machine$double.eps))
 }
 
 # One row per subject: the key (character) and one column per quasi-identifier.
@@ -350,16 +365,23 @@ build_quasi_table <- function(data, specs, key) {
   }
   check_key_types(data[datasets], key)
 
-  n_missing_keys <- sum(vapply(datasets, function(ds) sum(is.na(data[[ds]][[key]])), numeric(1)))
+  all_keys <- unlist(lapply(datasets, function(ds) normalize_keys(data[[ds]][[key]])), use.names = FALSE)
+  n_missing_keys <- sum(is.na(all_keys))
   if (n_missing_keys > 0) {
-    warning(n_missing_keys, " row(s) with a missing `", key, "` were dropped.", call. = FALSE)
+    warning(n_missing_keys, " row(s) with a missing or blank `", key, "` were dropped.", call. = FALSE)
+  }
+  keys <- unique(all_keys[!is.na(all_keys)])
+  n_space_clashes <- length(keys) - length(unique(trimws(keys)))
+  if (n_space_clashes > 0) {
+    warning(
+      n_space_clashes, " `", key, "` value(s) differ from another only by leading or trailing spaces; ",
+      "they are treated as different subjects.",
+      call. = FALSE
+    )
   }
 
-  keys <- unique(unlist(lapply(datasets, function(ds) key_as_character(data[[ds]][[key]])), use.names = FALSE))
-  keys <- keys[!is.na(keys)]
-
   columns <- list()
-  sources <- character(0)
+  sources <- list()
   for (spec in specs) {
     df <- data[[spec$dataset]]
     values <- if (inherits(spec, "anon_quasi_values")) {
@@ -368,12 +390,23 @@ build_quasi_table <- function(data, specs, key) {
       quasi_columns_by_subject(df, spec, key, keys)
     }
     columns <- c(columns, values)
-    sources <- c(sources, rep(spec$dataset, length(values)))
+    sources <- c(sources, list(quasi_sources(spec, names(values))))
+  }
+  sources <- do.call(rbind, sources)
+
+  source_id <- paste(sources$dataset, sources$variable, sep = "\u001f")
+  if (anyDuplicated(source_id)) {
+    dup <- which(duplicated(source_id))[1]
+    stop(
+      "`", sources$variable[dup], "` from `", dataset_label(sources$dataset[dup]),
+      "` appears more than once in `quasi`.",
+      call. = FALSE
+    )
   }
 
   col_names <- names(columns)
   repeated <- col_names %in% col_names[duplicated(col_names)]
-  col_names[repeated] <- paste0(sources[repeated], ".", col_names[repeated])
+  col_names[repeated] <- paste0(sources$dataset[repeated], ".", col_names[repeated])
   if (anyDuplicated(col_names)) {
     stop("Quasi-identifier names must be unique; `", col_names[duplicated(col_names)][1], "` repeats.", call. = FALSE)
   }
@@ -381,8 +414,48 @@ build_quasi_table <- function(data, specs, key) {
     stop("A quasi-identifier must not be named like the key `", key, "`.", call. = FALSE)
   }
   names(columns) <- col_names
+  sources$variable <- col_names
 
-  tibble::as_tibble(c(stats::setNames(list(keys), key), columns))
+  table <- tibble::as_tibble(c(stats::setNames(list(keys), key), columns))
+  attr(table, "sources") <- sources
+  table
+}
+
+# Where each quasi-identifier comes from, one row per variable.
+quasi_sources <- function(spec, variables) {
+  values_spec <- inherits(spec, "anon_quasi_values")
+  n <- length(variables)
+  tibble::tibble(
+    variable = variables,
+    dataset = spec$dataset,
+    column = if (values_spec) NA_character_ else spec$columns,
+    test_col = if (values_spec) spec$test_col else NA_character_,
+    test = if (values_spec) spec$tests else NA_character_,
+    result_col = if (values_spec) spec$result_col else NA_character_,
+    filter = if (values_spec && !is.null(spec$filter)) {
+      rep(rlang::expr_text(rlang::f_rhs(spec$filter)), n)
+    } else {
+      NA_character_
+    }
+  )
+}
+
+# Keys as character, with blank strings (as read from SAS transport files)
+# treated as missing.
+normalize_keys <- function(x) {
+  blank_to_na(key_as_character(x))
+}
+
+# Blank or whitespace-only strings become NA; other values are unchanged.
+# Factors are returned as character.
+blank_to_na <- function(x) {
+  if (is.factor(x)) {
+    x <- as.character(x)
+  }
+  if (is.character(x)) {
+    x[!is.na(x) & trimws(x) == ""] <- NA_character_
+  }
+  x
 }
 
 # Keys are matched as text, so the key column must have the same kind of type
@@ -420,8 +493,10 @@ quasi_columns_by_subject <- function(df, spec, key, keys) {
     stop("Column `", missing[1], "` not found in `", dataset_label(spec$dataset), "`.", call. = FALSE)
   }
 
-  df <- df[!is.na(df[[key]]), c(key, spec$columns), drop = FALSE]
-  df[[key]] <- key_as_character(df[[key]])
+  df <- df[c(key, spec$columns)]
+  df[] <- lapply(df, blank_to_na)
+  df[[key]] <- normalize_keys(df[[key]])
+  df <- df[!is.na(df[[key]]), , drop = FALSE]
   distinct <- vctrs::vec_unique(df)
   if (anyDuplicated(distinct[[key]])) {
     stop(
@@ -441,7 +516,9 @@ quasi_values_by_subject <- function(df, spec, key, keys) {
     stop("Column `", missing[1], "` not found in `", dataset_label(spec$dataset), "`.", call. = FALSE)
   }
 
-  keep <- !is.na(df[[key]]) & !is.na(df[[spec$test_col]]) &
+  df[[spec$result_col]] <- blank_to_na(df[[spec$result_col]])
+  df_all_keys <- normalize_keys(df[[key]])
+  keep <- !is.na(df_all_keys) & !is.na(df[[spec$test_col]]) &
     df[[spec$test_col]] %in% spec$tests & !is.na(df[[spec$result_col]])
   if (!is.null(spec$filter)) {
     selected <- rlang::eval_tidy(rlang::as_quosure(spec$filter), data = df)
@@ -451,7 +528,7 @@ quasi_values_by_subject <- function(df, spec, key, keys) {
     keep <- keep & !is.na(selected) & selected
   }
   df <- df[keep, , drop = FALSE]
-  df_keys <- key_as_character(df[[key]])
+  df_keys <- df_all_keys[keep]
 
   values <- lapply(spec$tests, function(test) {
     in_test <- df[[spec$test_col]] == test

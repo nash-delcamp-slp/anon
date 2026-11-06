@@ -47,6 +47,9 @@ left out). Rows are ordered so the variable whose removal helps most
 comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
 \item \code{quasi}, \code{key}: the quasi-identifier names and key used.
+\item \code{sources}: one row per quasi-identifier giving where it comes from:
+\code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test},
+\code{result_col} and \code{filter}.
 }
 
 The object holds counts only, no subject-level rows or key values. Use
@@ -62,10 +65,18 @@ several datasets linked by \code{key}.
 }
 \details{
 Subjects are all non-missing key values found in the datasets used by
-\code{quasi}; rows with a missing key are dropped with a warning. A subject with no
-value for a quasi-identifier (for example, missing from \code{vs}) gets \code{NA} for
-it, and \code{NA} is treated as a value of its own when forming groups. Values are
-grouped by exact equality.
+\code{quasi}; rows with a missing or blank key are dropped with a warning, and a
+warning is given if keys differ only by leading or trailing spaces. A subject
+with no value for a quasi-identifier (for example, missing from \code{vs}) gets
+\code{NA} for it, and \code{NA} is treated as a value of its own when forming groups.
+Blank strings, which is how SAS transport (XPT) files store missing text, are
+treated as missing. Values are otherwise grouped by exact equality.
+
+Risk is measured on one value per subject for each quasi-identifier. A copy
+shared with others usually contains every row of a dataset (for example
+weight at every visit), and any row can identify a subject as well as the
+measured one. The measurement only describes a shared copy if every row of
+each quasi-identifier is generalized or removed in the same way.
 
 Risk is measured against the subjects in \code{data} only. Health Canada and EMA
 allow or encourage measuring risk against a larger reference population,

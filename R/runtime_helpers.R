@@ -191,6 +191,7 @@ anon_prompt_bundle <- function(
       auto_unbox = TRUE,
       null = "null",
       na = "null",
+      digits = NA,
       force = TRUE
     )
   } else {

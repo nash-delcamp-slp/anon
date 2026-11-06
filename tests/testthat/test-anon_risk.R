@@ -252,7 +252,7 @@ test_that("anon_risk() groups by exact values without separator collisions", {
 
 test_that("anon_risk() warns about missing keys and rejects empty data and name clashes", {
   dm <- data.frame(USUBJID = c("a", NA, "b", NA), AGE = c(60, 61, 62, 63))
-  expect_warning(risk <- anon_risk(dm, quasi = "AGE", max_risk = 1), "2 row\\(s\\) with a missing `USUBJID` were dropped")
+  expect_warning(risk <- anon_risk(dm, quasi = "AGE", max_risk = 1), "2 row\\(s\\) with a missing or blank `USUBJID` were dropped")
   expect_equal(risk$summary$n_subjects, 2)
 
   expect_error(anon_risk(dm[0, ], quasi = "AGE"), "No subjects found")
@@ -314,4 +314,76 @@ test_that("anon_quasi_values() prints what it selects", {
   output <- paste(capture.output(print(spec)), collapse = "\n")
   expect_match(output, "HEIGHT = first non-missing VSSTRESN where VSTESTCD == \"HEIGHT\"", fixed = TRUE)
   expect_match(output, "Filter: VSBLFL == \"Y\"", fixed = TRUE)
+})
+
+test_that("anon_risk() treats blank strings as missing for keys and values", {
+  dm <- data.frame(USUBJID = c("a", "b", "c", "d"), SEX = "F")
+  vs <- data.frame(USUBJID = c("a", "a", "b", "c"), VSTESTCD = "HEIGHT",
+                   VSSTRESC = c("", "170", "170", " "))
+  quasi <- list(dm = "SEX", anon_quasi_values("vs", "VSTESTCD", "HEIGHT", "VSSTRESC"))
+
+  # a takes its real "170"; c (blank) and d (absent) are both missing
+  expect_equal(anon_risk_subjects(list(dm = dm, vs = vs), quasi)$k, c(2, 2, 2, 2))
+  risk <- anon_risk(list(dm = dm, vs = vs), quasi, max_risk = 1)
+  expect_equal(risk$drivers$n_missing[risk$drivers$variable == "HEIGHT"], 2)
+
+  expect_warning(
+    risk <- anon_risk(data.frame(USUBJID = c("a", "b", ""), SEX = "F"), "SEX", max_risk = 1),
+    "1 row\\(s\\) with a missing or blank `USUBJID` were dropped"
+  )
+  expect_equal(risk$summary$n_subjects, 2)
+})
+
+test_that("anon_risk() warns when keys differ only by surrounding spaces", {
+  dm <- data.frame(USUBJID = c("A1", "A2 "), SEX = "F")
+  vs <- data.frame(USUBJID = c("A1", "A2"), VSTESTCD = "W", VSSTRESN = 1)
+  expect_warning(
+    anon_risk(list(dm = dm, vs = vs), list(dm = "SEX", anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN")), max_risk = 1),
+    "differ from another only by leading or trailing spaces"
+  )
+})
+
+test_that("anon_risk() records where each quasi-identifier comes from", {
+  dm <- risk_dm()
+  vs <- data.frame(USUBJID = dm$USUBJID, VSTESTCD = "WEIGHT", VSSTRESN = 70, VSBLFL = "Y")
+  risk <- anon_risk(
+    list(dm = dm, vs = vs),
+    quasi = list(dm = c("AGE", "SEX"),
+                 anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN", filter = ~ VSBLFL == "Y", names = "BL_WEIGHT")),
+    max_risk = 1
+  )
+  src <- risk$sources
+  expect_equal(src$variable, c("AGE", "SEX", "BL_WEIGHT"))
+  expect_equal(src$dataset, c("dm", "dm", "vs"))
+  expect_equal(src$column, c("AGE", "SEX", NA))
+  expect_equal(src$test, c(NA, NA, "WEIGHT"))
+  expect_equal(src$result_col, c(NA, NA, "VSSTRESN"))
+  expect_equal(src$filter, c(NA, NA, 'VSBLFL == "Y"'))
+
+  a <- data.frame(USUBJID = c("x", "y"), SITE = c("1", "2"))
+  b <- data.frame(USUBJID = c("x", "y"), SITE = c("A", "A"))
+  risk <- anon_risk(list(a = a, b = b), quasi = list(a = "SITE", b = "SITE"), max_risk = 1)
+  expect_equal(risk$sources$variable, c("a.SITE", "b.SITE"))
+  expect_equal(risk$sources$column, c("SITE", "SITE"))
+})
+
+test_that("anon_risk() names the repeated quasi-identifier the user wrote", {
+  expect_error(
+    anon_risk(list(dm = risk_dm()), quasi = list(dm = "AGE", dm = "AGE")),
+    "`AGE` from `dm` appears more than once in `quasi`"
+  )
+})
+
+test_that("anon_risk() target never allows a risk above max_risk", {
+  expect_equal(risk_k_target(1/11 - 1e-10), 12)
+  expect_equal(risk_k_target(1/11), 11)
+  expect_equal(risk_k_target(1/49), 49)
+  expect_equal(risk_k_target(0.1), 10)
+})
+
+test_that("JSON output keeps 15 significant digits", {
+  expect_match(as_anon_json(data.frame(x = 0.101566224882241)), "0.101566224882241", fixed = TRUE)
+  report <- anon_report(list(df = data.frame(x = 0.101566224882241)), example_rows = 1)
+  bundle <- anon_prompt_bundle(report = report, format = "json")
+  expect_match(bundle, "0.101566224882241", fixed = TRUE)
 })
