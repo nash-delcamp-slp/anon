@@ -363,3 +363,55 @@ test_that("NLP person redaction also catches a surname on its own", {
   result <- anon_nlp_people(c("John Smith works at Microsoft.", "Smith reported it."))
   expect_false(any(grepl("Smith", result)))
 })
+
+test_that("nlp_auto() and get_enabled_nlp_entities() validate their input", {
+  expect_error(nlp_auto(person = "yes"), "should be logical")
+  expect_warning(
+    result <- anon:::get_enabled_nlp_entities("person"),
+    "should be a list or a logical"
+  )
+  expect_equal(result, character(0))
+  expect_equal(anon:::get_enabled_nlp_entities(NULL), character(0))
+  expect_true("PERSON" %in% anon:::get_enabled_nlp_entities(TRUE))
+})
+
+test_that("extract_nlp_patterns() returns nothing without text", {
+  expect_equal(anon:::extract_nlp_patterns(data.frame(x = 1:3), "DATE"), list())
+  expect_equal(anon:::extract_nlp_patterns("text", character(0)), list())
+})
+
+test_that("nlp_get_entities() reports spaCy failures", {
+  local_mocked_bindings(spacy_extract = function(text) stop("model missing"))
+  expect_error(
+    nlp_get_entities("John Smith visited Boston."),
+    "cleanNLP initialization or processing failed: model missing"
+  )
+})
+
+test_that("nlp_get_entities() returns empty results for text without candidates", {
+  expect_equal(nlp_get_entities(c("", "--")), character(0))
+  expect_equal(
+    nlp_get_entities("ae6c6d98ae40", entity_types = c("DATE", "PERSON"), return_list = TRUE),
+    list(DATE = character(0), PERSON = character(0))
+  )
+})
+
+test_that("nlp_get_* wrappers return entities of their types", {
+  require_spacy()
+  text <- c(
+    "John Smith works at Microsoft in Seattle.",
+    "The deal was worth $1.2 million on March 3, 2023 at 5 pm."
+  )
+
+  expect_true("John Smith" %in% nlp_get_people(text))
+  expect_true("Microsoft" %in% nlp_get_organizations(text))
+  expect_true("Seattle" %in% nlp_get_places(text))
+  expect_true(any(grepl("2023", nlp_get_dates(text))))
+  expect_true(any(grepl("2023", nlp_get_dates_and_times(text))))
+  expect_true(any(grepl("1.2 million", nlp_get_numbers(text), fixed = TRUE)))
+  expect_true("Seattle" %in% nlp_get_named(text))
+  expect_true("Smith" %in% nlp_get_proper_nouns(text))
+
+  expect_false(any(grepl("2023", anon_nlp_dates_and_times(text))))
+  expect_false(any(grepl("Seattle", anon_nlp_named(text))))
+})

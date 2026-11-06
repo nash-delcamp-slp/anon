@@ -420,3 +420,119 @@ test_that("anon_data_summary() supports non-first row selection methods", {
 
   expect_equal(random_a$examples$rows$study, random_b$examples$rows$study)
 })
+
+test_that("anon_data_summary() combines pattern_list with the anon.pattern_list option", {
+  old <- options(anon.pattern_list = list("[SITE]" = "Boston"))
+  on.exit(options(old), add = TRUE)
+  summary <- anon_data_summary(
+    list(sites = data.frame(city = "Boston", owner = "Alice")),
+    pattern_list = list("[PERSON]" = "Alice"),
+    example_values_n = 1
+  )
+  values <- unlist(summary$data_frames$variables$sites$example_values)
+  expect_setequal(values, c("[SITE]", "[PERSON]"))
+})
+
+test_that("normalize_example_values_n() rejects invalid values", {
+  expect_error(normalize_example_values_n(c(1, 2)), "single non-negative number")
+  expect_error(normalize_example_values_n("a"), "single non-negative number")
+  expect_error(normalize_example_values_n(-1), "single non-negative number")
+  expect_identical(normalize_example_values_n(2), 2L)
+})
+
+test_that("normalize_example_rows_spec() validates each field", {
+  expect_null(normalize_example_rows_spec(NULL))
+  expect_null(normalize_example_rows_spec(FALSE))
+  expect_null(normalize_example_rows_spec(0))
+  expect_equal(normalize_example_rows_spec(3)$n, 3L)
+
+  expect_error(normalize_example_rows_spec("a"), "NULL, a single number, or a list")
+  expect_error(normalize_example_rows_spec(list(n = "a")), "example_rows\\$n")
+  expect_error(normalize_example_rows_spec(list(n = -1)), "example_rows\\$n")
+  expect_error(normalize_example_rows_spec(list(n = 1, key = "")), "example_rows\\$key")
+  expect_error(normalize_example_rows_spec(list(n = 1, method = NA_character_)), "example_rows\\$method")
+  expect_error(normalize_example_rows_spec(list(n = 1, value = "01")), "requires `example_rows\\$key`")
+  expect_error(
+    normalize_example_rows_spec(list(n = 1, key = "ID", value = c("01", "02"))),
+    "single value"
+  )
+  expect_error(
+    normalize_example_rows_spec(list(n = 1, key = "ID", n_key_values = "a")),
+    "n_key_values"
+  )
+  expect_error(
+    normalize_example_rows_spec(list(n = 1, key = "ID", n_key_values = 0)),
+    "n_key_values"
+  )
+  expect_error(normalize_example_rows_spec(list(n = 1, seed = "a")), "example_rows\\$seed")
+
+  spec <- normalize_example_rows_spec(list(n = 2, key = "ID", value = "01", n_key_values = 5, seed = 3.7))
+  expect_equal(spec$n_key_values, 1L)
+  expect_identical(spec$seed, 3L)
+})
+
+test_that("get_example_values() returns nothing for unsupported or all-missing input", {
+  expect_equal(get_example_values(c("a", "b"), n = 0), character(0))
+  expect_equal(get_example_values(1:3, n = 2), character(0))
+  expect_equal(get_example_values(c(NA_character_, NA_character_), n = 2), character(0))
+  expect_equal(get_example_values(c("a", "a", "b", "c"), n = 2), c("a", "b"))
+})
+
+test_that("example payload helpers return NULL when there is nothing to show", {
+  rows <- anon_example_rows(n = 2, method = "first")
+  keyed <- anon_example_rows(n = 2, key = "ID", method = "first")
+
+  expect_null(build_example_payload(list(x = 1:3), rows))
+  expect_null(build_example_payload(list(df = data.frame(a = integer(0))), rows))
+  expect_null(build_example_payload(list(df = data.frame(a = 1)), keyed))
+  expect_null(build_example_payload(list(df = data.frame(ID = NA_character_)), keyed))
+
+  expect_null(build_single_scenario(list(df = data.frame(ID = "01")), "ID", "99", n = 1))
+  expect_null(build_example_payload(
+    list(df = data.frame(ID = "01")),
+    anon_example_rows(n = 1, key = "ID", value = "99")
+  ))
+  expect_equal(nrow(select_matching_rows(data.frame(ID = "01"), "ID", "99", n = 1)), 0)
+  expect_equal(nrow(select_example_rows(data.frame(a = 1:3), n = 0)), 0)
+  expect_equal(select_example_indices(5, n = 2, method = "last"), 4:5)
+})
+
+test_that("sample_int_with_seed() restores the global RNG state", {
+  set.seed(1)
+  before <- .Random.seed
+  first <- sample_int_with_seed(10, 3, seed = 42)
+  expect_identical(.Random.seed, before)
+  expect_equal(sample_int_with_seed(10, 3, seed = 42), first)
+
+  saved <- .Random.seed
+  on.exit(assign(".Random.seed", saved, envir = .GlobalEnv), add = TRUE)
+  rm(".Random.seed", envir = .GlobalEnv)
+  sample_int_with_seed(10, 3, seed = 42)
+  expect_false(exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE))
+})
+
+test_that("get_example_scenarios() handles NULL, single and multiple scenarios", {
+  expect_equal(get_example_scenarios(NULL), list())
+  expect_equal(get_example_scenarios(list()), list())
+  expect_equal(get_example_scenarios(list(scenario = "s")), list("s"))
+  expect_equal(get_example_scenarios(list(scenarios = list("a", "b"))), list("a", "b"))
+})
+
+test_that("print.anon_data_summary() shows example rows and multiple scenarios", {
+  dm <- data.frame(USUBJID = c("01", "02", "03"), AGE = c(30, 40, 50))
+
+  summary <- anon_data_summary(
+    list(dm = dm),
+    example_rows = anon_example_rows(n = 2, method = "first")
+  )
+  output <- paste(capture.output(print(summary)), collapse = "\n")
+  expect_match(output, "Example Rows (dm):", fixed = TRUE)
+
+  summary <- anon_data_summary(
+    list(dm = dm),
+    example_rows = anon_example_rows(n = 1, key = "USUBJID", method = "first", n_key_values = 2)
+  )
+  output <- paste(capture.output(print(summary)), collapse = "\n")
+  expect_match(output, "Example Scenario 1 (USUBJID = 01):", fixed = TRUE)
+  expect_match(output, "Example Scenario 2 (USUBJID = 02):", fixed = TRUE)
+})

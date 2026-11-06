@@ -193,3 +193,69 @@ test_that("anon_prompt_bundle() includes example sections from report summaries"
   expect_match(bundle, "Example Rows \\(study\\)")
   expect_match(bundle, "example_values", fixed = TRUE)
 })
+
+test_that("normalize_object_source() rejects bad input and unknown selections", {
+  expect_error(normalize_object_source(1), "must be an environment or a list")
+  expect_error(
+    normalize_object_source(list(a = 1), selection = c("a", "zz")),
+    "Unknown objects in `selection`: zz"
+  )
+})
+
+test_that("anon_inventory() classifies object kinds, text and labels", {
+  labelled <- c("a", "b")
+  attr(labelled, "label") <- "Letters"
+  labelled_df <- data.frame(x = 1:2)
+  attr(labelled_df$x, "label") <- "Count"
+
+  objects <- list(
+    fn = function(x) x,
+    lst = list(note = "text", n = 1),
+    nums = list(1, 2),
+    vec = c("a", "b"),
+    labelled = labelled,
+    df = labelled_df,
+    nested = list(inner = labelled_df),
+    env = new.env()
+  )
+  inventory <- anon_inventory(objects)
+  row <- function(name) inventory[inventory$name == name, ]
+
+  expect_equal(row("fn")$kind, "function")
+  expect_equal(row("lst")$kind, "list")
+  expect_equal(row("vec")$kind, "vector")
+  expect_equal(row("env")$kind, "environment")
+  expect_true(row("lst")$has_text)
+  expect_false(row("nums")$has_text)
+  expect_true(row("labelled")$has_labels)
+  expect_true(row("df")$has_labels)
+  expect_true(row("nested")$has_labels)
+  expect_false(row("nums")$has_labels)
+})
+
+test_that("format_list_cell() formats empty, data frame, list and scalar cells", {
+  expect_equal(format_list_cell(NULL), "")
+  expect_equal(format_list_cell(character(0)), "")
+  expect_match(format_list_cell(data.frame(a = 1)), "a \\|\\s+1")
+  expect_equal(format_list_cell(list("a", NA)), "a | NA")
+  expect_equal(format_list_cell(c("x", "y")), "x | y")
+  expect_equal(format_example_scalar(NULL), "")
+})
+
+test_that("format_anon_data_summary_text() includes scenarios and other objects", {
+  dm <- data.frame(USUBJID = c("01", "02"), AGE = c(30, 40))
+  summary <- anon_data_summary(
+    list(dm = dm, notes = "free text"),
+    example_rows = anon_example_rows(n = 1, key = "USUBJID", method = "first")
+  )
+  text <- format_anon_data_summary_text(summary)
+  expect_match(text, "Example Scenario (USUBJID = 01)", fixed = TRUE)
+  expect_match(text, "Other Objects", fixed = TRUE)
+
+  summary <- anon_data_summary(
+    list(dm = dm),
+    example_rows = anon_example_rows(n = 1, key = "USUBJID", method = "first", n_key_values = 2)
+  )
+  text <- format_anon_data_summary_text(summary)
+  expect_match(text, "Example Scenario 2 (USUBJID = 02)", fixed = TRUE)
+})

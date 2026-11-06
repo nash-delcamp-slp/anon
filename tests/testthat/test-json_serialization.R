@@ -209,3 +209,58 @@ test_that("unsupported_json_class_error includes path and class in message", {
     "Unsupported class.*\\$\\.items\\[1\\].*foo/bar"
   )
 })
+
+test_that("as_anon_payload() handles an anon_context with no other class", {
+  x <- structure(list(a = 1), class = "anon_context")
+  expect_equal(as_anon_payload(x), list(a = 1))
+})
+
+test_that("as_anon_payload() serializes inventories, summaries and prompt bundles", {
+  objects <- list(dm = data.frame(USUBJID = c("01", "02"), AGE = c(30, 40)))
+
+  inventory <- as_anon_payload(anon_inventory(objects))
+  expect_equal(inventory$kind, "anon_inventory")
+  expect_true("name" %in% inventory$columns)
+
+  summary <- anon_data_summary(
+    objects,
+    example_rows = anon_example_rows(n = 1, key = "USUBJID", method = "first", n_key_values = 2)
+  )
+  payload <- as_anon_payload(summary)
+  expect_equal(payload$kind, "anon_data_summary")
+  expect_length(payload$examples$scenarios, 2)
+  expect_equal(payload$examples$scenarios[[2]]$value, "02")
+
+  bundle <- anon_prompt_bundle(text = "hello", format = "text")
+  expect_equal(as_anon_payload(bundle)$kind, "anon_prompt_bundle")
+  attr(bundle, "payload") <- NULL
+  plain <- as_anon_payload(bundle)
+  expect_equal(plain$output_format, "text")
+  expect_equal(plain$content, as.character(unclass(bundle)))
+})
+
+test_that("serialize_supported_value() dispatches anon classes nested in lists", {
+  objects <- list(dm = data.frame(USUBJID = "01"))
+  report <- anon_report(objects)
+  nested <- list(
+    report = report,
+    summary = report$data_summary,
+    inventory = report$inventory,
+    comparison = anon_compare_text("a", "b"),
+    bundle = anon_prompt_bundle(text = "x", format = "text"),
+    collection = c(anon("a"), anon("b"))
+  )
+
+  payload <- serialize_supported_value(nested)
+  kinds <- vapply(payload, function(p) p$kind, character(1))
+  expect_equal(
+    unname(kinds),
+    c("anon_report", "anon_data_summary", "anon_inventory", "anon_text_compare",
+      "anon_prompt_bundle", "anon_context_collection")
+  )
+})
+
+test_that("serialize_supported_value() errors on functions and environments", {
+  expect_error(serialize_supported_value(function() 1), "Unsupported class")
+  expect_error(serialize_supported_value(new.env()), "Unsupported class")
+})
