@@ -358,7 +358,8 @@ test_that("anon_risk() records where each quasi-identifier comes from", {
   expect_equal(src$column, c("AGE", "SEX", NA))
   expect_equal(src$test, c(NA, NA, "WEIGHT"))
   expect_equal(src$result_col, c(NA, NA, "VSSTRESN"))
-  expect_equal(src$filter, c(NA, NA, 'VSBLFL == "Y"'))
+  expect_equal(src$filtered, c(FALSE, FALSE, TRUE))
+  expect_false("filter" %in% names(src))
 
   a <- data.frame(USUBJID = c("x", "y"), SITE = c("1", "2"))
   b <- data.frame(USUBJID = c("x", "y"), SITE = c("A", "A"))
@@ -386,4 +387,32 @@ test_that("JSON output keeps 15 significant digits", {
   report <- anon_report(list(df = data.frame(x = 0.101566224882241)), example_rows = 1)
   bundle <- anon_prompt_bundle(report = report, format = "json")
   expect_match(bundle, "0.101566224882241", fixed = TRUE)
+})
+
+test_that("anon_risk() never stores filter text, which may contain identifiers", {
+  vs <- data.frame(USUBJID = c("S01", "S02"), VSTESTCD = "W", VSSTRESN = 1)
+  risk <- anon_risk(
+    list(vs = vs),
+    list(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN", filter = ~ USUBJID != "S01")),
+    max_risk = 1
+  )
+  shown <- c(capture.output(print(risk)), capture.output(print(anon(risk))),
+             as_anon_json(risk), as_anon_json(anon(risk)))
+  expect_false(any(grepl("S01", shown, fixed = TRUE)))
+})
+
+test_that("large whole-number keys stay distinct", {
+  dm <- data.frame(ID = c(1000000000000000, 1000000000000001), AGE = c(60, 61))
+  subjects <- anon_risk_subjects(dm, quasi = "AGE", key = "ID")
+  expect_equal(subjects$ID, c("1000000000000000", "1000000000000001"))
+  expect_equal(key_as_character(c(1, 2.5, 1e5, 0.1, NA)), c("1", "2.5", "100000", "0.1", NA))
+  x <- c(0.1 + 0.2, 0.3)
+  expect_equal(length(unique(key_as_character(x))), 2)
+  expect_equal(as.numeric(key_as_character(x)), x)
+})
+
+test_that("anon_risk() rejects key names used for results", {
+  df <- data.frame(risk = c("a", "b"), k = c("a", "b"), X = 1)
+  expect_error(anon_risk_subjects(df, "X", key = "risk"), "must not be named")
+  expect_error(anon_risk(df, "X", key = "k"), "must not be named")
 })

@@ -48,8 +48,9 @@ comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
 \item \code{quasi}, \code{key}: the quasi-identifier names and key used.
 \item \code{sources}: one row per quasi-identifier giving where it comes from:
-\code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test},
-\code{result_col} and \code{filter}.
+\code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test} and
+\code{result_col}, plus \code{filtered} (whether a \code{filter} was used). The filter
+itself is not stored, because it may contain identifying values.
 }
 
 The object holds counts only, no subject-level rows or key values. Use

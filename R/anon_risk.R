@@ -88,8 +88,9 @@
 #'     `avg_risk_without` (all ascending), then the order of `quasi`.
 #'   - `quasi`, `key`: the quasi-identifier names and key used.
 #'   - `sources`: one row per quasi-identifier giving where it comes from:
-#'     `variable`, `dataset`, and either `column` or `test_col`, `test`,
-#'     `result_col` and `filter`.
+#'     `variable`, `dataset`, and either `column` or `test_col`, `test` and
+#'     `result_col`, plus `filtered` (whether a `filter` was used). The filter
+#'     itself is not stored, because it may contain identifying values.
 #'
 #'   The object holds counts only, no subject-level rows or key values. Use
 #'   [anon_risk_subjects()] for per-subject results.
@@ -294,6 +295,12 @@ risk_k_target <- function(max_risk) {
 
 # One row per subject: the key (character) and one column per quasi-identifier.
 risk_quasi_table <- function(data, quasi, key) {
+  if (!is.character(key) || length(key) != 1 || is.na(key) || !nzchar(key)) {
+    stop("`key` must be a single column name.", call. = FALSE)
+  }
+  if (key %in% c("k", "risk")) {
+    stop("`key` must not be named \"k\" or \"risk\", which are used for results; rename the column first.", call. = FALSE)
+  }
   single <- is.data.frame(data)
   if (single) {
     data <- list(data = data)
@@ -432,11 +439,7 @@ quasi_sources <- function(spec, variables) {
     test_col = if (values_spec) spec$test_col else NA_character_,
     test = if (values_spec) spec$tests else NA_character_,
     result_col = if (values_spec) spec$result_col else NA_character_,
-    filter = if (values_spec && !is.null(spec$filter)) {
-      rep(rlang::expr_text(rlang::f_rhs(spec$filter)), n)
-    } else {
-      NA_character_
-    }
+    filtered = values_spec && !is.null(spec$filter)
   )
 }
 
@@ -475,11 +478,17 @@ check_key_types <- function(data, key) {
   }
 }
 
-# Numeric keys are written with up to 15 significant digits, value by value,
-# so 1 and 2.5 give "1" and "2.5" and large IDs keep every digit.
+# Numeric keys are written value by value so that distinct numbers stay
+# distinct: whole numbers in full ("1", "1000000000000001"); other numbers with
+# 15 significant digits when that converts back to the same number ("2.5",
+# "0.1"), otherwise 17, which identifies every double exactly.
 key_as_character <- function(x) {
   if (is.numeric(x)) {
     out <- sprintf("%.15g", x)
+    inexact <- !is.na(x) & suppressWarnings(as.numeric(out)) != x
+    out[inexact] <- sprintf("%.17g", x[inexact])
+    whole <- !is.na(x) & is.finite(x) & x == trunc(x)
+    out[whole] <- sprintf("%.0f", x[whole])
     out[is.na(x)] <- NA_character_
     out
   } else {
