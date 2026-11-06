@@ -1,7 +1,7 @@
-# Convert numeric values into range categories
+# Generalize numeric values into range categories
 
 Converts numeric values into range categories, either preserving actual
-ranges or creating anonymized range labels.
+ranges or creating generic range labels.
 
 ## Usage
 

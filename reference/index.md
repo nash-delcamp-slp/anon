@@ -1,28 +1,29 @@
 # Package index
 
-## Anonymize objects
+## Redact and replace
 
 Redact sensitive text in vectors, data frames, lists and labels using
 patterns, column rules and NLP, and set package-wide defaults.
 
 - [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
-  : Anonymize sensitive information in R objects
+  : Redact and replace sensitive information in R objects
 - [`more_patterns()`](https://nash-delcamp-slp.github.io/anon/reference/more_patterns.md)
   : Create expanded pattern vector for text matching
 - [`anon_options()`](https://nash-delcamp-slp.github.io/anon/reference/anon_options.md)
   : Get or set package options used by anon
 
-## Anonymize specific data types
+## Techniques for specific data types
 
-Replace or transform identifiers, dates, contact details and numbers
-while keeping their structure useful.
+Pseudonymize identifiers and contact details, shift dates, and
+generalize, shuffle or add noise to numbers while keeping their
+structure useful.
 
 ### Identifiers
 
 - [`anon_id_chr_sequence()`](https://nash-delcamp-slp.github.io/anon/reference/anon_id_chr_sequence.md)
-  : Convert unique identifiers to sequential character IDs
+  : Pseudonymize identifiers as sequential character IDs
 - [`anon_id_num_sequence()`](https://nash-delcamp-slp.github.io/anon/reference/anon_id_num_sequence.md)
-  : Convert unique identifiers to sequential numeric IDs
+  : Pseudonymize identifiers as sequential numeric IDs
 
 ### Dates
 
@@ -32,16 +33,16 @@ while keeping their structure useful.
 ### Contact details
 
 - [`anon_email()`](https://nash-delcamp-slp.github.io/anon/reference/anon_email.md)
-  : Anonymize email addresses
+  : Replace email addresses with pseudonymous addresses
 - [`anon_phone_number()`](https://nash-delcamp-slp.github.io/anon/reference/anon_phone_number.md)
-  : Anonymize phone numbers
+  : Replace phone numbers with pseudonymous numbers
 
 ### Numbers
 
 - [`anon_num_preserve_distribution()`](https://nash-delcamp-slp.github.io/anon/reference/anon_num_preserve_distribution.md)
-  : Anonymize numeric data while preserving distribution
+  : Shuffle, add noise to, or resample numeric values
 - [`anon_num_range()`](https://nash-delcamp-slp.github.io/anon/reference/anon_num_range.md)
-  : Convert numeric values into range categories
+  : Generalize numeric values into range categories
 
 ## Named entity recognition
 
@@ -59,7 +60,7 @@ redacts automatically.
   [`anon_nlp_organizations()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
   [`anon_nlp_people()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
   [`anon_nlp_places()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
-  : Anonymize Named Entities in Text Using NLP
+  : Redact Named Entities in Text Using NLP
 - [`nlp_get_entities()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_get_entities.md)
   [`nlp_get_dates()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_get_entities.md)
   [`nlp_get_dates_and_times()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_get_entities.md)
@@ -73,7 +74,7 @@ redacts automatically.
 - [`nlp_entity_sets`](https://nash-delcamp-slp.github.io/anon/reference/nlp_entity_sets.md)
   : Named Entity Type Collections
 - [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
-  : Generate NLP auto-anonymization options list
+  : Generate NLP auto-redaction options list
 - [`nlp_default_replacements()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_default_replacements.md)
   : Generate default replacement options list for NLP entities
 
@@ -83,10 +84,11 @@ Describe the objects in an environment or list without exposing
 sensitive values.
 
 - [`anon_inventory()`](https://nash-delcamp-slp.github.io/anon/reference/anon_inventory.md)
-  : Build an anonymized inventory of objects in an environment or list
+  : Build an inventory of objects, applying your redaction rules
 
 - [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
-  : Generate anonymized summary of data objects in an environment
+  : Summarize data objects in an environment, applying your redaction
+  rules
 
 - [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
   :
@@ -95,12 +97,12 @@ sensitive values.
   [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
 
 - [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md)
-  : Build an anonymized report for selected objects
+  : Build a report for selected objects, applying your redaction rules
 
 ## Prepare text and prompts
 
-Import documents, clean and compare text, and assemble anonymized
-context into a prompt bundle.
+Import documents, clean and compare text, and assemble redacted context
+into a prompt bundle.
 
 - [`read_content()`](https://nash-delcamp-slp.github.io/anon/reference/read_content.md)
   [`read_content_docx()`](https://nash-delcamp-slp.github.io/anon/reference/read_content.md)
@@ -114,7 +116,7 @@ context into a prompt bundle.
 - [`anon_compare_text()`](https://nash-delcamp-slp.github.io/anon/reference/anon_compare_text.md)
   : Compare text before and after cleaning or redaction
 - [`anon_prompt_bundle()`](https://nash-delcamp-slp.github.io/anon/reference/anon_prompt_bundle.md)
-  : Build prompt-ready text from anonymized report objects
+  : Build prompt-ready text from report objects
 
 ## Export to JSON
 
@@ -143,4 +145,4 @@ and the summary functions.
 - [`print(`*`<anon_context_collection>`*`)`](https://nash-delcamp-slp.github.io/anon/reference/print.anon_context_collection.md)
   : Print method for anon_context_collection
 - [`print(`*`<anon_data_summary>`*`)`](https://nash-delcamp-slp.github.io/anon/reference/print.anon_data_summary.md)
-  : Print method for anonymized environment summary
+  : Print method for environment data summaries

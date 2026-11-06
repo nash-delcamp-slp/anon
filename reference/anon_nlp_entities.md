@@ -1,8 +1,9 @@
-# Anonymize Named Entities in Text Using NLP
+# Redact Named Entities in Text Using NLP
 
-These functions use natural language processing to identify and
-anonymize different types of named entities from text. Each function
-combines NLP entity extraction with pattern expansion and anonymization.
+These functions use natural language processing to identify and redact
+different types of named entities from text. Each function combines NLP
+entity extraction with pattern-based redaction. Detection is model-based
+and can miss entities, so review the output before sharing it.
 
 ## Usage
 
@@ -49,8 +50,7 @@ anon_nlp_places(x, ...)
 
 ## Value
 
-An anonymized object of class `anon_context` with named entities
-replaced according to the anonymization workflow.
+An object of class `anon_context` with named entities replaced.
 
 ## Details
 
@@ -73,27 +73,27 @@ These functions:
 
 3.  Apply
     [`anon`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
-    to anonymize the identified patterns
+    to redact the identified patterns
 
 Available entity types:
 
-- `anon_nlp_entities()`: Anonymize any specified entity types
+- `anon_nlp_entities()`: Redact any specified entity types
 
-- `anon_nlp_proper_nouns()`: Anonymize proper nouns using POS tagging
+- `anon_nlp_proper_nouns()`: Redact proper nouns using POS tagging
 
-- `anon_nlp_dates()`: Anonymize dates
+- `anon_nlp_dates()`: Redact dates
 
-- `anon_nlp_dates_and_times()`: Anonymize dates and times
+- `anon_nlp_dates_and_times()`: Redact dates and times
 
-- `anon_nlp_people()`: Anonymize person names
+- `anon_nlp_people()`: Redact person names
 
-- `anon_nlp_organizations()`: Anonymize organization names
+- `anon_nlp_organizations()`: Redact organization names
 
-- `anon_nlp_places()`: Anonymize place names and locations
+- `anon_nlp_places()`: Redact place names and locations
 
-- `anon_nlp_numbers()`: Anonymize numeric entities
+- `anon_nlp_numbers()`: Redact numeric entities
 
-- `anon_nlp_named()`: Anonymize named entities
+- `anon_nlp_named()`: Redact named entities
 
 ## Global Options
 

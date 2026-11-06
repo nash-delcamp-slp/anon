@@ -2,7 +2,7 @@
 
 The `anon` Shiny app provides a local, session-oriented workflow for
 reviewing an environment, selecting objects, cleaning text, and
-generating anonymized structural reports suitable for prompt building.
+generating redacted structural reports suitable for prompt building.
 
 ## Usage
 

@@ -2,8 +2,7 @@
 
 This function creates a named list of default replacement values for
 different types of NLP entity-based anonymization. It provides a
-centralized way to manage default replacements for entities anonymized
-in
+centralized way to manage default replacements for entities redacted in
 [`anon_nlp_entities()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)
 and
 [`anon_nlp_proper_nouns()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md)

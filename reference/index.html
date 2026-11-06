@@ -32,7 +32,7 @@
     </div>
 
     <div class="section level2">
-      <h2 id="anonymize-objects">Anonymize objects<a class="anchor" aria-label="anchor" href="#anonymize-objects"></a></h2>
+      <h2 id="redact-and-replace">Redact and replace<a class="anchor" aria-label="anchor" href="#redact-and-replace"></a></h2>
 
       <div class="section-desc"><p>Redact sensitive text in vectors, data frames, lists and labels using patterns, column rules and NLP, and set package-wide defaults.</p></div>
 
@@ -46,7 +46,7 @@
           <code><a href="anon.html">anon()</a></code>
 
         </dt>
-        <dd>Anonymize sensitive information in R objects</dd>
+        <dd>Redact and replace sensitive information in R objects</dd>
 
         <dt>
 
@@ -62,9 +62,9 @@
         </dt>
         <dd>Get or set package options used by anon</dd>
       </dl></div><div class="section level2">
-      <h2 id="anonymize-specific-data-types">Anonymize specific data types<a class="anchor" aria-label="anchor" href="#anonymize-specific-data-types"></a></h2>
+      <h2 id="techniques-for-specific-data-types">Techniques for specific data types<a class="anchor" aria-label="anchor" href="#techniques-for-specific-data-types"></a></h2>
 
-      <div class="section-desc"><p>Replace or transform identifiers, dates, contact details and numbers while keeping their structure useful.</p></div>
+      <div class="section-desc"><p>Pseudonymize identifiers and contact details, shift dates, and generalize, shuffle or add noise to numbers while keeping their structure useful.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -81,14 +81,14 @@
           <code><a href="anon_id_chr_sequence.html">anon_id_chr_sequence()</a></code>
 
         </dt>
-        <dd>Convert unique identifiers to sequential character IDs</dd>
+        <dd>Pseudonymize identifiers as sequential character IDs</dd>
 
         <dt>
 
           <code><a href="anon_id_num_sequence.html">anon_id_num_sequence()</a></code>
 
         </dt>
-        <dd>Convert unique identifiers to sequential numeric IDs</dd>
+        <dd>Pseudonymize identifiers as sequential numeric IDs</dd>
       </dl></div><div class="section level2">
 
       <h3 id="dates">Dates<a class="anchor" aria-label="anchor" href="#dates"></a></h3>
@@ -120,14 +120,14 @@
           <code><a href="anon_email.html">anon_email()</a></code>
 
         </dt>
-        <dd>Anonymize email addresses</dd>
+        <dd>Replace email addresses with pseudonymous addresses</dd>
 
         <dt>
 
           <code><a href="anon_phone_number.html">anon_phone_number()</a></code>
 
         </dt>
-        <dd>Anonymize phone numbers</dd>
+        <dd>Replace phone numbers with pseudonymous numbers</dd>
       </dl></div><div class="section level2">
 
       <h3 id="numbers">Numbers<a class="anchor" aria-label="anchor" href="#numbers"></a></h3>
@@ -143,14 +143,14 @@
           <code><a href="anon_num_preserve_distribution.html">anon_num_preserve_distribution()</a></code>
 
         </dt>
-        <dd>Anonymize numeric data while preserving distribution</dd>
+        <dd>Shuffle, add noise to, or resample numeric values</dd>
 
         <dt>
 
           <code><a href="anon_num_range.html">anon_num_range()</a></code>
 
         </dt>
-        <dd>Convert numeric values into range categories</dd>
+        <dd>Generalize numeric values into range categories</dd>
       </dl></div><div class="section level2">
       <h2 id="named-entity-recognition">Named entity recognition<a class="anchor" aria-label="anchor" href="#named-entity-recognition"></a></h2>
 
@@ -166,7 +166,7 @@
           <code><a href="anon_nlp_entities.html">anon_nlp_entities()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_proper_nouns()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_dates()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_dates_and_times()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_named()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_numbers()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_organizations()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_people()</a></code> <code><a href="anon_nlp_entities.html">anon_nlp_places()</a></code>
 
         </dt>
-        <dd>Anonymize Named Entities in Text Using NLP</dd>
+        <dd>Redact Named Entities in Text Using NLP</dd>
 
         <dt>
 
@@ -187,7 +187,7 @@
           <code><a href="nlp_auto.html">nlp_auto()</a></code>
 
         </dt>
-        <dd>Generate NLP auto-anonymization options list</dd>
+        <dd>Generate NLP auto-redaction options list</dd>
 
         <dt>
 
@@ -210,14 +210,14 @@
           <code><a href="anon_inventory.html">anon_inventory()</a></code>
 
         </dt>
-        <dd>Build an anonymized inventory of objects in an environment or list</dd>
+        <dd>Build an inventory of objects, applying your redaction rules</dd>
 
         <dt>
 
           <code><a href="anon_data_summary.html">anon_data_summary()</a></code>
 
         </dt>
-        <dd>Generate anonymized summary of data objects in an environment</dd>
+        <dd>Summarize data objects in an environment, applying your redaction rules</dd>
 
         <dt>
 
@@ -231,11 +231,11 @@
           <code><a href="anon_report.html">anon_report()</a></code>
 
         </dt>
-        <dd>Build an anonymized report for selected objects</dd>
+        <dd>Build a report for selected objects, applying your redaction rules</dd>
       </dl></div><div class="section level2">
       <h2 id="prepare-text-and-prompts">Prepare text and prompts<a class="anchor" aria-label="anchor" href="#prepare-text-and-prompts"></a></h2>
 
-      <div class="section-desc"><p>Import documents, clean and compare text, and assemble anonymized context into a prompt bundle.</p></div>
+      <div class="section-desc"><p>Import documents, clean and compare text, and assemble redacted context into a prompt bundle.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -268,7 +268,7 @@
           <code><a href="anon_prompt_bundle.html">anon_prompt_bundle()</a></code>
 
         </dt>
-        <dd>Build prompt-ready text from anonymized report objects</dd>
+        <dd>Build prompt-ready text from report objects</dd>
       </dl></div><div class="section level2">
       <h2 id="export-to-json">Export to JSON<a class="anchor" aria-label="anchor" href="#export-to-json"></a></h2>
 
@@ -344,7 +344,7 @@
           <code><a href="print.anon_data_summary.html">print(<i>&lt;anon_data_summary&gt;</i>)</a></code>
 
         </dt>
-        <dd>Print method for anonymized environment summary</dd>
+        <dd>Print method for environment data summaries</dd>
       </dl></div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

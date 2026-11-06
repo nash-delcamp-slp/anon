@@ -1,6 +1,9 @@
-# Anonymize phone numbers
+# Replace phone numbers with pseudonymous numbers
 
-Anonymizes phone numbers by replacing them with sequential fake numbers.
+Replaces each distinct phone number matching common North American
+formats (9 or 10 digits, with or without separators) with a sequential
+fake number. Other formats are not detected, and other 9- or 10-digit
+numbers may be replaced.
 
 ## Usage
 

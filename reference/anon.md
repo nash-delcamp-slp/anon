@@ -1,6 +1,6 @@
-# Anonymize sensitive information in R objects
+# Redact and replace sensitive information in R objects
 
-This function anonymizes or redacts sensitive information from various R
+This function redacts or replaces sensitive information in various R
 objects including character vectors, factors, data frames, and lists. It
 uses pattern matching to find and replace sensitive content, with
 options for targeted anonymization based on variable names or classes
@@ -64,7 +64,7 @@ anon(
 - df_variable_names:
 
   For data frames, a character vector or named list specifying which
-  variable names should be anonymized:
+  variables should be replaced:
 
   - Unnamed elements: variables are replaced with `default_replacement`
 
@@ -75,7 +75,7 @@ anon(
 - df_classes:
 
   For data frames, a character vector or named list specifying which
-  variable classes should be anonymized:
+  variable classes should be replaced:
 
   - Unnamed elements: variables with matching classes are replaced with
     `default_replacement`
@@ -145,7 +145,7 @@ warnings are attached as an attribute.
 - Entire columns can be replaced if specified in `df_variable_names` or
   `df_classes`
 
-- Column names, row names, and labels are anonymized when enabled
+- Column names, row names, and labels are redacted when enabled
 
 Pattern matching is case-insensitive. When `check_approximate` is
 enabled, `anon()` will warn about remaining potential matches that are
@@ -159,7 +159,7 @@ Replacement functions can be provided in `df_variable_names` and
 - Formula notation (e.g., `~ .x + rnorm(length(.x), mean = 1)`)
 
 The returned object has class `anon_context` which allows it to be
-combined with other anonymized objects using
+combined with other objects returned by `anon()` using
 [`c()`](https://rdrr.io/r/base/c.html).
 
 ## Global Options
@@ -187,7 +187,7 @@ The following global options affect function behavior:
 - `anon.nlp_auto`:
 
   List of logical values indicating which NLP entity types should be
-  automatically anonymized. Use
+  automatically redacted. Use
   [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
   to generate this list. Override the option by setting the `nlp_auto`
   argument.
@@ -281,11 +281,11 @@ anon(df)  # Will anonymize emails and names using global settings
 #> 1 [REDACTED] aliceEMAIL    95
 #> 2 [REDACTED]   bobEMAIL    87
 
-# Combine anonymized objects
+# Combine processed objects
 anon_summary <- anon_data_summary(list(df = df))
 combined <- c(anon_df, anon_summary)
 combined
-#> === ANONYMIZED DATA CONTEXT ===
+#> === DATA CONTEXT ===
 #> 
 #>       name      email score
 #> 1 Person 1 [REDACTED]    95

@@ -1,4 +1,4 @@
-# Generate anonymized summary of data objects in an environment
+# Summarize data objects in an environment, applying your redaction rules
 
 This function creates a summary of all objects (primarily data frames)
 in a specified environment or list, then anonymizes the results using
@@ -95,7 +95,7 @@ anon_data_summary(
 - df_variable_names:
 
   For data frames, a character vector or named list specifying which
-  variable names should be anonymized:
+  variables should be replaced:
 
   - Unnamed elements: variables are replaced with `default_replacement`
 
@@ -106,7 +106,7 @@ anon_data_summary(
 - df_classes:
 
   For data frames, a character vector or named list specifying which
-  variable classes should be anonymized:
+  variable classes should be replaced:
 
   - Unnamed elements: variables with matching classes are replaced with
     `default_replacement`
@@ -142,7 +142,7 @@ An object of class `"anon_data_summary"` containing:
 - `$examples`: Optional data frame example payloads containing either
   sample rows per data frame or one or more keyed cross-source scenarios
 
-- All content is anonymized according to the specified patterns
+- Your patterns, rules and NLP settings are applied to all content
 
 ## Details
 

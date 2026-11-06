@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<title>Anonymize Sensitive Data in R Objects • anon</title>
+<title>Redact and Pseudonymize Sensitive Data in R Objects • anon</title>
 <!-- favicons --><link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png">
 <link rel="icon" type="”image/svg+xml”" href="favicon.svg">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -15,9 +15,9 @@
 <link href="deps/bootstrap-5.3.8/bootstrap.min.css" rel="stylesheet">
 <script src="deps/bootstrap-5.3.8/bootstrap.bundle.min.js"></script><link href="deps/font-awesome-6.5.2/css/all.min.css" rel="stylesheet">
 <link href="deps/font-awesome-6.5.2/css/v4-shims.min.css" rel="stylesheet">
-<script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Anonymize Sensitive Data in R Objects">
-<meta name="description" content="Provides tools for anonymizing sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based redaction with approximate matching warnings, specialized functions for common data types (identifiers, dates, emails, phone numbers), and environment summarization with anonymization. Designed to help data scientists share code and results while protecting sensitive information.">
-<meta property="og:description" content="Provides tools for anonymizing sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based redaction with approximate matching warnings, specialized functions for common data types (identifiers, dates, emails, phone numbers), and environment summarization with anonymization. Designed to help data scientists share code and results while protecting sensitive information.">
+<script src="deps/headroom-0.11.0/headroom.min.js"></script><script src="deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="deps/search-1.0.0/fuse.min.js"></script><script src="deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="pkgdown.js"></script><meta property="og:title" content="Redact and Pseudonymize Sensitive Data in R Objects">
+<meta name="description" content="Applies anonymization techniques (redaction, recoding or pseudonymization, generalization, randomization and date shifting) to sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based and NLP-based redaction, functions for common data types (identifiers, dates, emails, phone numbers, numeric values), and environment summaries with these techniques applied. Designed to help data scientists share code, results and context while protecting sensitive information. Applying these techniques does not by itself make data anonymous; that depends on the re-identification risk that remains.">
+<meta property="og:description" content="Applies anonymization techniques (redaction, recoding or pseudonymization, generalization, randomization and date shifting) to sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based and NLP-based redaction, functions for common data types (identifiers, dates, emails, phone numbers, numeric values), and environment summaries with these techniques applied. Designed to help data scientists share code, results and context while protecting sensitive information. Applying these techniques does not by itself make data anonymous; that depends on the re-identification risk that remains.">
 <meta property="og:image" content="https://nash-delcamp-slp.github.io/anon/logo.png">
 </head>
 <body>
@@ -61,7 +61,25 @@
 </div>
 <!-- badges: start -->
 
-<p>The anon package provides comprehensive tools for anonymizing sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.</p>
+<p>The anon package applies anonymization techniques (redaction, recoding or pseudonymization, generalization, randomization and date shifting) to sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.</p>
+<div class="section level2">
+<h2 id="terminology">Terminology<a class="anchor" aria-label="anchor" href="#terminology"></a>
+</h2>
+<p>In this package, “anonymize” means applying one of these techniques. It does not mean the result is anonymous or de-identified data.</p>
+<ul>
+<li>
+<strong>Anonymization techniques</strong> include redaction, recoding or pseudonymization (consistently replacing values, sometimes in the same format), generalization, suppression, randomization (perturbation) and date offsetting. These terms come from EMA’s <a href="https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf" class="external-link">Anonymisation Report Form Instructions</a> (EMA/482639/2023), used for EMA Policy 0070 and Health Canada submissions, and from the definitions in Health Canada’s <a href="https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html" class="external-link">Public Release of Clinical Information guidance</a>, which calls them techniques of anonymization. <code><a href="reference/anon_date_shift.html">anon_date_shift()</a></code> adds one fixed offset per call (or the <code>offset</code> you supply), which matches Health Canada’s “offsetting” but not EMA’s “date offsetting”, where each participant gets their own random offset.</li>
+<li>
+<strong>Pseudonymized data (GDPR).</strong> <a href="https://eur-lex.europa.eu/eli/reg/2016/679/oj" class="external-link">Article 4(5)</a> defines pseudonymisation as processing personal data so that it “can no longer be attributed to a specific data subject without the use of additional information, provided that such additional information is kept separately and is subject to technical and organisational measures”. Recital 26 states that pseudonymised data which could be attributed to a person using additional information “should be considered to be information on an identifiable natural person”.</li>
+<li>
+<strong>Anonymous data (GDPR).</strong> Recital 26 describes anonymous information as information that does not relate to an identified or identifiable person, taking into account “all the means reasonably likely to be used”. GDPR sets no numerical threshold.</li>
+<li>
+<strong>Public release of clinical information (Health Canada and EMA).</strong> When risk is measured quantitatively, both encourage a re-identification risk threshold of 0.09 (<a href="https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html" class="external-link">Health Canada guidance</a>; <a href="https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf" class="external-link">EMA form instructions</a>, section J). A qualitative approach must show there is no serious possibility of re-identification.</li>
+<li>
+<strong>De-identified data (HIPAA).</strong> <a href="https://www.hhs.gov/hipaa/for-professionals/special-topics/de-identification/index.html" class="external-link">HHS guidance</a> describes two methods: Safe Harbor (remove a list of identifiers, with no actual knowledge that the rest could identify someone) and Expert Determination (an expert finds the risk “very small”; HHS states there is “no explicit numerical level”). Safe Harbor removes all elements of dates (except year) directly related to an individual and does not allow derivatives of the listed identifiers (FAQ 3.2). HHS does not address date shifting directly, but shifted dates are derived from the real dates, so they do not meet Safe Harbor; whether they are acceptable under Expert Determination is for the expert to decide.</li>
+</ul>
+<p>Applying anon’s functions reduces what you share, but by itself does not establish that the output is anonymous or de-identified under any of these rules. The output may still be personal data, pseudonymized or directly identifiable, for example when a detection step misses something.</p>
+</div>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
@@ -99,7 +117,7 @@
 <h2 id="core-anonymization-with-anon">Core Anonymization with <code>anon()</code>
 <a class="anchor" aria-label="anchor" href="#core-anonymization-with-anon"></a>
 </h2>
-<p>The main <code><a href="reference/anon.html">anon()</a></code> function and helper <code>anon_*()</code> support anonymization of various R objects.</p>
+<p>The main <code><a href="reference/anon.html">anon()</a></code> function and helper <code>anon_*()</code> functions apply these techniques to various R objects.</p>
 <div class="section level3">
 <h3 id="vector-anonymization">Vector Anonymization<a class="anchor" aria-label="anchor" href="#vector-anonymization"></a>
 </h3>
@@ -150,26 +168,26 @@
 <span><span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="va">anon_starwars</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Rows: 87</span></span>
 <span><span class="co">#&gt; Columns: 14</span></span>
-<span><span class="co">#&gt; $ name       &lt;chr&gt; "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0~</span></span>
-<span><span class="co">#&gt; $ height     &lt;chr&gt; "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16~</span></span>
-<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 88, 66, 57, 58, 136, 15, 66, 57, 80, 88, 80, NA, 77, 69, 90~</span></span>
-<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~</span></span>
-<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "~</span></span>
-<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~</span></span>
-<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 35.5, 200.0, 31.5, 43.0, 35.5, 73.0, 600.0, NA, 54.0, 22.0,~</span></span>
-<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",~</span></span>
-<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini~</span></span>
-<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet~</span></span>
-<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~</span></span>
-<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The DARK Strikes Back", "Return of the LIG~</span></span>
-<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "DARK Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "DARK Sp~</span></span>
-<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "DARK shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1", &lt;&gt;,~</span></span></code></pre></div>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0…</span></span>
+<span><span class="co">#&gt; $ height     &lt;chr&gt; "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 88, 66, 57, 58, 136, 15, 66, 57, 80, 88, 80, NA, 77, 69, 90…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 35.5, 200.0, 31.5, 43.0, 35.5, 73.0, 600.0, NA, 54.0, 22.0,…</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The DARK Strikes Back", "Return of the LIG…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "DARK Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "DARK Sp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "DARK shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1", &lt;&gt;,…</span></span></code></pre></div>
 </div>
 </div>
 <div class="section level2">
 <h2 id="shiny-app">Shiny App<a class="anchor" aria-label="anchor" href="#shiny-app"></a>
 </h2>
-<p><code>anon</code> includes a local Shiny app for reviewing the current R environment, selecting objects for a report, cleaning text, and building anonymized prompt context.</p>
+<p><code>anon</code> includes a local Shiny app for reviewing the current R environment, selecting objects for a report, cleaning text, and building redacted prompt context.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nash-delcamp-slp.github.io/anon/">anon</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
@@ -268,20 +286,20 @@
 <span>  <span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Rows: 87</span></span>
 <span><span class="co">#&gt; Columns: 14</span></span>
-<span><span class="co">#&gt; $ name       &lt;chr&gt; "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0~</span></span>
-<span><span class="co">#&gt; $ height     &lt;chr&gt; "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16~</span></span>
-<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 113.0, 48.0, 82.0, 76.0, 40.0, 80.0, 48.0, 82.0, 85.0, 113.~</span></span>
-<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~</span></span>
-<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "~</span></span>
-<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~</span></span>
-<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 53.50, 600.00, 52.00, 43.00, 53.50, 47.00, 112.00, NA, 52.0~</span></span>
-<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",~</span></span>
-<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini~</span></span>
-<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet~</span></span>
-<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~</span></span>
-<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J~</span></span>
-<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp~</span></span>
-<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",~</span></span></code></pre></div>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0…</span></span>
+<span><span class="co">#&gt; $ height     &lt;chr&gt; "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 113.0, 48.0, 82.0, 76.0, 40.0, 80.0, 48.0, 82.0, 85.0, 113.…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 53.50, 600.00, 52.00, 43.00, 53.50, 47.00, 112.00, NA, 52.0…</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",…</span></span></code></pre></div>
 <p>Reset the options:</p>
 <div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">old_options</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/anon_options.html">anon_options</a></span><span class="op">(</span></span>
@@ -347,20 +365,20 @@
 <span><span class="va">old_options</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/anon_options.html">anon_options</a></span><span class="op">(</span>nlp_default_replacements <span class="op">=</span> <span class="va">my_replacements</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_entities</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                       </span></span>
-<span><span class="co">#&gt; [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                    </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."              </span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [GROUP]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                                    </span></span>
+<span><span class="co">#&gt; [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                 </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."           </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
 <p>Reset the option:</p>
 <div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">old_options</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/anon_options.html">anon_options</a></span><span class="op">(</span>nlp_default_replacements <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level3">
-<h3 id="enabling-automatic-nlp-entity-anonymization">Enabling Automatic NLP Entity Anonymization<a class="anchor" aria-label="anchor" href="#enabling-automatic-nlp-entity-anonymization"></a>
+<h3 id="enabling-automatic-nlp-entity-redaction">Enabling Automatic NLP Entity Redaction<a class="anchor" aria-label="anchor" href="#enabling-automatic-nlp-entity-redaction"></a>
 </h3>
-<p>Set <code>nlp_auto</code> to control which entity types are automatically anonymized. Use <code><a href="reference/nlp_auto.html">nlp_auto()</a></code> to create the list input.</p>
+<p>Set <code>nlp_auto</code> to control which entity types are automatically redacted. Use <code><a href="reference/nlp_auto.html">nlp_auto()</a></code> to create the list input.</p>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># View default auto-anonymization settings (all FALSE by default)</span></span>
+<code class="sourceCode R"><span><span class="co"># View default auto-redaction settings (all FALSE by default)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/str.html" class="external-link">str</a></span><span class="op">(</span><span class="fu"><a href="reference/nlp_auto.html">nlp_auto</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="co">#&gt; List of 19</span></span>
 <span><span class="co">#&gt;  $ cardinal   : logi FALSE</span></span>
@@ -411,10 +429,10 @@
 <span><span class="va">old_options</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/anon_options.html">anon_options</a></span><span class="op">(</span>nlp_auto <span class="op">=</span> <span class="va">my_auto_settings</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/anon.html">anon</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                           </span></span>
-<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                        </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        </span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                          </span></span>
+<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                       </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span></code></pre></div>
 <p>Reset the option:</p>
 <div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">old_options</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/anon_options.html">anon_options</a></span><span class="op">(</span>nlp_auto <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span></code></pre></div>
@@ -509,43 +527,43 @@
 </div>
 </div>
 <div class="section level2">
-<h2 id="automatic-nlp-powered-anonymization">Automatic NLP-Powered Anonymization<a class="anchor" aria-label="anchor" href="#automatic-nlp-powered-anonymization"></a>
+<h2 id="automatic-nlp-powered-redaction">Automatic NLP-Powered Redaction<a class="anchor" aria-label="anchor" href="#automatic-nlp-powered-redaction"></a>
 </h2>
-<p>The anon package includes powerful NLP functions that can automatically detect and anonymize different types of named entities in text.</p>
+<p>The anon package includes NLP functions that detect and redact different types of named entities in text. Detection is model-based and can miss entities, so review the output before sharing it.</p>
 <div class="section level3">
 <h3 id="individual-nlp-functions">Individual NLP Functions<a class="anchor" aria-label="anchor" href="#individual-nlp-functions"></a>
 </h3>
 <p>The package provides specific functions for different entity types:</p>
 <ul>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_entities()</a></code>: Detect and anonymize select entities. By default, all entities.</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_entities()</a></code>: Detect and redact select entities. By default, all entities.</li>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_people()</a></code>: Detect and anonymize person names</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_people()</a></code>: Detect and redact person names</li>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_organizations()</a></code>: Detect and anonymize organization names</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_organizations()</a></code>: Detect and redact organization names</li>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_places()</a></code>: Detect and anonymize locations (cities, countries, etc.)</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_places()</a></code>: Detect and redact locations (cities, countries, etc.)</li>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_dates()</a></code>: Detect and anonymize dates</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_dates()</a></code>: Detect and redact dates</li>
 <li>
-<code><a href="reference/anon_nlp_entities.html">anon_nlp_numbers()</a></code>: Detect and anonymize monetary amounts and percentages</li>
+<code><a href="reference/anon_nlp_entities.html">anon_nlp_numbers()</a></code>: Detect and redact monetary amounts and percentages</li>
 </ul>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<!-- end list --><div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_entities</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                         </span></span>
-<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                            </span></span>
-<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        </span></span>
-<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                        </span></span>
+<span><span class="co">#&gt; [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                           </span></span>
+<span><span class="co">#&gt; [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_people</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                         </span></span>
 <span><span class="co">#&gt; [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                        </span></span>
 <span><span class="co">#&gt; [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, the DEATH STAR, an armored space station with enough power to destroy an entire planet."</span></span>
 <span><span class="co">#&gt; [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_organizations</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                        </span></span>
-<span><span class="co">#&gt; [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                       </span></span>
-<span><span class="co">#&gt; [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        </span></span>
-<span><span class="co">#&gt; [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
+<span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                       </span></span>
+<span><span class="co">#&gt; [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                      </span></span>
+<span><span class="co">#&gt; [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       </span></span>
+<span><span class="co">#&gt; [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."</span></span>
 <span><span class="fu"><a href="reference/anon_nlp_entities.html">anon_nlp_places</a></span><span class="op">(</span><span class="va">a_new_hope_intro</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "It is a period of civil war."                                                                                                                                                        </span></span>
 <span><span class="co">#&gt; [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil [LOC]."                                                                                 </span></span>
@@ -566,7 +584,7 @@
 <div class="section level2">
 <h2 id="data-environment-summary">Data Environment Summary<a class="anchor" aria-label="anchor" href="#data-environment-summary"></a>
 </h2>
-<p>The <code><a href="reference/anon_data_summary.html">anon_data_summary()</a></code> function provides an anonymized overview of the data in your environment:</p>
+<p>The <code><a href="reference/anon_data_summary.html">anon_data_summary()</a></code> function provides an overview of the data in your environment, with your patterns and rules applied:</p>
 <div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/anon_data_summary.html">anon_data_summary</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Environment Data Summary</span></span>
@@ -611,25 +629,25 @@
 <span>  <span class="op">)</span>, check_approximate <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://pillar.r-lib.org/reference/glimpse.html" class="external-link">glimpse</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Warning: Potential approximate match: 'blond' is similar to pattern 'blonde'</span></span>
-<span><span class="co">#&gt; * Potential approximate match: 'blue' is similar to pattern 'bleu'</span></span>
-<span><span class="co">#&gt; * Potential approximate match: 'Imperial Speeder Bike' is similar to pattern 'imperials'</span></span>
-<span><span class="co">#&gt; * Potential approximate match: 'Imperial shuttle' is similar to pattern 'imperials'</span></span>
+<span><span class="co">#&gt; • Potential approximate match: 'blue' is similar to pattern 'bleu'</span></span>
+<span><span class="co">#&gt; • Potential approximate match: 'Imperial Speeder Bike' is similar to pattern 'imperials'</span></span>
+<span><span class="co">#&gt; • Potential approximate match: 'Imperial shuttle' is similar to pattern 'imperials'</span></span>
 <span><span class="co">#&gt; Rows: 87</span></span>
 <span><span class="co">#&gt; Columns: 14</span></span>
-<span><span class="co">#&gt; $ name       &lt;chr&gt; "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or~</span></span>
-<span><span class="co">#&gt; $ height     &lt;int&gt; 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2~</span></span>
-<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.~</span></span>
-<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~</span></span>
-<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "~</span></span>
-<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~</span></span>
-<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, ~</span></span>
-<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",~</span></span>
-<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini~</span></span>
-<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T~</span></span>
-<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~</span></span>
-<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J~</span></span>
-<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp~</span></span>
-<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",~</span></span></code></pre></div>
+<span><span class="co">#&gt; $ name       &lt;chr&gt; "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or…</span></span>
+<span><span class="co">#&gt; $ height     &lt;int&gt; 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2…</span></span>
+<span><span class="co">#&gt; $ mass       &lt;dbl&gt; 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.…</span></span>
+<span><span class="co">#&gt; $ hair_color &lt;chr&gt; "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…</span></span>
+<span><span class="co">#&gt; $ skin_color &lt;chr&gt; "fair", "gold", "white, blue", "white", "light", "light", "…</span></span>
+<span><span class="co">#&gt; $ eye_color  &lt;chr&gt; "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…</span></span>
+<span><span class="co">#&gt; $ birth_year &lt;dbl&gt; 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, …</span></span>
+<span><span class="co">#&gt; $ sex        &lt;chr&gt; "male", "none", "none", "male", "female", "male", "female",…</span></span>
+<span><span class="co">#&gt; $ gender     &lt;chr&gt; "masculine", "masculine", "masculine", "masculine", "femini…</span></span>
+<span><span class="co">#&gt; $ homeworld  &lt;chr&gt; "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T…</span></span>
+<span><span class="co">#&gt; $ species    &lt;chr&gt; "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…</span></span>
+<span><span class="co">#&gt; $ films      &lt;list&gt; &lt;"A New Hope", "The Empire Strikes Back", "Return of the J…</span></span>
+<span><span class="co">#&gt; $ vehicles   &lt;list&gt; &lt;"Snowspeeder", "Imperial Speeder Bike"&gt;, &lt;&gt;, &lt;&gt;, &lt;&gt;, "Imp…</span></span>
+<span><span class="co">#&gt; $ starships  &lt;list&gt; &lt;"X-wing", "Imperial shuttle"&gt;, &lt;&gt;, &lt;&gt;, "TIE Advanced x1",…</span></span></code></pre></div>
 </div>
 </div>
   </main><aside class="col-md-3"><div class="links">

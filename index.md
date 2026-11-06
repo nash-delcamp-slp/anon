@@ -1,8 +1,68 @@
 # anon
 
-The anon package provides comprehensive tools for anonymizing sensitive
-information in R objects, including data frames, variable labels, lists,
-and character/factor/numeric vectors.
+The anon package applies anonymization techniques (redaction, recoding
+or pseudonymization, generalization, randomization and date shifting) to
+sensitive information in R objects, including data frames, variable
+labels, lists, and character/factor/numeric vectors.
+
+## Terminology
+
+In this package, “anonymize” means applying one of these techniques. It
+does not mean the result is anonymous or de-identified data.
+
+- **Anonymization techniques** include redaction, recoding or
+  pseudonymization (consistently replacing values, sometimes in the same
+  format), generalization, suppression, randomization (perturbation) and
+  date offsetting. These terms come from EMA’s [Anonymisation Report
+  Form
+  Instructions](https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf)
+  (EMA/482639/2023), used for EMA Policy 0070 and Health Canada
+  submissions, and from the definitions in Health Canada’s [Public
+  Release of Clinical Information
+  guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html),
+  which calls them techniques of anonymization.
+  [`anon_date_shift()`](https://nash-delcamp-slp.github.io/anon/reference/anon_date_shift.md)
+  adds one fixed offset per call (or the `offset` you supply), which
+  matches Health Canada’s “offsetting” but not EMA’s “date offsetting”,
+  where each participant gets their own random offset.
+- **Pseudonymized data (GDPR).** [Article
+  4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj) defines
+  pseudonymisation as processing personal data so that it “can no longer
+  be attributed to a specific data subject without the use of additional
+  information, provided that such additional information is kept
+  separately and is subject to technical and organisational measures”.
+  Recital 26 states that pseudonymised data which could be attributed to
+  a person using additional information “should be considered to be
+  information on an identifiable natural person”.
+- **Anonymous data (GDPR).** Recital 26 describes anonymous information
+  as information that does not relate to an identified or identifiable
+  person, taking into account “all the means reasonably likely to be
+  used”. GDPR sets no numerical threshold.
+- **Public release of clinical information (Health Canada and EMA).**
+  When risk is measured quantitatively, both encourage a
+  re-identification risk threshold of 0.09 ([Health Canada
+  guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html);
+  [EMA form
+  instructions](https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf),
+  section J). A qualitative approach must show there is no serious
+  possibility of re-identification.
+- **De-identified data (HIPAA).** [HHS
+  guidance](https://www.hhs.gov/hipaa/for-professionals/special-topics/de-identification/index.html)
+  describes two methods: Safe Harbor (remove a list of identifiers, with
+  no actual knowledge that the rest could identify someone) and Expert
+  Determination (an expert finds the risk “very small”; HHS states there
+  is “no explicit numerical level”). Safe Harbor removes all elements of
+  dates (except year) directly related to an individual and does not
+  allow derivatives of the listed identifiers (FAQ 3.2). HHS does not
+  address date shifting directly, but shifted dates are derived from the
+  real dates, so they do not meet Safe Harbor; whether they are
+  acceptable under Expert Determination is for the expert to decide.
+
+Applying anon’s functions reduces what you share, but by itself does not
+establish that the output is anonymous or de-identified under any of
+these rules. The output may still be personal data, pseudonymized or
+directly identifiable, for example when a detection step misses
+something.
 
 ## Installation
 
@@ -49,8 +109,8 @@ a_new_hope_intro <- c(
 
 The main
 [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
-function and helper `anon_*()` support anonymization of various R
-objects.
+function and helper `anon_*()` functions apply these techniques to
+various R objects.
 
 ### Vector Anonymization
 
@@ -103,27 +163,27 @@ anon_starwars <- starwars |>
 glimpse(anon_starwars)
 #> Rows: 87
 #> Columns: 14
-#> $ name       <chr> "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0~
-#> $ height     <chr> "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16~
-#> $ mass       <dbl> 88, 66, 57, 58, 136, 15, 66, 57, 80, 88, 80, NA, 77, 69, 90~
-#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~
-#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "~
-#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~
-#> $ birth_year <dbl> 35.5, 200.0, 31.5, 43.0, 35.5, 73.0, 600.0, NA, 54.0, 22.0,~
-#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",~
-#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini~
-#> $ homeworld  <chr> "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet~
-#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~
-#> $ films      <list> <"A New Hope", "The DARK Strikes Back", "Return of the LIG~
-#> $ vehicles   <list> <"Snowspeeder", "DARK Speeder Bike">, <>, <>, <>, "DARK Sp~
-#> $ starships  <list> <"X-wing", "DARK shuttle">, <>, <>, "TIE Advanced x1", <>,~
+#> $ name       <chr> "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0…
+#> $ height     <chr> "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16…
+#> $ mass       <dbl> 88, 66, 57, 58, 136, 15, 66, 57, 80, 88, 80, NA, 77, 69, 90…
+#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…
+#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "…
+#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…
+#> $ birth_year <dbl> 35.5, 200.0, 31.5, 43.0, 35.5, 73.0, 600.0, NA, 54.0, 22.0,…
+#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",…
+#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini…
+#> $ homeworld  <chr> "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet…
+#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…
+#> $ films      <list> <"A New Hope", "The DARK Strikes Back", "Return of the LIG…
+#> $ vehicles   <list> <"Snowspeeder", "DARK Speeder Bike">, <>, <>, <>, "DARK Sp…
+#> $ starships  <list> <"X-wing", "DARK shuttle">, <>, <>, "TIE Advanced x1", <>,…
 ```
 
 ## Shiny App
 
 `anon` includes a local Shiny app for reviewing the current R
 environment, selecting objects for a report, cleaning text, and building
-anonymized prompt context.
+redacted prompt context.
 
 ``` r
 
@@ -254,20 +314,20 @@ starwars |>
   glimpse()
 #> Rows: 87
 #> Columns: 14
-#> $ name       <chr> "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0~
-#> $ height     <chr> "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16~
-#> $ mass       <dbl> 113.0, 48.0, 82.0, 76.0, 40.0, 80.0, 48.0, 82.0, 85.0, 113.~
-#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~
-#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "~
-#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~
-#> $ birth_year <dbl> 53.50, 600.00, 52.00, 43.00, 53.50, 47.00, 112.00, NA, 52.0~
-#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",~
-#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini~
-#> $ homeworld  <chr> "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet~
-#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~
-#> $ films      <list> <"A New Hope", "The Empire Strikes Back", "Return of the J~
-#> $ vehicles   <list> <"Snowspeeder", "Imperial Speeder Bike">, <>, <>, <>, "Imp~
-#> $ starships  <list> <"X-wing", "Imperial shuttle">, <>, <>, "TIE Advanced x1",~
+#> $ name       <chr> "ID 01", "ID 02", "ID 03", "ID 04", "ID 05", "ID 06", "ID 0…
+#> $ height     <chr> "[160,180)", "[160,180)", "[80,100)", "[200,220)", "[140,16…
+#> $ mass       <dbl> 113.0, 48.0, 82.0, 76.0, 40.0, 80.0, 48.0, 82.0, 85.0, 113.…
+#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…
+#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "…
+#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…
+#> $ birth_year <dbl> 53.50, 600.00, 52.00, 43.00, 53.50, 47.00, 112.00, NA, 52.0…
+#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",…
+#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini…
+#> $ homeworld  <chr> "Planet 01", "Planet 01", "Planet 02", "Planet 01", "Planet…
+#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…
+#> $ films      <list> <"A New Hope", "The Empire Strikes Back", "Return of the J…
+#> $ vehicles   <list> <"Snowspeeder", "Imperial Speeder Bike">, <>, <>, <>, "Imp…
+#> $ starships  <list> <"X-wing", "Imperial shuttle">, <>, <>, "TIE Advanced x1",…
 ```
 
 Reset the options:
@@ -348,10 +408,10 @@ my_replacements <- nlp_default_replacements(
 old_options <- anon_options(nlp_default_replacements = my_replacements)
 
 anon_nlp_entities(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                                       
-#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                    
-#> [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."              
-#> [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her [GROUP]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                                    
+#> [2] "[PROPER_NOUN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                                 
+#> [3] "During the battle, [PROPER_NOUN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [GROUP], an armored space station with enough power to destroy an entire planet."           
+#> [4] "Pursued by the [LOC]'s sinister agents, [PROPER_NOUN] [PROPER_NOUN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -361,16 +421,16 @@ Reset the option:
 old_options <- anon_options(nlp_default_replacements = NULL)
 ```
 
-### Enabling Automatic NLP Entity Anonymization
+### Enabling Automatic NLP Entity Redaction
 
-Set `nlp_auto` to control which entity types are automatically
-anonymized. Use
+Set `nlp_auto` to control which entity types are automatically redacted.
+Use
 [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
 to create the list input.
 
 ``` r
 
-# View default auto-anonymization settings (all FALSE by default)
+# View default auto-redaction settings (all FALSE by default)
 str(nlp_auto())
 #> List of 19
 #>  $ cardinal   : logi FALSE
@@ -421,10 +481,10 @@ my_auto_settings <- nlp_auto(person = TRUE, org = TRUE, gpe = TRUE, propn = TRUE
 old_options <- anon_options(nlp_auto = my_auto_settings)
 
 anon(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                           
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                        
-#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
-#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                          
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their first victory against the evil [PROPN] [PROPN]."                                                                       
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [PROPN]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       
+#> [4] "Pursued by the [PROPN]'s sinister agents, [PROPN] [PROPN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 ```
 
 Reset the option:
@@ -534,45 +594,46 @@ old_options <- anon_options(
 )
 ```
 
-## Automatic NLP-Powered Anonymization
+## Automatic NLP-Powered Redaction
 
-The anon package includes powerful NLP functions that can automatically
-detect and anonymize different types of named entities in text.
+The anon package includes NLP functions that detect and redact different
+types of named entities in text. Detection is model-based and can miss
+entities, so review the output before sharing it.
 
 ### Individual NLP Functions
 
 The package provides specific functions for different entity types:
 
 - [`anon_nlp_entities()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize select entities. By default, all entities.
+  Detect and redact select entities. By default, all entities.
 - [`anon_nlp_people()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize person names
+  Detect and redact person names
 - [`anon_nlp_organizations()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize organization names
+  Detect and redact organization names
 - [`anon_nlp_places()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize locations (cities, countries, etc.)
+  Detect and redact locations (cities, countries, etc.)
 - [`anon_nlp_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize dates
+  Detect and redact dates
 - [`anon_nlp_numbers()`](https://nash-delcamp-slp.github.io/anon/reference/anon_nlp_entities.md):
-  Detect and anonymize monetary amounts and percentages
+  Detect and redact monetary amounts and percentages
 
 ``` r
 
 anon_nlp_entities(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                         
-#> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                            
-#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
-#> [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                        
+#> [2] "[PROPN] spaceships, striking from a hidden base, have won their [ORDINAL] victory against the evil [LOC]."                                                                           
+#> [3] "During the battle, [PROPN] spies managed to steal secret plans to the [LOC]'s ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       
+#> [4] "Pursued by the [LOC]'s sinister agents, [PROPN] [PROPN] races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_people(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                         
 #> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                        
 #> [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, the DEATH STAR, an armored space station with enough power to destroy an entire planet."
 #> [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_organizations(a_new_hope_intro)
-#> [1] "It is a period of civil war."                                                                                                                                                        
-#> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                       
-#> [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."        
-#> [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her [ORG]ship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
+#> [1] "It is a period of civil war."                                                                                                                                                       
+#> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil Galactic Empire."                                                                      
+#> [3] "During the battle, Rebel spies managed to steal secret plans to the Empire's ultimate weapon, [ORG], an armored space station with enough power to destroy an entire planet."       
+#> [4] "Pursued by the Empire's sinister agents, Princess Leia races home aboard her starship, custodian of the stolen plans that can save her people and restore freedom to the galaxy...."
 anon_nlp_places(a_new_hope_intro)
 #> [1] "It is a period of civil war."                                                                                                                                                        
 #> [2] "Rebel spaceships, striking from a hidden base, have won their first victory against the evil [LOC]."                                                                                 
@@ -594,8 +655,8 @@ anon_nlp_numbers(a_new_hope_intro)
 
 The
 [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
-function provides an anonymized overview of the data in your
-environment:
+function provides an overview of the data in your environment, with your
+patterns and rules applied:
 
 ``` r
 
@@ -647,23 +708,23 @@ starwars |>
   ), check_approximate = TRUE) |>
   glimpse()
 #> Warning: Potential approximate match: 'blond' is similar to pattern 'blonde'
-#> * Potential approximate match: 'blue' is similar to pattern 'bleu'
-#> * Potential approximate match: 'Imperial Speeder Bike' is similar to pattern 'imperials'
-#> * Potential approximate match: 'Imperial shuttle' is similar to pattern 'imperials'
+#> • Potential approximate match: 'blue' is similar to pattern 'bleu'
+#> • Potential approximate match: 'Imperial Speeder Bike' is similar to pattern 'imperials'
+#> • Potential approximate match: 'Imperial shuttle' is similar to pattern 'imperials'
 #> Rows: 87
 #> Columns: 14
-#> $ name       <chr> "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or~
-#> $ height     <int> 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2~
-#> $ mass       <dbl> 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.~
-#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N~
-#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "~
-#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",~
-#> $ birth_year <dbl> 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, ~
-#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",~
-#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini~
-#> $ homeworld  <chr> "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T~
-#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma~
-#> $ films      <list> <"A New Hope", "The Empire Strikes Back", "Return of the J~
-#> $ vehicles   <list> <"Snowspeeder", "Imperial Speeder Bike">, <>, <>, <>, "Imp~
-#> $ starships  <list> <"X-wing", "Imperial shuttle">, <>, <>, "TIE Advanced x1",~
+#> $ name       <chr> "Luke Skywalker", "C-3PO", "R2-D2", "Darth Vader", "Leia Or…
+#> $ height     <int> 172, 167, 96, 202, 150, 178, 165, 97, 183, 182, 188, 180, 2…
+#> $ mass       <dbl> 77.0, 75.0, 32.0, 136.0, 49.0, 120.0, 75.0, 32.0, 84.0, 77.…
+#> $ hair_color <chr> "blond", NA, NA, "none", "brown", "brown, grey", "brown", N…
+#> $ skin_color <chr> "fair", "gold", "white, blue", "white", "light", "light", "…
+#> $ eye_color  <chr> "blue", "yellow", "red", "yellow", "brown", "blue", "blue",…
+#> $ birth_year <dbl> 19.0, 112.0, 33.0, 41.9, 19.0, 52.0, 47.0, NA, 24.0, 57.0, …
+#> $ sex        <chr> "male", "none", "none", "male", "female", "male", "female",…
+#> $ gender     <chr> "masculine", "masculine", "masculine", "masculine", "femini…
+#> $ homeworld  <chr> "Tatooine", "Tatooine", "Naboo", "Tatooine", "Alderaan", "T…
+#> $ species    <chr> "Human", "Droid", "Droid", "Human", "Human", "Human", "Huma…
+#> $ films      <list> <"A New Hope", "The Empire Strikes Back", "Return of the J…
+#> $ vehicles   <list> <"Snowspeeder", "Imperial Speeder Bike">, <>, <>, <>, "Imp…
+#> $ starships  <list> <"X-wing", "Imperial shuttle">, <>, <>, "TIE Advanced x1",…
 ```

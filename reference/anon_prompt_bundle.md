@@ -1,6 +1,6 @@
-# Build prompt-ready text from anonymized report objects
+# Build prompt-ready text from report objects
 
-Build prompt-ready text from anonymized report objects
+Build prompt-ready text from report objects
 
 ## Usage
 
@@ -10,7 +10,7 @@ anon_prompt_bundle(
   text = NULL,
   comparison = NULL,
   format = c("markdown", "text", "json"),
-  title = "Anonymized Prompt Context",
+  title = "Prompt Context",
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,

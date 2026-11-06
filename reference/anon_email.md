@@ -1,7 +1,6 @@
-# Anonymize email addresses
+# Replace email addresses with pseudonymous addresses
 
-Anonymizes email addresses by replacing them with sequential fake
-emails.
+Replaces each distinct email address with a sequential fake address.
 
 ## Usage
 

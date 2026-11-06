@@ -1,6 +1,6 @@
-# Build an anonymized report for selected objects
+# Build a report for selected objects, applying your redaction rules
 
-Build an anonymized report for selected objects
+Build a report for selected objects, applying your redaction rules
 
 ## Usage
 
@@ -79,7 +79,7 @@ anon_report(
 - df_variable_names:
 
   For data frames, a character vector or named list specifying which
-  variable names should be anonymized:
+  variables should be replaced:
 
   - Unnamed elements: variables are replaced with `default_replacement`
 
@@ -90,7 +90,7 @@ anon_report(
 - df_classes:
 
   For data frames, a character vector or named list specifying which
-  variable classes should be anonymized:
+  variable classes should be replaced:
 
   - Unnamed elements: variables with matching classes are replaced with
     `default_replacement`
@@ -126,5 +126,5 @@ anon_report(
 
 ## Value
 
-An object of class `"anon_report"` containing an anonymized object
-inventory and environment summary for the selected objects.
+An object of class `"anon_report"` containing an object inventory and
+environment summary for the selected objects.

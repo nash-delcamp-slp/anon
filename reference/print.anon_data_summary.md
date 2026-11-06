@@ -1,7 +1,7 @@
-# Print method for anonymized environment summary
+# Print method for environment data summaries
 
-Displays an anonymized environment summary in a structured, readable
-format. The output includes overall statistics, data frame structural
+Displays an environment data summary in a structured, readable format.
+The output includes overall statistics, data frame structural
 information, variable details, optional example payloads, and
 information about other objects (if present).
 
@@ -52,7 +52,7 @@ the creation of the summary object.
 
 ``` r
 if (FALSE) { # \dontrun{
-# Create and print an anonymized summary
+# Create and print a summary
 summary_result <- anon_data_summary(
   list(data = mtcars),
   pattern_list = list("CAR" = "Mazda|Merc")

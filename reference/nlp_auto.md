@@ -1,11 +1,11 @@
-# Generate NLP auto-anonymization options list
+# Generate NLP auto-redaction options list
 
 This function creates a named list of logical values indicating which
-types of NLP entities should be automatically anonymized when using the
+types of NLP entities should be automatically redacted when using the
 core
 [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
 function. It provides a centralized way to manage automatic NLP
-anonymization settings when set as the global option `anon.nlp_auto`.
+redaction settings when set as the global option `anon.nlp_auto`.
 
 ## Usage
 
@@ -43,81 +43,81 @@ nlp_auto(
 
 - cardinal:
 
-  Logical indicating whether to automatically anonymize cardinal numbers
+  Logical indicating whether to automatically redact cardinal numbers
 
 - date:
 
-  Logical indicating whether to automatically anonymize dates
+  Logical indicating whether to automatically redact dates
 
 - event:
 
-  Logical indicating whether to automatically anonymize events
+  Logical indicating whether to automatically redact events
 
 - fac:
 
-  Logical indicating whether to automatically anonymize facilities
+  Logical indicating whether to automatically redact facilities
 
 - gpe:
 
-  Logical indicating whether to automatically anonymize geopolitical
+  Logical indicating whether to automatically redact geopolitical
   entities
 
 - language:
 
-  Logical indicating whether to automatically anonymize languages
+  Logical indicating whether to automatically redact languages
 
 - law:
 
-  Logical indicating whether to automatically anonymize laws
+  Logical indicating whether to automatically redact laws
 
 - loc:
 
-  Logical indicating whether to automatically anonymize locations
+  Logical indicating whether to automatically redact locations
 
 - money:
 
-  Logical indicating whether to automatically anonymize money
+  Logical indicating whether to automatically redact money
 
 - norp:
 
-  Logical indicating whether to automatically anonymize
+  Logical indicating whether to automatically redact
   nationalities/religious/political groups
 
 - ordinal:
 
-  Logical indicating whether to automatically anonymize ordinal numbers
+  Logical indicating whether to automatically redact ordinal numbers
 
 - org:
 
-  Logical indicating whether to automatically anonymize organizations
+  Logical indicating whether to automatically redact organizations
 
 - percent:
 
-  Logical indicating whether to automatically anonymize percentages
+  Logical indicating whether to automatically redact percentages
 
 - person:
 
-  Logical indicating whether to automatically anonymize person names
+  Logical indicating whether to automatically redact person names
 
 - product:
 
-  Logical indicating whether to automatically anonymize products
+  Logical indicating whether to automatically redact products
 
 - quantity:
 
-  Logical indicating whether to automatically anonymize quantities
+  Logical indicating whether to automatically redact quantities
 
 - time:
 
-  Logical indicating whether to automatically anonymize times
+  Logical indicating whether to automatically redact times
 
 - work_of_art:
 
-  Logical indicating whether to automatically anonymize works of art
+  Logical indicating whether to automatically redact works of art
 
 - propn:
 
-  Logical indicating whether to automatically anonymize proper nouns
+  Logical indicating whether to automatically redact proper nouns
 
 ## Value
 
@@ -127,7 +127,7 @@ A named list of logical values that can be set with
 ## Examples
 
 ``` r
-# Get default auto-anonymization options (all TRUE)
+# Get default auto-redaction options (all TRUE)
 default_auto <- nlp_auto(default = TRUE)
 
 # Customize specific entity types (default, default is FALSE)

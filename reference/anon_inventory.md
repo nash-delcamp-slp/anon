@@ -1,6 +1,6 @@
-# Build an anonymized inventory of objects in an environment or list
+# Build an inventory of objects, applying your redaction rules
 
-Build an anonymized inventory of objects in an environment or list
+Build an inventory of objects, applying your redaction rules
 
 ## Usage
 
@@ -55,5 +55,5 @@ anon_inventory(
 
 ## Value
 
-A tibble with one row per object and anonymized metadata about the
-available objects.
+A tibble with one row per object and metadata, with your patterns
+applied, about the available objects.

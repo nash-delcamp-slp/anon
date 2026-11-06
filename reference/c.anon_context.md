@@ -1,10 +1,10 @@
 # Combine anon_context objects
 
-This method allows combining multiple anonymized objects created by
+This method allows combining multiple objects created by
 [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md) or
 [`anon_data_summary()`](https://nash-delcamp-slp.github.io/anon/reference/anon_data_summary.md)
 using [`c()`](https://rdrr.io/r/base/c.html). The result maintains the
-anonymized content and provides a print method suitable for LLM context.
+processed content and provides a print method suitable for LLM context.
 An additional header is included in printed output for named elements.
 
 ## Usage
@@ -32,7 +32,7 @@ anon_df <- anon(df, pattern_list = c("John", "Jane"))
 summary_obj <- anon_data_summary(list(df = df))
 combined <- c(anon_df, summary_obj)
 print(combined)
-#> === ANONYMIZED DATA CONTEXT ===
+#> === DATA CONTEXT ===
 #> 
 #>         name age
 #> 1 [REDACTED]  25

@@ -1,7 +1,16 @@
-# Anonymize numeric data while preserving distribution
+# Shuffle, add noise to, or resample numeric values
 
-Anonymizes numeric data while preserving distributional properties using
-various transformation methods.
+Replaces numeric values while keeping their overall distribution, using
+one of three methods:
+
+- `"rank"` (default) reassigns the original values to other records
+  (data swapping). Every original value, including outliers, is still
+  present.
+
+- `"noise"` adds random noise to each value (randomization).
+
+- `"quantile"` replaces values with draws from a fitted theoretical
+  distribution at shuffled quantiles.
 
 ## Usage
 
