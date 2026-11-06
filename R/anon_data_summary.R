@@ -602,22 +602,6 @@ select_example_indices <- function(n_total, n, method = "first", seed = NULL) {
   sort(sample_int_with_seed(n_total, n_select, seed = seed))
 }
 
-choose_example_index <- function(n_total, method = "first", seed = NULL) {
-  if (n_total <= 0L) {
-    return(integer(0))
-  }
-
-  if (method == "first") {
-    return(1L)
-  }
-
-  if (method == "last") {
-    return(as.integer(n_total))
-  }
-
-  sample_int_with_seed(n_total, 1L, seed = seed)
-}
-
 sample_int_with_seed <- function(n_total, size, seed = NULL) {
   if (is.null(seed)) {
     return(sample.int(n_total, size = size, replace = FALSE))

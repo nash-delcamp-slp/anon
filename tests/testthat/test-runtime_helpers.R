@@ -259,3 +259,11 @@ test_that("format_anon_data_summary_text() includes scenarios and other objects"
   text <- format_anon_data_summary_text(summary)
   expect_match(text, "Example Scenario 2 (USUBJID = 02)", fixed = TRUE)
 })
+
+test_that("anon_inventory() handles POSIXlt objects", {
+  lt <- as.POSIXlt(c("2021-03-14 08:00:00", "2021-03-15 09:00:00"), tz = "UTC")
+  inventory <- anon_inventory(list(t = lt, nested = list(t = lt)))
+  expect_equal(inventory$kind, c("POSIXlt", "list"))
+  expect_equal(inventory$has_text, c(FALSE, FALSE))
+  expect_equal(inventory$has_labels, c(FALSE, FALSE))
+})

@@ -447,3 +447,12 @@ test_that("compute_approximate_distances() returns empty results when nothing is
   result <- compute_approximate_distances(c("Alise Smith", "Bob"), "Alice Smith")
   expect_equal(result$matching_strings, "Alise Smith")
 })
+
+test_that("anon() treats POSIXlt values as values, not lists to recurse into", {
+  lt <- as.POSIXlt(c("2021-03-14 08:00:00", "2021-03-15 09:00:00"), tz = "UTC")
+
+  expect_equal(unclass(anon(lt)), unclass(lt))
+  result <- anon(list(t = lt, note = "Alice"), pattern_list = list(P = "Alice"))
+  expect_equal(result$t, lt)
+  expect_equal(result$note, "P")
+})

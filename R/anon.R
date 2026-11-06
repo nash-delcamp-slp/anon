@@ -377,7 +377,7 @@ anon <- function(
           check_approximate,
           max_distance
         )
-      } else if (is.list(result[[col_name]])) {
+      } else if (is_container_list(result[[col_name]])) {
         # Only recurse into anon() for list columns (need recursive handling)
         recursive_result <- anon(
           result[[col_name]],
@@ -442,7 +442,7 @@ anon <- function(
         )
       }
     }
-  } else if (is.list(x)) {
+  } else if (is_container_list(x)) {
     result <- purrr::map(
       x,
       ~ {
@@ -670,7 +670,7 @@ nlp_text_source <- function(x, df_variable_names, df_classes) {
     )
     return(x[keep])
   }
-  if (is.list(x)) {
+  if (is_container_list(x)) {
     return(lapply(x, nlp_text_source, df_variable_names, df_classes))
   }
   x

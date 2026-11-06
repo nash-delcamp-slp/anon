@@ -28,7 +28,7 @@ collect_text <- function(x) {
         use.names = FALSE
       )
     }
-  } else if (is.list(x)) {
+  } else if (is_container_list(x)) {
     # Recursively extract text from list elements
     text <- unique(unlist(
       lapply(x, collect_text),
@@ -43,4 +43,19 @@ collect_text <- function(x) {
   text_clean <- text[!is.na(text)]
 
   return(text_clean)
+}
+
+# Whether `x` is a list whose elements should be visited one by one. List-based
+# vector classes such as POSIXlt return an element of their own class from
+# `[[`, so they are values rather than containers; recursing into them never
+# terminates.
+is_container_list <- function(x) {
+  if (!is.list(x)) {
+    return(FALSE)
+  }
+  if (!is.object(x) || length(x) == 0) {
+    return(TRUE)
+  }
+  first <- tryCatch(x[[1]], error = function(e) NULL)
+  !inherits(first, class(x)[1])
 }

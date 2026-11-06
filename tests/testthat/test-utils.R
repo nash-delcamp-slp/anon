@@ -77,3 +77,9 @@ test_that("collect_text() handles list with NULL elements", {
   expect_true("hello" %in% result)
   expect_true("world" %in% result)
 })
+
+test_that("collect_text() converts POSIXlt values instead of recursing", {
+  lt <- as.POSIXlt("2021-03-14 08:00:00", tz = "UTC")
+  expect_equal(collect_text(lt), as.character(lt))
+  expect_equal(collect_text(list(lt, "a")), c(as.character(lt), "a"))
+})

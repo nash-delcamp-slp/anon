@@ -175,3 +175,96 @@ test_that("read_content_xlsx() and read_content_pdf() return empty text for empt
   local_mocked_bindings(pdf_text = function(path) character(0), .package = "pdftools")
   expect_equal(read_content_pdf("empty.pdf"), "")
 })
+
+test_that("read_content() keeps every row of an Excel sheet", {
+  skip_if_not_installed("readxl")
+  rows <- 30
+  local_mocked_bindings(
+    excel_sheets = function(path) "Big",
+    read_excel = function(path, sheet) {
+      tibble::tibble(id = sprintf("S%03d", seq_len(rows)), value = seq_len(rows))
+    },
+    .package = "readxl"
+  )
+
+  result <- read_content_xlsx("big.xlsx")
+  expect_match(result, "S030", fixed = TRUE)
+  expect_false(grepl("more rows", result, fixed = TRUE))
+  expect_false(grepl("A tibble", result, fixed = TRUE))
+})
+
+test_that("read_content() keeps Word tables intact and in document order", {
+  skip_if_not_installed("officer")
+  path <- tempfile(fileext = ".docx")
+  on.exit(unlink(path))
+
+  doc <- officer::read_docx()
+  doc <- officer::body_add_par(doc, "Before")
+  doc <- officer::body_add_table(doc, data.frame(arm = c("A", "B"), n = c("10", "12")))
+  doc <- officer::body_add_par(doc, "After")
+  print(doc, target = path)
+
+  result <- strsplit(unname(read_content(path)), "\n", fixed = TRUE)[[1]]
+  result <- trimws(result[nzchar(trimws(result))])
+
+  expect_equal(result[1], "Before")
+  expect_equal(result[length(result)], "After")
+  table_lines <- result[-c(1, length(result))]
+  expect_length(table_lines, 4)
+  expect_match(table_lines[2], "^arm\\s+n$")
+  expect_match(table_lines[3], "^A\\s+10$")
+  expect_match(table_lines[4], "^B\\s+12$")
+})
+
+test_that("read_content() returns empty text for .pptx files without slide text", {
+  skip_if_not_installed("officer")
+  no_slides <- tempfile(fileext = ".pptx")
+  blank_slide <- tempfile(fileext = ".pptx")
+  on.exit(unlink(c(no_slides, blank_slide)))
+
+  print(officer::read_pptx(), target = no_slides)
+  deck <- officer::add_slide(officer::read_pptx(), layout = "Title Only", master = "Office Theme")
+  print(deck, target = blank_slide)
+
+  expect_equal(unname(read_content(no_slides)), "")
+  expect_equal(unname(read_content(blank_slide)), "")
+})
+
+test_that("read_content_docx() groups table cells by doc_index without table_index", {
+  skip_if_not_installed("officer")
+  # Layout of docx_summary() in officer versions that give every cell of a
+  # table the same doc_index and have no table_index column.
+  local_mocked_bindings(
+    read_docx = function(path) NULL,
+    docx_summary = function(x) {
+      data.frame(
+        doc_index = c(1, 2, 2, 2, 2, 3),
+        content_type = c("paragraph", rep("table cell", 4), "paragraph"),
+        text = c("Before", "arm", "n", "A", "10", "After"),
+        row_id = c(NA, 1, 1, 2, 2, NA),
+        cell_id = c(NA, 1, 2, 1, 2, NA),
+        stringsAsFactors = FALSE
+      )
+    },
+    .package = "officer"
+  )
+
+  lines <- strsplit(read_content_docx("old.docx"), "\n", fixed = TRUE)[[1]]
+  lines <- trimws(lines[nzchar(trimws(lines))])
+  expect_equal(lines[1], "Before")
+  expect_match(lines[3], "^arm\\s+n$")
+  expect_match(lines[4], "^A\\s+10$")
+  expect_equal(lines[5], "After")
+})
+
+test_that("read_content_pptx() returns empty text when slides only have empty paragraphs", {
+  skip_if_not_installed("officer")
+  local_mocked_bindings(
+    read_pptx = function(path) NULL,
+    pptx_summary = function(x) {
+      data.frame(content_type = "paragraph", text = "", slide_id = 1, stringsAsFactors = FALSE)
+    },
+    .package = "officer"
+  )
+  expect_equal(read_content_pptx("empty.pptx"), "")
+})
