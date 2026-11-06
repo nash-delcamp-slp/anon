@@ -30,8 +30,9 @@ values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
 numbers; the unshifted-dates warning does not cover them). In columns not
 named \verb{*DTC}, such as \code{QVAL} or a result column given in \code{vars}, only the
-values that are dates are shifted and other values, including bare
-four-digit numbers, are kept. Columns given in
+values that are dates are shifted and other values are kept; bare
+four-digit numbers are kept too, unless every value of a \code{vars} column is
+a date (such as a column of birth years). Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
 dates.}
 
@@ -96,9 +97,11 @@ columns given in \code{vars} must contain at least one recognised date. Datasets
 such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
 real trial dates can narrow down subjects' offsets. A warning lists any other
 column in a keyed dataset that holds dates but was not shifted: Date or
-POSIXct columns left out of \code{vars}, numeric columns with a SAS date format,
-and text columns with ISO 8601 dates as whole values or inside text (which
-can't be shifted). It also lists any dataset without \code{key} that has such
+POSIXct columns left out of \code{vars}, numeric columns with a SAS date format
+(in a separate warning; convert them to Date or POSIXct to shift them), and
+text columns with ISO 8601 dates as whole values, or ISO 8601 or DDMONYYYY
+dates inside text (which can't be shifted), including the values kept in
+mixed columns such as \code{QVAL}. It also lists any dataset without \code{key} that has such
 columns or a column named like \code{key} in another case.
 
 Random numbers come from R's random number generator; see

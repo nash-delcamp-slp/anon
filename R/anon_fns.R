@@ -227,15 +227,19 @@ parse_iso8601_dates <- function(x) {
 
   date_kinds <- c("full", "month", "month_time", "year", "year_day")
   if (any(is_interval)) {
+    # Parse all starts and all ends in one call each.
     parts <- strsplit(x[is_interval], "/", fixed = TRUE)
-    end_kinds <- lapply(parts, function(p) if (length(p) == 2) parse_iso8601_dates(p)$kind else "invalid")
-    ends_ok <- vapply(end_kinds, function(k) {
-      length(k) == 2 && all(k %in% c(date_kinds, "duration")) && any(k %in% date_kinds)
-    }, logical(1))
-    first_date <- vapply(seq_along(parts), function(i) {
-      if (!ends_ok[i]) return(NA_character_)
-      parts[[i]][which(end_kinds[[i]] %in% date_kinds)[1]]
-    }, character(1))
+    two <- lengths(parts) == 2
+    starts <- ends <- rep(NA_character_, length(parts))
+    starts[two] <- vapply(parts[two], `[`, character(1), 1)
+    ends[two] <- vapply(parts[two], `[`, character(1), 2)
+    start_kind <- end_kind <- rep("invalid", length(parts))
+    start_kind[two] <- parse_iso8601_dates(starts[two])$kind
+    end_kind[two] <- parse_iso8601_dates(ends[two])$kind
+    usable <- c(date_kinds, "duration")
+    ends_ok <- two & start_kind %in% usable & end_kind %in% usable &
+      (start_kind %in% date_kinds | end_kind %in% date_kinds)
+    first_date <- ifelse(start_kind %in% date_kinds, starts, ends)
     kind[is_interval][ends_ok] <- "interval"
     reference[is_interval][ends_ok] <- parse_iso8601_dates(first_date[ends_ok])$reference
   }

@@ -41,15 +41,17 @@
 #' `key_cols` must not overlap.
 #'
 #' A warning lists any other character or factor column (values or factor
-#' levels) in a keyed dataset that still contains original key values, as whole
-#' values or inside text (checked for character keys only, since numeric keys
-#' match many unrelated codes), and
+#' levels), in any dataset, that still contains original key values as whole
+#' values or as whole words inside text (checked for character keys only, since
+#' numeric keys match many unrelated codes), and
 #' any dataset without `key` that has an `also` or `key_cols` column or a column
 #' named like `key` in another case.
 #' Original values of `also` columns (such as `SUBJID`) elsewhere are not
 #' checked, because short numbers match many unrelated values. Missing values in
-#' `also` columns stay missing, and haven missing-value codes (`na_values`) that
-#' are not subject keys are kept.
+#' `also` columns stay missing. In `key`, `also` and `key_cols` columns, haven
+#' user-defined missing values (`na_values`, `na_range`) become plain missing
+#' values and the codes are dropped, because a code can't be told apart from a
+#' real identifier.
 #'
 #' Random numbers come from R's random number generator. If your script calls
 #' [set.seed()] before this step, anyone with the script and the data can
@@ -96,6 +98,11 @@ anon_subject_ids <- function(
   input <- as_dataset_list(data)
   data <- input$data
   keyed <- keyed_datasets(data, key)
+  for (ds in keyed) {
+    for (col in intersect(c(key, also, key_cols), names(data[[ds]]))) {
+      data[[ds]][[col]] <- zap_user_missing(data[[ds]][[col]])
+    }
+  }
   keys <- subject_keys(data[keyed], key)
 
   numbers <- sample_int_with_seed(length(keys), length(keys), seed = seed)
@@ -117,7 +124,7 @@ anon_subject_ids <- function(
     df <- data[[ds]]
     idx <- match(normalize_keys(df[[key]]), keys)
 
-    df[[key]] <- replace_ids(df[[key]], idx, pseudonyms, numbers, keys = keys)
+    df[[key]] <- replace_ids(df[[key]], idx, pseudonyms, numbers)
     log <- deid_log_add(log, ds, key, "replaced with pseudonyms", sum(!is.na(idx)))
 
     for (col in intersect(also, names(df))) {
@@ -126,7 +133,7 @@ anon_subject_ids <- function(
       unmapped <- is.na(idx) & present
       also_idx <- ifelse(present, idx, NA_integer_)
       removed_also <- removed_also + sum(unmapped)
-      df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped, keys = keys)
+      df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped)
       log <- deid_log_add(log, ds, col, "replaced with the pseudonym number", sum(!is.na(also_idx)), sum(unmapped))
     }
 
@@ -134,7 +141,7 @@ anon_subject_ids <- function(
       col_idx <- match(normalize_keys(df[[col]]), keys)
       unmapped <- is.na(col_idx) & !is.na(normalize_keys(df[[col]]))
       removed_key_cols <- removed_key_cols + sum(unmapped)
-      df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped, keys = keys)
+      df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped)
       log <- deid_log_add(log, ds, col, "replaced with pseudonyms", sum(!is.na(col_idx)), sum(unmapped))
     }
 
@@ -157,7 +164,7 @@ anon_subject_ids <- function(
     )
   }
   if (!all(vapply(data[keyed], function(df) is.numeric(df[[key]]), logical(1)))) {
-    warn_leftover_keys(data, keyed, key, keys)
+    warn_leftover_keys(data, keyed, key, keys, skip = c(also, key_cols))
   }
   warn_unkeyed_identifiers(data, keyed, key, c(also, key_cols), check_dates = FALSE)
 
@@ -191,8 +198,9 @@ anon_subject_ids <- function(
 #'   (year-only values are left alone because they can't be told apart from
 #'   numbers; the unshifted-dates warning does not cover them). In columns not
 #'   named `*DTC`, such as `QVAL` or a result column given in `vars`, only the
-#'   values that are dates are shifted and other values, including bare
-#'   four-digit numbers, are kept. Columns given in
+#'   values that are dates are shifted and other values are kept; bare
+#'   four-digit numbers are kept too, unless every value of a `vars` column is
+#'   a bare year (such as a column of birth years). Columns given in
 #'   `vars` must be Date, POSIXct, or character or factor columns of ISO 8601
 #'   dates.
 #' @param max_days,min_days Each subject's offset is drawn uniformly from the
@@ -237,9 +245,11 @@ anon_subject_ids <- function(
 #' such as `TS`, `TV` and `TA`) are left unchanged and listed in the log; their
 #' real trial dates can narrow down subjects' offsets. A warning lists any other
 #' column in a keyed dataset that holds dates but was not shifted: Date or
-#' POSIXct columns left out of `vars`, numeric columns with a SAS date format,
-#' and text columns with ISO 8601 dates as whole values or inside text (which
-#' can't be shifted). It also lists any dataset without `key` that has such
+#' POSIXct columns left out of `vars`, numeric columns with a SAS date format
+#' (in a separate warning; convert them to Date or POSIXct to shift them), and
+#' text columns with ISO 8601 dates as whole values, or ISO 8601 or DDMONYYYY
+#' dates inside text (which can't be shifted), including the values kept in
+#' mixed columns such as `QVAL`. It also lists any dataset without `key` that has such
 #' columns or a column named like `key` in another case.
 #'
 #' Random numbers come from R's random number generator; see
@@ -479,21 +489,13 @@ subject_keys <- function(data, key) {
 # Replace identifiers by subject index, keeping the column's type and
 # attributes (such as labels). Rows without a subject keep their value unless
 # `remove` is TRUE for them.
-replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x)), keys = character(0)) {
+replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x))) {
   has <- !is.na(idx)
-  # Missing-value codes (haven na_values) that are not subject keys, such as
-  # -9, keep marking values as missing.
-  na_codes <- attr(x, "na_values", exact = TRUE)
-  na_codes <- na_codes[!key_as_character(na_codes) %in% keys]
-  restore_na_codes <- function(out) {
-    if (length(na_codes) > 0) attr(out, "na_values") <- na_codes
-    out
-  }
   if (is.numeric(x)) {
     out <- x
     out[has] <- numbers[idx[has]]
     out[remove] <- NA
-    return(restore_na_codes(drop_value_labels(out)))
+    return(drop_value_labels(out))
   }
   if (is.factor(x)) {
     values <- as.character(x)
@@ -504,7 +506,24 @@ replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x)),
   out <- x
   out[has] <- labels[idx[has]]
   out[remove] <- missing_text_like(as.character(x))
-  restore_na_codes(drop_value_labels(out))
+  drop_value_labels(out)
+}
+
+# haven user-defined missing values (labelled_spss na_values and na_range)
+# become plain missing values and the codes are dropped. In identifier columns
+# a code can't be told apart from a real identifier, and a kept code could
+# match a new pseudonym number.
+zap_user_missing <- function(x) {
+  if (!inherits(x, "haven_labelled_spss")) {
+    return(x)
+  }
+  values <- vctrs::vec_data(x)
+  values[is.na(x)] <- NA
+  attrs <- attributes(x)
+  attrs[c("na_values", "na_range")] <- NULL
+  attrs$class <- setdiff(attrs$class, "haven_labelled_spss")
+  attributes(values) <- attrs
+  values
 }
 
 # Value labels (haven "labels") describe the original values, so they are
@@ -623,9 +642,17 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE) {
   if (is.character(x)) {
     kinds <- parse_iso8601_dates(x)$kind
     # Values with no date to shift: time-only values and durations, and in
-    # mixed columns (not named *DTC) values that aren't dates at all.
-    unchanged <- present & (kinds %in% c("time_only", "duration") |
-      (keep_non_dates & (kinds == "invalid" | is_year_only_value(x, kinds))))
+    # mixed columns (not named *DTC) values that aren't dates at all. Bare
+    # years in a mixed column are more likely numbers and are kept too, unless
+    # the column holds only years.
+    unchanged <- present & kinds %in% c("time_only", "duration")
+    if (keep_non_dates) {
+      year_only <- present & is_year_only_value(x, kinds)
+      unchanged <- unchanged | (present & kinds == "invalid")
+      if (!all(year_only[present])) {
+        unchanged <- unchanged | year_only
+      }
+    }
     no_offset <- present & !unchanged & is.na(offset)
     new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
     if (partial == "remove") {
@@ -673,13 +700,13 @@ year_in_range <- function(x) {
 # columns that mix dates with other values these are more likely numbers.
 is_year_only_value <- function(x, kinds = parse_iso8601_dates(x)$kind) {
   out <- kinds == "year"
-  is_interval <- which(kinds == "interval")
-  if (length(is_interval) > 0) {
-    ends <- strsplit(x[is_interval], "/", fixed = TRUE)
-    out[is_interval] <- vapply(ends, function(e) {
-      end_kinds <- parse_iso8601_dates(e)$kind
-      all(end_kinds[end_kinds != "duration"] == "year")
-    }, logical(1))
+  ends <- interval_end_kinds(x, kinds)
+  if (!is.null(ends)) {
+    dated <- ends$kind != "duration"
+    out[unique(ends$value)] <- vapply(
+      split(ends$kind[dated] == "year", factor(ends$value[dated], levels = unique(ends$value))),
+      all, logical(1)
+    )
   }
   out
 }
@@ -688,12 +715,26 @@ is_year_only_value <- function(x, kinds = parse_iso8601_dates(x)$kind) {
 is_partial_date <- function(x, kinds = parse_iso8601_dates(x)$kind) {
   partial_kinds <- c("month", "month_time", "year", "year_day")
   out <- kinds %in% partial_kinds
-  is_interval <- which(kinds == "interval")
-  if (length(is_interval) > 0) {
-    ends <- strsplit(x[is_interval], "/", fixed = TRUE)
-    out[is_interval] <- vapply(ends, function(e) any(parse_iso8601_dates(e)$kind %in% partial_kinds), logical(1))
+  ends <- interval_end_kinds(x, kinds)
+  if (!is.null(ends)) {
+    partial_end <- tapply(ends$kind %in% partial_kinds, ends$value, any)
+    out[as.integer(names(partial_end))] <- partial_end
   }
   out
+}
+
+# The kinds of the two ends of each interval value, parsed in one call:
+# a data frame with the value's position and the end's kind, or NULL.
+interval_end_kinds <- function(x, kinds) {
+  is_interval <- which(kinds == "interval")
+  if (length(is_interval) == 0) {
+    return(NULL)
+  }
+  ends <- strsplit(x[is_interval], "/", fixed = TRUE)
+  data.frame(
+    value = rep(is_interval, lengths(ends)),
+    kind = parse_iso8601_dates(unlist(ends, use.names = FALSE))$kind
+  )
 }
 
 # Shift QVAL values that are ISO 8601 dates with more than a bare year (which
@@ -736,17 +777,22 @@ shift_detail <- function(shifted) {
   paste(c(paste0(shifted$shifted, " value(s) shifted"), removed), collapse = ", ")
 }
 
-# Warn about text columns in keyed datasets that still contain original keys,
-# as whole values or inside text.
-warn_leftover_keys <- function(data, keyed, key, keys) {
+# Warn about text columns, in any dataset, that still contain original keys as
+# whole values or as whole words inside text. The key column and the `skip`
+# columns, which were just replaced, are not checked in keyed datasets.
+warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
+  keys <- valid_utf8_text(keys)
   if (length(keys) == 0) {
     return(invisible())
   }
-  key_pattern <- paste(escape_regex_chars(keys), collapse = "|")
+  key_pattern <- paste0(
+    whole_value_prefix, "(?:", paste(escape_regex_chars(keys), collapse = "|"), ")", whole_value_suffix
+  )
   hits <- character(0)
-  for (ds in keyed) {
+  for (ds in names(data)) {
     df <- data[[ds]]
-    for (col in setdiff(names(df), key)) {
+    cols <- if (ds %in% keyed) setdiff(names(df), c(key, skip)) else names(df)
+    for (col in cols) {
       values <- text_values(df[[col]])
       if (length(values) > 0 && any(stringi::stri_detect_regex(values, key_pattern), na.rm = TRUE)) {
         hits <- c(hits, paste0(ds, ".", col))
@@ -763,33 +809,61 @@ warn_leftover_keys <- function(data, keyed, key, keys) {
   }
 }
 
-# Distinct, valid UTF-8 text values of a character column, or the levels of a
-# factor (including unused levels); NULL for other columns.
+# Distinct text values of a character column, or the levels of a factor
+# (including unused levels), as UTF-8; NULL for other columns.
 text_values <- function(x) {
   values <- if (is.factor(x)) levels(x) else if (is.character(x)) unique(as.character(x)) else NULL
   if (is.null(values)) {
     return(NULL)
   }
-  values <- values[!is.na(values)]
-  values[validUTF8(values)]
+  valid_utf8_text(values)
 }
 
-# Warn about text columns in keyed datasets that hold ISO 8601 dates but were
-# not shifted.
+# Non-missing values converted to UTF-8 from their declared encoding (such as
+# latin1); values that are still not valid UTF-8 are dropped, because regular
+# expressions can't search them.
+valid_utf8_text <- function(x) {
+  x <- enc2utf8(as.character(x[!is.na(x)]))
+  x[validUTF8(x)]
+}
+
+# Warn about columns in keyed datasets that hold dates but were not shifted:
+# unselected date columns, and dates kept as text in the mixed columns that
+# were shifted (`vars` columns not named *DTC, and QVAL).
 warn_unshifted_iso_dates <- function(data, keyed, date_vars, key, qval_processed) {
   hits <- character(0)
+  sas_hits <- character(0)
   for (ds in keyed) {
     df <- data[[ds]]
     is_supp <- all(c("QNAM", "QVAL") %in% names(df))
-    skip <- c(key, date_vars[[ds]], if (is_supp && qval_processed) "QVAL")
-    hits <- c(hits, iso_date_columns(df, setdiff(names(df), skip), ds))
+    mixed <- c(
+      date_vars[[ds]][!grepl("DTC$", date_vars[[ds]], ignore.case = TRUE)],
+      if (is_supp && qval_processed) "QVAL"
+    )
+    others <- setdiff(names(df), c(key, date_vars[[ds]], mixed))
+    sas <- sas_date_columns(df, others)
+    hits <- c(
+      hits,
+      iso_date_columns(df, setdiff(others, sas), ds),
+      qualify(ds, Filter(function(col) has_dates_in_text(df[[col]], only_non_dates = TRUE), mixed))
+    )
+    sas_hits <- c(sas_hits, qualify(ds, sas))
   }
   if (length(hits) > 0) {
     warning(
-      "These columns contain ISO 8601 dates but were not shifted: ",
+      "These columns contain dates that were not shifted: ",
       paste(hits, collapse = ", "),
-      ". If they hold dates, list them in `vars` together with every other date column ",
-      "(`vars` replaces the default selection); dates inside free text can't be shifted, so redact or remove them.",
+      ". If they hold ISO 8601 dates, list them in `vars` together with every other date column ",
+      "(`vars` replaces the default selection); dates inside free text or in other formats ",
+      "(such as 05JAN2014) can't be shifted, so redact or remove them.",
+      call. = FALSE
+    )
+  }
+  if (length(sas_hits) > 0) {
+    warning(
+      "These numeric columns have a SAS date or datetime format and were not shifted: ",
+      paste(sas_hits, collapse = ", "),
+      ". Convert them to Date or POSIXct (SAS counts from 1960-01-01) and list them in `vars`, or remove them.",
       call. = FALSE
     )
   }
@@ -797,23 +871,42 @@ warn_unshifted_iso_dates <- function(data, keyed, date_vars, key, qval_processed
 
 # Columns, among `cols`, that hold dates: Date or POSIXct columns, numeric
 # columns with a SAS date or datetime format, and text or factor columns with
-# ISO 8601-like dates as whole values or inside text.
+# dates as whole values or inside text.
 iso_date_columns <- function(df, cols, dataset) {
-  hits <- character(0)
-  for (col in cols) {
+  is_date_col <- vapply(cols, function(col) {
     x <- df[[col]]
-    values <- text_values(x)
-    is_date_col <- inherits(x, c("Date", "POSIXct")) ||
-      (is.numeric(x) && grepl(sas_date_format_pattern, attr(x, "format.sas", exact = TRUE) %||% "", ignore.case = TRUE)) ||
-      (length(values) > 0 && any(
-        grepl(iso_date_like_pattern, values, useBytes = TRUE) |
-          grepl(embedded_date_pattern, values, useBytes = TRUE)
-      ))
-    if (is_date_col) {
-      hits <- c(hits, paste0(dataset, ".", col))
-    }
+    inherits(x, c("Date", "POSIXct")) || has_dates_in_text(x)
+  }, logical(1))
+  qualify(dataset, c(cols[is_date_col], sas_date_columns(df, cols[!is_date_col])))
+}
+
+# "dataset.column" names; empty when there are no columns.
+qualify <- function(dataset, cols) {
+  if (length(cols) == 0) character(0) else paste0(dataset, ".", cols)
+}
+
+# Numeric columns, among `cols`, with a SAS date or datetime display format.
+sas_date_columns <- function(df, cols) {
+  is_sas <- vapply(cols, function(col) {
+    x <- df[[col]]
+    is.numeric(x) && grepl(sas_date_format_pattern, attr(x, "format.sas", exact = TRUE) %||% "", ignore.case = TRUE)
+  }, logical(1))
+  cols[is_sas]
+}
+
+# Whether a text or factor column holds ISO 8601-like dates as whole values, or
+# ISO or DDMONYYYY dates inside text. With `only_non_dates`, values recognised
+# as ISO 8601 dates (which were shifted) are not checked.
+has_dates_in_text <- function(x, only_non_dates = FALSE) {
+  values <- text_values(x)
+  if (only_non_dates && length(values) > 0) {
+    values <- values[parse_iso8601_dates(values)$kind == "invalid"]
   }
-  hits
+  length(values) > 0 && any(
+    grepl(iso_date_like_pattern, values, useBytes = TRUE) |
+      grepl(embedded_date_pattern, values, useBytes = TRUE) |
+      grepl(month_name_date_pattern, values, ignore.case = TRUE, useBytes = TRUE)
+  )
 }
 
 iso_date_like_pattern <- "^[0-9]{4}-([0-9]{2}(-[0-9]{2}|--T)|-{2}[0-9]{2})|^[0-9]{4}-[0-9]{2}$"
@@ -821,9 +914,12 @@ iso_date_like_pattern <- "^[0-9]{4}-([0-9]{2}(-[0-9]{2}|--T)|-{2}[0-9]{2})|^[0-9
 # A year-month or full date inside text, e.g. "Seen on 2014-01-05".
 embedded_date_pattern <- "(^|[^0-9-])[0-9]{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?([^0-9-]|$)"
 
+# A SAS DATE-style date, e.g. "05JAN2014", as a whole value or inside text.
+month_name_date_pattern <- "(^|[^[:alnum:]])[0-9]{1,2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[0-9]{2}([0-9]{2})?([^[:alnum:]]|$)"
+
 # SAS formats that display dates or date-times (DATE9., E8601DA., YYMMDD10.,
-# DATETIME20., MMDDYY10., ...).
-sas_date_format_pattern <- "^(DATE|E8601D|B8601D|YYMMDD|MMDDYY|DDMMYY|DATETIME|DTDATE|IS8601D|NLDATE|WEEKDATE|MONYY|YYMON)"
+# DATETIME20., MMDDYY10., WORDDATE18., ...).
+sas_date_format_pattern <- "^(DATE|E8601D|B8601D|YYMMDD|MMDDYY|DDMMYY|DATETIME|DTDATE|IS8601D|NLDATE|NLDATM|WEEKDATE|WORDDAT|MONYY|YYMON|YYMM|MMYY|YYQ|JULIAN|DTMONYY|DTYYQC)"
 
 # Warn about datasets without the key that hold identifiers or dates, which
 # pass through unchanged.

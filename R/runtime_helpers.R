@@ -305,10 +305,12 @@ normalize_object_source <- function(envir, selection = NULL) {
     stop("`envir` must be an environment or a list.", call. = FALSE)
   }
 
-  objects <- lapply(objects, function(obj) if (inherits(obj, "anon_deid_step")) obj$data else obj)
+  objects <- splice_steps(objects)
+  origin <- attr(objects, "origin")
+  attr(objects, "origin") <- NULL
 
   if (!is.null(selection)) {
-    missing_selection <- setdiff(selection, names(objects))
+    missing_selection <- setdiff(selection, c(names(objects), origin))
     if (length(missing_selection) > 0) {
       stop(
         "Unknown objects in `selection`: ",
@@ -316,10 +318,33 @@ normalize_object_source <- function(envir, selection = NULL) {
         call. = FALSE
       )
     }
-    objects <- objects[selection]
+    # A step's name selects all of its datasets.
+    picked <- unlist(lapply(selection, function(name) which(names(objects) == name | origin == name)))
+    objects <- objects[unique(picked)]
   }
 
   objects
+}
+
+# Replace each de-identification step with its data: a single data frame keeps
+# the step's name, and a list of datasets becomes one object per dataset,
+# named like `step$dm`.
+# The name each object came from is kept in the "origin" attribute.
+splice_steps <- function(objects) {
+  out <- stats::setNames(list(), character(0))
+  origin <- character(0)
+  for (name in names(objects)) {
+    obj <- objects[[name]]
+    if (inherits(obj, "anon_deid_step") && !is.data.frame(obj$data)) {
+      out[paste0(name, "$", names(obj$data))] <- obj$data
+      origin <- c(origin, rep(name, length(obj$data)))
+    } else {
+      out[name] <- list(if (inherits(obj, "anon_deid_step")) obj$data else obj)
+      origin <- c(origin, name)
+    }
+  }
+  attr(out, "origin") <- origin
+  out
 }
 
 get_inventory_row <- function(name, obj) {

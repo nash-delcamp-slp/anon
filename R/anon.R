@@ -51,8 +51,8 @@
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
-#'   itself is returned with its data redacted and the patterns also applied to its log and
-#'   settings; combine `step$data` rather than the step with `c()`. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
+#'   itself is returned with its data redacted, the patterns also applied to its log and
+#'   settings, and its secrets dropped (read them from the original step); combine `step$data` rather than the step with `c()`. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
 #'   If `.self` is `TRUE`, warnings are attached as an attribute.
 #'
 #' @details
@@ -314,6 +314,8 @@ anon <- function(
     attr(step_data, "approximate_warnings") <- NULL
     result <- x
     result$data <- step_data
+    # The redacted step is meant to be shared, so it doesn't carry the secrets.
+    result["secrets"] <- list(NULL)
     # The log and settings name datasets and columns; apply the patterns to
     # their text too. Counts are left alone.
     log_cols <- c(if (isTRUE(check_names)) c("dataset", "variable"), "detail")

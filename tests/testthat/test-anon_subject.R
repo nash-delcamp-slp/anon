@@ -206,10 +206,13 @@ test_that("unshifted ISO dates and unkeyed datasets with dates or IDs give warni
     raw = data.frame(SUBJID = "1015", VISDTC = "2020-01-01", usubjid = "a")
   )
   expect_warning(
-    expect_warning(anon_subject_dates(d, seed = 13), "contain ISO 8601 dates but were not shifted: ae.AESTTPT"),
+    expect_warning(anon_subject_dates(d, seed = 13), "contain dates that were not shifted: ae.AESTTPT"),
     "Datasets without `USUBJID` were left unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
   )
-  expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)")
+  expect_warning(
+    expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)"),
+    "still contain original `USUBJID` values, possibly inside text: raw.usubjid"
+  )
 })
 
 test_that("RSUBJID is mapped through the pseudonyms; other key columns are flagged", {
@@ -470,14 +473,18 @@ test_that("row names are reset so they can't hold keys", {
   expect_equal(rownames(anon_subject_ids(one, seed = 1)$data), "1")
 })
 
-test_that("SPSS value labels are dropped and missing-value codes that aren't IDs kept", {
+test_that("SPSS value labels and user-defined missing values are dropped from ID columns", {
   skip_if_not_installed("haven")
-  d <- data.frame(USUBJID = c("a", "b"))
-  d$SUBJID <- haven::labelled_spss(c(1015, 1028), labels = c("Pat 1015" = 1015), na_values = -9)
+  d <- data.frame(USUBJID = c("a", "b", "c"))
+  d$SUBJID <- haven::labelled_spss(
+    c(1015, 1028, -9), labels = c("Pat 1015" = 1015), na_values = c(-9, 1028), na_range = c(-99, -10)
+  )
   out <- anon_subject_ids(d, seed = 1)$data$SUBJID
   expect_null(attr(out, "labels"))
-  expect_equal(attr(out, "na_values"), -9)
-  expect_false(any(c(1015, 1028) %in% unlist(attributes(out))))
+  expect_null(attr(out, "na_values"))
+  expect_null(attr(out, "na_range"))
+  expect_false(any(c(1015, 1028, -9) %in% c(vctrs::vec_data(out), unlist(attributes(out)))))
+  expect_equal(sum(is.na(out)), 2)
 })
 
 test_that("narrow ranges that include 0 give both warnings", {
@@ -607,9 +614,60 @@ test_that("date columns left out of vars, SAS-formatted dates and dates in text 
   ad$NUMDT <- 19000
   attr(ad$NUMDT, "format.sas") <- "DATE9"
   expect_warning(
-    anon_subject_dates(ad, vars = "RFSTDTC", seed = 1),
-    "data.TRTSDT, data.COVAL, data.NUMDT"
+    expect_warning(
+      anon_subject_dates(ad, vars = "RFSTDTC", seed = 1),
+      "not shifted: data.TRTSDT, data.COVAL\\."
+    ),
+    "SAS date or datetime format and were not shifted: data.NUMDT\\. Convert"
   )
+  attr(ad$NUMDT, "format.sas") <- "WORDDATE18"
+  expect_warning(
+    expect_warning(anon_subject_dates(ad[c("USUBJID", "RFSTDTC", "NUMDT")], seed = 1), "data.NUMDT"),
+    NA
+  )
+})
+
+test_that("dates kept in mixed columns and QVAL are flagged", {
+  fa <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "05JAN2014", "Visit 2014-01-05", "POSITIVE"))
+  expect_warning(anon_subject_dates(fa, vars = "FAORRES", seed = 1), "not shifted: data.FAORRES")
+  ok <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "POSITIVE", "1500"))
+  expect_no_warning(anon_subject_dates(ok, vars = "FAORRES", seed = 1))
+
+  supp <- data.frame(USUBJID = "a", QNAM = c("X", "Y"), QVAL = c("Diagnosed 2009-03-04", "2014-03-05"))
+  expect_warning(anon_subject_dates(list(suppx = supp), seed = 1), "not shifted: suppx.QVAL")
+})
+
+test_that("a vars column of bare years is shifted by whole years", {
+  dm <- data.frame(USUBJID = c("a", "b"), BRTHYR = c("1956", "1971"))
+  result <- anon_subject_dates(dm, vars = "BRTHYR", keep_secrets = TRUE, seed = 1)
+  off <- anon_secrets(result)$date_offsets
+  years <- as.integer(result$data$BRTHYR) - c(1956L, 1971L)
+  expect_true(all(years != 0))
+  expect_equal(sign(years), sign(off$offset_days[match(dm$USUBJID, off$key)]))
+})
+
+test_that("leftover-key check: invalid UTF-8 keys, latin1 text, unkeyed datasets, word boundaries", {
+  bad <- data.frame(USUBJID = c("ab\xe9", "01-702"), X = "x")
+  expect_no_error(anon_subject_ids(bad, seed = 1))
+
+  co <- data.frame(USUBJID = c("01-701", "01-702"), COM = c(iconv("Patient 01-701 caf\u00e9", "UTF-8", "latin1"), "z"))
+  expect_warning(anon_subject_ids(co, seed = 1), "inside text: data.COM")
+
+  d <- list(
+    dm = data.frame(USUBJID = c("01-701-1015", "01-701-1023")),
+    notes = data.frame(NOTE = "Patient 01-701-1015 withdrew")
+  )
+  expect_warning(
+    expect_warning(anon_subject_ids(d, seed = 1), "inside text: notes.NOTE"),
+    NA
+  )
+
+  # Replaced also columns, and keys that only appear inside longer numbers, are not flagged.
+  num <- list(
+    dm = data.frame(USUBJID = as.character(101:120), SUBJID = as.character(101:120)),
+    lb = data.frame(USUBJID = as.character(101:120), LBORRES = "5101.5", LBSPID = "SPEC-1010")
+  )
+  expect_no_warning(anon_subject_ids(num, seed = 1))
 })
 
 test_that("original keys inside text are flagged", {
@@ -652,11 +710,37 @@ test_that("anon(step, check_names = FALSE) leaves log names alone", {
   expect_true("Boston" %in% a$log$dataset)
 })
 
-test_that("missing-value codes that aren't keys are kept on keys", {
+test_that("user-defined missing values on keys become missing, including real keys", {
   skip_if_not_installed("haven")
-  d <- data.frame(row = 1:3)
-  d$USUBJID <- haven::labelled_spss(c(1015, 1023, -9), na_values = -9)
-  out <- anon_subject_ids(d, seed = 1)$data$USUBJID
-  expect_equal(attr(out, "na_values"), -9)
-  expect_true(is.na(out[3]) || out[3] == -9)
+  d <- data.frame(row = 1:4)
+  d$USUBJID <- haven::labelled_spss(c(1015, 1023, -9, 1031), na_values = c(-9, 1031))
+  out <- anon_subject_ids(d, seed = 1)$data
+  expect_null(attr(out$USUBJID, "na_values"))
+  expect_false(any(c(1015, 1023, -9, 1031) %in% vctrs::vec_data(out$USUBJID)))
+  expect_equal(sum(is.na(out$USUBJID)), 2)
+})
+
+test_that("anon() on a step drops its secrets", {
+  st <- anon_subject_ids(data.frame(USUBJID = c("a", "b")), keep_secrets = TRUE, seed = 1)
+  a <- anon(st, pattern_list = list("a"))
+  expect_null(a$secrets)
+  expect_error(anon_secrets(a), "No secrets were kept")
+  expect_s3_class(anon_secrets(st)$subject_ids, "tbl_df")
+})
+
+test_that("steps inside an environment or list are described dataset by dataset", {
+  d <- list(
+    dm = data.frame(USUBJID = c("a", "b"), AGE = c(30, 40)),
+    vs = data.frame(USUBJID = c("a", "b"), VSORRES = c("1", "2"))
+  )
+  e <- new.env()
+  assign("step", anon_subject_ids(d, keep_secrets = TRUE, seed = 1), envir = e)
+  assign("one", anon_subject_ids(d$dm, seed = 1), envir = e)
+  expect_setequal(anon_inventory(e)$name, c("one", "step$dm", "step$vs"))
+  expect_named(anon_data_summary(e)$data_frames$variables, c("one", "step$dm", "step$vs"), ignore.order = TRUE)
+  expect_named(anon_data_summary(e, selection = "step")$data_frames$variables, c("step$dm", "step$vs"))
+  expect_named(anon_data_summary(e, selection = "step$vs")$data_frames$variables, "step$vs")
+  expect_error(anon_data_summary(e, selection = "nope"), "Unknown objects")
+  state <- anon_app_initial_state(e)
+  expect_setequal(state$raw_names, c("one", "step$dm", "step$vs"))
 })

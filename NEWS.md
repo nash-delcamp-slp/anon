@@ -7,6 +7,9 @@
 * Specialized anonymization helpers for common data types: ID sequences, date
   shifting, emails, phone numbers, and distribution-preserving numeric
   anonymization.
+* Clinical de-identification: `anon_risk()` measures re-identification risk,
+  and `anon_subject_ids()` and `anon_subject_dates()` pseudonymize subjects and
+  offset each subject's dates consistently across datasets.
 * Environment summarization with `anon_report()` and `anon_data_summary()` to
   generate safe structural overviews suitable for sharing in prompts or bug
   reports.
