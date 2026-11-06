@@ -1,4 +1,4 @@
-#' Build an anonymized inventory of objects in an environment or list
+#' Build a redacted inventory of objects in an environment or list
 #'
 #' @param envir An environment or named/unnamed list of objects.
 #' @param selection Optional character vector of object names to include.
@@ -47,7 +47,7 @@ anon_inventory <- function(
   inventory
 }
 
-#' Build an anonymized report for selected objects
+#' Build a redacted report for selected objects
 #'
 #' @param envir An environment or named/unnamed list of objects.
 #' @param selection Optional character vector of object names to include.
@@ -142,7 +142,7 @@ anon_compare_text <- function(before, after) {
   )
 }
 
-#' Build prompt-ready text from anonymized report objects
+#' Build prompt-ready text from redacted report objects
 #'
 #' @param report Optional object created by [anon_report()].
 #' @param text Optional character vector of redacted text to include.

@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon.R
 \name{anon}
 \alias{anon}
-\title{Anonymize sensitive information in R objects}
+\title{Redact and replace sensitive information in R objects}
 \usage{
 anon(
   x,
@@ -89,7 +89,7 @@ information replaced. If approximate matches are found and \code{.self} is \code
 If \code{.self} is \code{TRUE}, warnings are attached as an attribute.
 }
 \description{
-This function anonymizes or redacts sensitive information from various R objects
+This function redacts or replaces sensitive information in various R objects
 including character vectors, factors, data frames, and lists. It uses pattern
 matching to find and replace sensitive content, with options for targeted
 anonymization based on variable names or classes and warnings about approximate matches.

@@ -2,7 +2,7 @@
 % Please edit documentation in R/runtime_helpers.R
 \name{anon_prompt_bundle}
 \alias{anon_prompt_bundle}
-\title{Build prompt-ready text from anonymized report objects}
+\title{Build prompt-ready text from redacted report objects}
 \usage{
 anon_prompt_bundle(
   report = NULL,
@@ -42,5 +42,5 @@ section when \code{report} is provided.}
 A length-one character vector of class \code{"anon_prompt_bundle"}.
 }
 \description{
-Build prompt-ready text from anonymized report objects
+Build prompt-ready text from redacted report objects
 }

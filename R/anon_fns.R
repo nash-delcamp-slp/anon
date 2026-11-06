@@ -245,9 +245,9 @@ shift_iso8601 <- function(x, offset, partial = "shift") {
   out
 }
 
-#' Anonymize email addresses
+#' Replace email addresses with pseudonymous addresses
 #'
-#' Anonymizes email addresses by replacing them with sequential fake emails.
+#' Replaces each distinct email address with a sequential fake address.
 #'
 #' @param x A character vector to anonymize
 #' @param start Character prefix for generated results (default: "user")
@@ -324,7 +324,7 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
   final_result
 }
 
-#' Convert unique identifiers to sequential character IDs
+#' Pseudonymize identifiers as sequential character IDs
 #'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
@@ -362,7 +362,7 @@ anon_id_chr_sequence <- function(
   unname(x_key[x])
 }
 
-#' Convert unique identifiers to sequential numeric IDs
+#' Pseudonymize identifiers as sequential numeric IDs
 #'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
@@ -380,9 +380,9 @@ anon_id_num_sequence <- function(x, scramble = FALSE) {
   unname(x_key[x])
 }
 
-#' Anonymize numeric data while preserving distribution
+#' Perturb numeric data while preserving its distribution
 #'
-#' Anonymizes numeric data while preserving distributional properties using
+#' Replaces numeric values with perturbed values that preserve distributional properties, using
 #' various transformation methods.
 #'
 #' @param x A numeric vector to anonymize
@@ -470,7 +470,7 @@ anon_num_preserve_distribution <- function(
   final_result
 }
 
-#' Convert numeric values into range categories
+#' Generalize numeric values into range categories
 #'
 #' Converts numeric values into range categories, either preserving actual
 #' ranges or creating anonymized range labels.
@@ -611,9 +611,9 @@ build_single_range_result <- function(values, keep_values) {
   }
 }
 
-#' Anonymize phone numbers
+#' Replace phone numbers with pseudonymous numbers
 #'
-#' Anonymizes phone numbers by replacing them with sequential fake numbers.
+#' Replaces each distinct phone number with a sequential fake number.
 #'
 #' @param x A character vector to anonymize
 #' @param start Character prefix for generated results (default: "555-000")

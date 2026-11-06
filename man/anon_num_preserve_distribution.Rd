@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_num_preserve_distribution}
 \alias{anon_num_preserve_distribution}
-\title{Anonymize numeric data while preserving distribution}
+\title{Perturb numeric data while preserving its distribution}
 \usage{
 anon_num_preserve_distribution(
   x,
@@ -21,6 +21,6 @@ anon_num_preserve_distribution(
 \item{quantile_dist_family}{Distribution family for quantile method: "normal", "uniform", "exponential" (used when method = "quantile")}
 }
 \description{
-Anonymizes numeric data while preserving distributional properties using
+Replaces numeric values with perturbed values that preserve distributional properties, using
 various transformation methods.
 }

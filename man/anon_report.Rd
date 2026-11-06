@@ -2,7 +2,7 @@
 % Please edit documentation in R/runtime_helpers.R
 \name{anon_report}
 \alias{anon_report}
-\title{Build an anonymized report for selected objects}
+\title{Build a redacted report for selected objects}
 \usage{
 anon_report(
   envir = globalenv(),
@@ -89,5 +89,5 @@ An object of class \code{"anon_report"} containing an anonymized object
 inventory and environment summary for the selected objects.
 }
 \description{
-Build an anonymized report for selected objects
+Build a redacted report for selected objects
 }

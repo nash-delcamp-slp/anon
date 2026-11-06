@@ -1,4 +1,4 @@
-#' Generate anonymized summary of data objects in an environment
+#' Generate a redacted summary of data objects in an environment
 #'
 #' This function creates a summary of all objects (primarily data frames) in a specified
 #' environment or list, then anonymizes the results using the same pattern matching

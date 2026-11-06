@@ -1,6 +1,6 @@
-#' Anonymize sensitive information in R objects
+#' Redact and replace sensitive information in R objects
 #'
-#' This function anonymizes or redacts sensitive information from various R objects
+#' This function redacts or replaces sensitive information in various R objects
 #' including character vectors, factors, data frames, and lists. It uses pattern
 #' matching to find and replace sensitive content, with options for targeted
 #' anonymization based on variable names or classes and warnings about approximate matches.

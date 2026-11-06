@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_data_summary.R
 \name{anon_data_summary}
 \alias{anon_data_summary}
-\title{Generate anonymized summary of data objects in an environment}
+\title{Generate a redacted summary of data objects in an environment}
 \usage{
 anon_data_summary(
   envir = globalenv(),

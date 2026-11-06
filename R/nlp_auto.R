@@ -1,35 +1,35 @@
-#' Generate NLP auto-anonymization options list
+#' Generate NLP auto-redaction options list
 #'
 #' This function creates a named list of logical values indicating which types of
-#' NLP entities should be automatically anonymized when using the core [`anon()`]
-#' function. It provides a centralized way to manage automatic NLP anonymization
+#' NLP entities should be automatically redacted when using the core [`anon()`]
+#' function. It provides a centralized way to manage automatic NLP redaction
 #' settings when set as the global option `anon.nlp_auto`.
 #'
 #' @param default Logical indicating the value to use for unset arguments. Default is FALSE
-#' @param cardinal Logical indicating whether to automatically anonymize cardinal numbers
-#' @param date Logical indicating whether to automatically anonymize dates
-#' @param event Logical indicating whether to automatically anonymize events
-#' @param fac Logical indicating whether to automatically anonymize facilities
-#' @param gpe Logical indicating whether to automatically anonymize geopolitical entities
-#' @param language Logical indicating whether to automatically anonymize languages
-#' @param law Logical indicating whether to automatically anonymize laws
-#' @param loc Logical indicating whether to automatically anonymize locations
-#' @param money Logical indicating whether to automatically anonymize money
-#' @param norp Logical indicating whether to automatically anonymize nationalities/religious/political groups
-#' @param ordinal Logical indicating whether to automatically anonymize ordinal numbers
-#' @param org Logical indicating whether to automatically anonymize organizations
-#' @param percent Logical indicating whether to automatically anonymize percentages
-#' @param person Logical indicating whether to automatically anonymize person names
-#' @param product Logical indicating whether to automatically anonymize products
-#' @param quantity Logical indicating whether to automatically anonymize quantities
-#' @param time Logical indicating whether to automatically anonymize times
-#' @param work_of_art Logical indicating whether to automatically anonymize works of art
-#' @param propn Logical indicating whether to automatically anonymize proper nouns
+#' @param cardinal Logical indicating whether to automatically redact cardinal numbers
+#' @param date Logical indicating whether to automatically redact dates
+#' @param event Logical indicating whether to automatically redact events
+#' @param fac Logical indicating whether to automatically redact facilities
+#' @param gpe Logical indicating whether to automatically redact geopolitical entities
+#' @param language Logical indicating whether to automatically redact languages
+#' @param law Logical indicating whether to automatically redact laws
+#' @param loc Logical indicating whether to automatically redact locations
+#' @param money Logical indicating whether to automatically redact money
+#' @param norp Logical indicating whether to automatically redact nationalities/religious/political groups
+#' @param ordinal Logical indicating whether to automatically redact ordinal numbers
+#' @param org Logical indicating whether to automatically redact organizations
+#' @param percent Logical indicating whether to automatically redact percentages
+#' @param person Logical indicating whether to automatically redact person names
+#' @param product Logical indicating whether to automatically redact products
+#' @param quantity Logical indicating whether to automatically redact quantities
+#' @param time Logical indicating whether to automatically redact times
+#' @param work_of_art Logical indicating whether to automatically redact works of art
+#' @param propn Logical indicating whether to automatically redact proper nouns
 #'
 #' @return A named list of logical values that can be set with [`options()`].
 #'
 #' @examples
-#' # Get default auto-anonymization options (all TRUE)
+#' # Get default auto-redaction options (all TRUE)
 #' default_auto <- nlp_auto(default = TRUE)
 #'
 #' # Customize specific entity types (default, default is FALSE)

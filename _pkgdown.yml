@@ -12,7 +12,7 @@ navbar:
       aria-label: Benchmarks
 
 reference:
-  - title: Anonymize objects
+  - title: Redact and replace
     desc: >
       Redact sensitive text in vectors, data frames, lists and labels using
       patterns, column rules and NLP, and set package-wide defaults.
@@ -21,10 +21,10 @@ reference:
       - more_patterns
       - anon_options
 
-  - title: Anonymize specific data types
+  - title: Techniques for specific data types
     desc: >
-      Replace or transform identifiers, dates, contact details and numbers
-      while keeping their structure useful.
+      Pseudonymize identifiers and contact details, offset dates, and
+      generalize or perturb numbers while keeping their structure useful.
   - subtitle: Identifiers
     contents:
       - anon_id_chr_sequence
@@ -65,7 +65,7 @@ reference:
 
   - title: Prepare text and prompts
     desc: >
-      Import documents, clean and compare text, and assemble anonymized
+      Import documents, clean and compare text, and assemble redacted
       context into a prompt bundle.
     contents:
       - read_content

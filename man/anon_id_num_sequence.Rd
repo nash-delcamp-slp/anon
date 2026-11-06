@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_fns.R
 \name{anon_id_num_sequence}
 \alias{anon_id_num_sequence}
-\title{Convert unique identifiers to sequential numeric IDs}
+\title{Pseudonymize identifiers as sequential numeric IDs}
 \usage{
 anon_id_num_sequence(x, scramble = FALSE)
 }
@@ -12,5 +12,5 @@ anon_id_num_sequence(x, scramble = FALSE)
 \item{scramble}{Logical, whether to randomize the assignment order of generated results}
 }
 \description{
-Convert unique identifiers to sequential numeric IDs
+Pseudonymize identifiers as sequential numeric IDs
 }

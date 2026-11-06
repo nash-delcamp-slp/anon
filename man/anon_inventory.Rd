@@ -2,7 +2,7 @@
 % Please edit documentation in R/runtime_helpers.R
 \name{anon_inventory}
 \alias{anon_inventory}
-\title{Build an anonymized inventory of objects in an environment or list}
+\title{Build a redacted inventory of objects in an environment or list}
 \usage{
 anon_inventory(
   envir = globalenv(),
@@ -40,5 +40,5 @@ A tibble with one row per object and anonymized metadata about the
 available objects.
 }
 \description{
-Build an anonymized inventory of objects in an environment or list
+Build a redacted inventory of objects in an environment or list
 }

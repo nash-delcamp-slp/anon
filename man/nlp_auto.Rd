@@ -2,7 +2,7 @@
 % Please edit documentation in R/nlp_auto.R
 \name{nlp_auto}
 \alias{nlp_auto}
-\title{Generate NLP auto-anonymization options list}
+\title{Generate NLP auto-redaction options list}
 \usage{
 nlp_auto(
   default = FALSE,
@@ -30,55 +30,55 @@ nlp_auto(
 \arguments{
 \item{default}{Logical indicating the value to use for unset arguments. Default is FALSE}
 
-\item{cardinal}{Logical indicating whether to automatically anonymize cardinal numbers}
+\item{cardinal}{Logical indicating whether to automatically redact cardinal numbers}
 
-\item{date}{Logical indicating whether to automatically anonymize dates}
+\item{date}{Logical indicating whether to automatically redact dates}
 
-\item{event}{Logical indicating whether to automatically anonymize events}
+\item{event}{Logical indicating whether to automatically redact events}
 
-\item{fac}{Logical indicating whether to automatically anonymize facilities}
+\item{fac}{Logical indicating whether to automatically redact facilities}
 
-\item{gpe}{Logical indicating whether to automatically anonymize geopolitical entities}
+\item{gpe}{Logical indicating whether to automatically redact geopolitical entities}
 
-\item{language}{Logical indicating whether to automatically anonymize languages}
+\item{language}{Logical indicating whether to automatically redact languages}
 
-\item{law}{Logical indicating whether to automatically anonymize laws}
+\item{law}{Logical indicating whether to automatically redact laws}
 
-\item{loc}{Logical indicating whether to automatically anonymize locations}
+\item{loc}{Logical indicating whether to automatically redact locations}
 
-\item{money}{Logical indicating whether to automatically anonymize money}
+\item{money}{Logical indicating whether to automatically redact money}
 
-\item{norp}{Logical indicating whether to automatically anonymize nationalities/religious/political groups}
+\item{norp}{Logical indicating whether to automatically redact nationalities/religious/political groups}
 
-\item{ordinal}{Logical indicating whether to automatically anonymize ordinal numbers}
+\item{ordinal}{Logical indicating whether to automatically redact ordinal numbers}
 
-\item{org}{Logical indicating whether to automatically anonymize organizations}
+\item{org}{Logical indicating whether to automatically redact organizations}
 
-\item{percent}{Logical indicating whether to automatically anonymize percentages}
+\item{percent}{Logical indicating whether to automatically redact percentages}
 
-\item{person}{Logical indicating whether to automatically anonymize person names}
+\item{person}{Logical indicating whether to automatically redact person names}
 
-\item{product}{Logical indicating whether to automatically anonymize products}
+\item{product}{Logical indicating whether to automatically redact products}
 
-\item{quantity}{Logical indicating whether to automatically anonymize quantities}
+\item{quantity}{Logical indicating whether to automatically redact quantities}
 
-\item{time}{Logical indicating whether to automatically anonymize times}
+\item{time}{Logical indicating whether to automatically redact times}
 
-\item{work_of_art}{Logical indicating whether to automatically anonymize works of art}
+\item{work_of_art}{Logical indicating whether to automatically redact works of art}
 
-\item{propn}{Logical indicating whether to automatically anonymize proper nouns}
+\item{propn}{Logical indicating whether to automatically redact proper nouns}
 }
 \value{
 A named list of logical values that can be set with \code{\link[=options]{options()}}.
 }
 \description{
 This function creates a named list of logical values indicating which types of
-NLP entities should be automatically anonymized when using the core \code{\link[=anon]{anon()}}
-function. It provides a centralized way to manage automatic NLP anonymization
+NLP entities should be automatically redacted when using the core \code{\link[=anon]{anon()}}
+function. It provides a centralized way to manage automatic NLP redaction
 settings when set as the global option \code{anon.nlp_auto}.
 }
 \examples{
-# Get default auto-anonymization options (all TRUE)
+# Get default auto-redaction options (all TRUE)
 default_auto <- nlp_auto(default = TRUE)
 
 # Customize specific entity types (default, default is FALSE)

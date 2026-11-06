@@ -20,7 +20,38 @@ set.seed(1234)
 [![coverage](https://img.shields.io/endpoint?url=https://nash-delcamp-slp.github.io/anon/coverage.json)](https://github.com/nash-delcamp-slp/anon/actions/workflows/pkgdown.yml)
 <!-- badges: end -->
 
-The anon package provides comprehensive tools for anonymizing sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.
+The anon package applies anonymization techniques (redaction, recoding with pseudonyms, date offsetting, generalization and perturbation) to sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.
+
+## Terminology
+
+In this package, "anonymize" means applying one of these techniques. It does
+not mean the result is anonymous data.
+
+- **Anonymization techniques** include redaction, recoding (replacing values
+  with consistent pseudonyms in the same format), generalization, suppression
+  and date offsetting. These are the terms EMA and Health Canada use in their
+  [Anonymisation Report Form Instructions](https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf)
+  (EMA/482639/2023).
+- **Pseudonymized data** can still be linked to a person with additional
+  information, such as a pseudonym key or a date offset, and remains personal
+  data. GDPR [Article 4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
+  defines pseudonymisation as processing personal data so that it "can no
+  longer be attributed to a specific data subject without the use of
+  additional information", and Recital 26 states that such data "should be
+  considered to be information on an identifiable natural person".
+- **Anonymous data** relates to no identifiable person once "all the means
+  reasonably likely to be used" are considered (GDPR Recital 26). Regulators
+  judge this by the re-identification risk that remains: Health Canada and EMA
+  encourage a maximum risk of 0.09 for public release of clinical information
+  ([Health Canada guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html)).
+  Under HIPAA, data is de-identified through Safe Harbor or Expert
+  Determination ([HHS guidance](https://www.hhs.gov/hipaa/for-professionals/special-topics/de-identification/index.html)).
+  Shifted dates do not meet Safe Harbor, which removes all elements of dates
+  except the year.
+
+Applying anon's functions reduces what you share, but by itself does not
+establish that the output is anonymous or de-identified under any of these
+rules.
 
 ## Installation
 
@@ -53,7 +84,7 @@ a_new_hope_intro <- c(
 
 ## Core Anonymization with `anon()`
 
-The main `anon()` function and helper `anon_*()` support anonymization of various R objects.
+The main `anon()` function and helper `anon_*()` functions apply these techniques to various R objects.
 
 ### Vector Anonymization
 
@@ -103,7 +134,7 @@ glimpse(anon_starwars)
 ## Shiny App
 
 `anon` includes a local Shiny app for reviewing the current R environment,
-selecting objects for a report, cleaning text, and building anonymized prompt
+selecting objects for a report, cleaning text, and building redacted prompt
 context.
 
 ``` r
@@ -240,13 +271,13 @@ Reset the option:
 old_options <- anon_options(nlp_default_replacements = NULL)
 ```
 
-### Enabling Automatic NLP Entity Anonymization
+### Enabling Automatic NLP Entity Redaction
 
-Set `nlp_auto` to control which entity types are automatically anonymized.
+Set `nlp_auto` to control which entity types are automatically redacted.
 Use `nlp_auto()` to create the list input.
 
 ```{r}
-# View default auto-anonymization settings (all FALSE by default)
+# View default auto-redaction settings (all FALSE by default)
 str(nlp_auto())
 
 # Enable all entity types
@@ -294,20 +325,20 @@ old_options <- anon_options(
 )
 ```
 
-## Automatic NLP-Powered Anonymization
+## Automatic NLP-Powered Redaction
 
-The anon package includes powerful NLP functions that can automatically detect and anonymize different types of named entities in text.
+The anon package includes NLP functions that detect and redact different types of named entities in text.
 
 ### Individual NLP Functions
 
 The package provides specific functions for different entity types:
 
-- `anon_nlp_entities()`: Detect and anonymize select entities. By default, all entities.
-- `anon_nlp_people()`: Detect and anonymize person names
-- `anon_nlp_organizations()`: Detect and anonymize organization names
-- `anon_nlp_places()`: Detect and anonymize locations (cities, countries, etc.)
-- `anon_nlp_dates()`: Detect and anonymize dates
-- `anon_nlp_numbers()`: Detect and anonymize monetary amounts and percentages
+- `anon_nlp_entities()`: Detect and redact select entities. By default, all entities.
+- `anon_nlp_people()`: Detect and redact person names
+- `anon_nlp_organizations()`: Detect and redact organization names
+- `anon_nlp_places()`: Detect and redact locations (cities, countries, etc.)
+- `anon_nlp_dates()`: Detect and redact dates
+- `anon_nlp_numbers()`: Detect and redact monetary amounts and percentages
 
 ```{r}
 anon_nlp_entities(a_new_hope_intro)
@@ -320,7 +351,7 @@ anon_nlp_numbers(a_new_hope_intro)
 
 ## Data Environment Summary
 
-The `anon_data_summary()` function provides an anonymized overview of the data in your environment:
+The `anon_data_summary()` function provides a redacted overview of the data in your environment:
 
 ```{r}
 anon_data_summary()
