@@ -2,7 +2,7 @@
 % Please edit documentation in R/runtime_helpers.R
 \name{anon_report}
 \alias{anon_report}
-\title{Build a redacted report for selected objects}
+\title{Build a report for selected objects, applying your redaction rules}
 \usage{
 anon_report(
   envir = globalenv(),
@@ -54,7 +54,7 @@ matches using string distance. Default is
 \code{check_approximate} is \code{TRUE}. Default is \code{2}.}
 
 \item{df_variable_names}{For data frames, a character vector or named list
-specifying which variable names should be anonymized:
+specifying which variables should be replaced:
 \itemize{
 \item Unnamed elements: variables are replaced with \code{default_replacement}
 \item Named elements: variable names are keys, value can be either a replacement value or a function
@@ -62,7 +62,7 @@ This parameter is combined with the global option \code{getOption("anon.df_varia
 }}
 
 \item{df_classes}{For data frames, a character vector or named list specifying
-which variable classes should be anonymized:
+which variable classes should be replaced:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
@@ -85,9 +85,9 @@ generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{a
 This argument overrides the global option.}
 }
 \value{
-An object of class \code{"anon_report"} containing an anonymized object
+An object of class \code{"anon_report"} containing an object
 inventory and environment summary for the selected objects.
 }
 \description{
-Build a redacted report for selected objects
+Build a report for selected objects, applying your redaction rules
 }

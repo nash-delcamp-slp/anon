@@ -65,7 +65,7 @@ test_that("anon_prompt_bundle() formats report and text", {
   )
 
   expect_s3_class(bundle, "anon_prompt_bundle")
-  expect_true(grepl("# Anonymized Prompt Context", bundle, fixed = TRUE))
+  expect_true(grepl("# Prompt Context", bundle, fixed = TRUE))
   expect_true(grepl("## Inventory", bundle, fixed = TRUE))
   expect_true(grepl("## Redacted Text", bundle, fixed = TRUE))
   expect_true(grepl("PERSON visited the site.", bundle, fixed = TRUE))
@@ -113,7 +113,7 @@ test_that("anon_prompt_bundle() can emit JSON payloads", {
   expect_s3_class(bundle, "anon_prompt_bundle")
   expect_equal(attr(bundle, "output_format"), "json")
   expect_equal(payload$kind, "anon_prompt_bundle")
-  expect_equal(payload$title, "Anonymized Prompt Context")
+  expect_equal(payload$title, "Prompt Context")
   expect_equal(payload$report$inventory$rows[[1]]$name, "study")
   expect_equal(payload$text, "PERSON visited the site.")
   expect_equal(payload$comparison$summary$rows[[1]]$changed_lines, 1)

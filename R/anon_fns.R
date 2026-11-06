@@ -326,6 +326,10 @@ anon_email <- function(x, start = "user", domain = "domain.com") {
 
 #' Pseudonymize identifiers as sequential character IDs
 #'
+#' Without `scramble = TRUE`, IDs are numbered in order of first appearance,
+#' so if `x` is sorted by something sensitive (for example the original ID,
+#' enrolment date or name), the new IDs keep that order.
+#'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
 #' @param start Character prefix for generated results (default: "ID ")
@@ -364,6 +368,10 @@ anon_id_chr_sequence <- function(
 
 #' Pseudonymize identifiers as sequential numeric IDs
 #'
+#' Without `scramble = TRUE`, IDs are numbered in order of first appearance,
+#' so if `x` is sorted by something sensitive (for example the original ID,
+#' enrolment date or name), the new IDs keep that order.
+#'
 #' @param x A vector to anonymize
 #' @param scramble Logical, whether to randomize the assignment order of generated results
 #'
@@ -380,10 +388,15 @@ anon_id_num_sequence <- function(x, scramble = FALSE) {
   unname(x_key[x])
 }
 
-#' Perturb numeric data while preserving its distribution
+#' Shuffle, add noise to, or resample numeric values
 #'
-#' Replaces numeric values with perturbed values that preserve distributional properties, using
-#' various transformation methods.
+#' Replaces numeric values while keeping their overall distribution, using one
+#' of three methods:
+#' - `"rank"` (default) reassigns the original values to other records (data
+#'   swapping). Every original value, including outliers, is still present.
+#' - `"noise"` adds random noise to each value (randomization).
+#' - `"quantile"` replaces values with draws from a fitted theoretical
+#'   distribution at shuffled quantiles.
 #'
 #' @param x A numeric vector to anonymize
 #' @param method Transformation method: "rank", "noise", or "quantile"
@@ -473,7 +486,7 @@ anon_num_preserve_distribution <- function(
 #' Generalize numeric values into range categories
 #'
 #' Converts numeric values into range categories, either preserving actual
-#' ranges or creating anonymized range labels.
+#' ranges or creating generic range labels.
 #'
 #' @param x A vector to anonymize
 #' @param n_breaks Number of range categories to create, at least 1
@@ -613,7 +626,10 @@ build_single_range_result <- function(values, keep_values) {
 
 #' Replace phone numbers with pseudonymous numbers
 #'
-#' Replaces each distinct phone number with a sequential fake number.
+#' Replaces each distinct phone number matching common North American formats
+#' (9 or 10 digits, with or without separators) with a sequential fake number.
+#' Other formats are not detected, and other 9- or 10-digit numbers may be
+#' replaced.
 #'
 #' @param x A character vector to anonymize
 #' @param start Character prefix for generated results (default: "555-000")

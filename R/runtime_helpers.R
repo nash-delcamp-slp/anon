@@ -1,10 +1,10 @@
-#' Build a redacted inventory of objects in an environment or list
+#' Build an inventory of objects, applying your redaction rules
 #'
 #' @param envir An environment or named/unnamed list of objects.
 #' @param selection Optional character vector of object names to include.
 #' @inheritParams anon
 #'
-#' @return A tibble with one row per object and anonymized metadata about the
+#' @return A tibble with one row per object and metadata, with your patterns applied, about the
 #'   available objects.
 #'
 #' @export
@@ -47,14 +47,14 @@ anon_inventory <- function(
   inventory
 }
 
-#' Build a redacted report for selected objects
+#' Build a report for selected objects, applying your redaction rules
 #'
 #' @param envir An environment or named/unnamed list of objects.
 #' @param selection Optional character vector of object names to include.
 #' @inheritParams anon
 #' @inheritParams anon_data_summary
 #'
-#' @return An object of class `"anon_report"` containing an anonymized object
+#' @return An object of class `"anon_report"` containing an object
 #'   inventory and environment summary for the selected objects.
 #'
 #' @export
@@ -142,7 +142,7 @@ anon_compare_text <- function(before, after) {
   )
 }
 
-#' Build prompt-ready text from redacted report objects
+#' Build prompt-ready text from report objects
 #'
 #' @param report Optional object created by [anon_report()].
 #' @param text Optional character vector of redacted text to include.
@@ -165,7 +165,7 @@ anon_prompt_bundle <- function(
   text = NULL,
   comparison = NULL,
   format = c("markdown", "text", "json"),
-  title = "Anonymized Prompt Context",
+  title = "Prompt Context",
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,

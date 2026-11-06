@@ -13,8 +13,8 @@
 An anon_context_collection object containing all input objects
 }
 \description{
-This method allows combining multiple anonymized objects created by \code{anon()}
-or \code{anon_data_summary()} using \code{c()}. The result maintains the anonymized content
+This method allows combining multiple objects created by \code{anon()}
+or \code{anon_data_summary()} using \code{c()}. The result maintains the processed content
 and provides a print method suitable for LLM context. An additional header is
 included in printed output for named elements.
 }

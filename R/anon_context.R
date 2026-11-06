@@ -12,8 +12,8 @@ new_anon_context <- function(x, ...) {
 
 #' Combine anon_context objects
 #'
-#' This method allows combining multiple anonymized objects created by `anon()`
-#' or `anon_data_summary()` using `c()`. The result maintains the anonymized content
+#' This method allows combining multiple objects created by `anon()`
+#' or `anon_data_summary()` using `c()`. The result maintains the processed content
 #' and provides a print method suitable for LLM context. An additional header is 
 #' included in printed output for named elements.
 #'
@@ -50,7 +50,7 @@ c.anon_context <- function(...) {
 
 #' Print method for anon_context_collection
 #'
-#' Displays combined anonymized objects in a format suitable for LLM prompts.
+#' Displays combined objects returned by `anon()` in a format suitable for LLM prompts.
 #' Each object is clearly delineated and presented with appropriate context.
 #'
 #' @param x An anon_context_collection object
@@ -59,7 +59,7 @@ c.anon_context <- function(...) {
 #'
 #' @export
 print.anon_context_collection <- function(x, ...) {
-  cat("=== ANONYMIZED DATA CONTEXT ===\n\n")
+  cat("=== DATA CONTEXT ===\n\n")
 
   for (i in seq_along(x)) {
     # Add header for named elements

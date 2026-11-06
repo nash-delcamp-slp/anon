@@ -12,7 +12,10 @@ anon_phone_number(x, start = "555-000")
 \item{start}{Character prefix for generated results (default: "555-000")}
 }
 \description{
-Replaces each distinct phone number with a sequential fake number.
+Replaces each distinct phone number matching common North American formats
+(9 or 10 digits, with or without separators) with a sequential fake number.
+Other formats are not detected, and other 9- or 10-digit numbers may be
+replaced.
 }
 \examples{
 phones <- c("Call me at 123-456-7890", "1234567890", "(123) 456-7890")

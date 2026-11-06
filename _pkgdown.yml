@@ -23,8 +23,9 @@ reference:
 
   - title: Techniques for specific data types
     desc: >
-      Pseudonymize identifiers and contact details, offset dates, and
-      generalize or perturb numbers while keeping their structure useful.
+      Pseudonymize identifiers and contact details, shift dates, and
+      generalize, shuffle or add noise to numbers while keeping their
+      structure useful.
   - subtitle: Identifiers
     contents:
       - anon_id_chr_sequence

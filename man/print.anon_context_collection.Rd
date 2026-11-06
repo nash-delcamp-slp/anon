@@ -15,6 +15,6 @@
 Invisibly returns x
 }
 \description{
-Displays combined anonymized objects in a format suitable for LLM prompts.
+Displays combined objects returned by \code{anon()} in a format suitable for LLM prompts.
 Each object is clearly delineated and presented with appropriate context.
 }

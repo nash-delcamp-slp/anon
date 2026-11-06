@@ -1,4 +1,4 @@
-#' Generate a redacted summary of data objects in an environment
+#' Summarize data objects in an environment, applying your redaction rules
 #'
 #' This function creates a summary of all objects (primarily data frames) in a specified
 #' environment or list, then anonymizes the results using the same pattern matching
@@ -31,7 +31,7 @@
 #'       missing values, distinct values, labels, and optional example values
 #'   - `$examples`: Optional data frame example payloads containing either sample
 #'     rows per data frame or one or more keyed cross-source scenarios
-#'   - All content is anonymized according to the specified patterns
+#'   - Your patterns, rules and NLP settings are applied to all content
 #'
 #' @details
 #' The function operates in a few key steps:
@@ -729,9 +729,9 @@ get_example_scenarios <- function(examples) {
 
 # print method ------------------------------------------------------------
 
-#' Print method for anonymized environment summary
+#' Print method for environment data summaries
 #'
-#' Displays an anonymized environment summary in a structured, readable format.
+#' Displays an environment data summary in a structured, readable format.
 #' The output includes overall statistics, data frame structural information,
 #' variable details, optional example payloads, and information about other
 #' objects (if present).
@@ -755,7 +755,7 @@ get_example_scenarios <- function(examples) {
 #'
 #' @examples
 #' \dontrun{
-#' # Create and print an anonymized summary
+#' # Create and print a summary
 #' summary_result <- anon_data_summary(
 #'   list(data = mtcars),
 #'   pattern_list = list("CAR" = "Mazda|Merc")

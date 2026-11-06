@@ -2,7 +2,7 @@
 #'
 #' This function creates a named list of default replacement values for different
 #' types of NLP entity-based anonymization. It provides a centralized way to manage
-#' default replacements for entities anonymized in [`anon_nlp_entities()`] and
+#' default replacements for entities redacted in [`anon_nlp_entities()`] and
 #' [`anon_nlp_proper_nouns()`] when set as the global option `anon.nlp_default_replacements`.
 #'
 #' @param cardinal Default replacement for cardinal numbers (default: "\[CARDINAL\]")

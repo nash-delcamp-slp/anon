@@ -41,7 +41,7 @@ matches using string distance. Default is
 \code{check_approximate} is \code{TRUE}. Default is \code{2}.}
 
 \item{df_variable_names}{For data frames, a character vector or named list
-specifying which variable names should be anonymized:
+specifying which variables should be replaced:
 \itemize{
 \item Unnamed elements: variables are replaced with \code{default_replacement}
 \item Named elements: variable names are keys, value can be either a replacement value or a function
@@ -49,7 +49,7 @@ This parameter is combined with the global option \code{getOption("anon.df_varia
 }}
 
 \item{df_classes}{For data frames, a character vector or named list specifying
-which variable classes should be anonymized:
+which variable classes should be replaced:
 \itemize{
 \item Unnamed elements: variables with matching classes are replaced with \code{default_replacement}
 \item Named elements: class names are keys, value can be either a replacement value or a function
@@ -99,7 +99,7 @@ anonymization based on variable names or classes and warnings about approximate 
 \itemize{
 \item Individual columns are processed based on their content
 \item Entire columns can be replaced if specified in \code{df_variable_names} or \code{df_classes}
-\item Column names, row names, and labels are anonymized when enabled
+\item Column names, row names, and labels are redacted when enabled
 }
 
 Pattern matching is case-insensitive. When \code{check_approximate} is enabled,
@@ -112,7 +112,7 @@ Replacement functions can be provided in \code{df_variable_names} and \code{df_c
 }
 
 The returned object has class \code{anon_context} which allows it to be combined with other
-anonymized objects using \code{c()}.
+objects returned by \code{anon()} using \code{c()}.
 }
 \section{Global Options}{
 
@@ -125,7 +125,7 @@ The following global options affect function behavior:
 \code{df_variable_names} parameter.}
 \item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
 \item{\code{anon.nlp_auto}}{List of logical values indicating which NLP entity types should be
-automatically anonymized. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
+automatically redacted. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
 \item{\code{anon.nlp_default_replacements}}{Default NLP replacement labels. Use
 \code{\link[=nlp_default_replacements]{nlp_default_replacements()}} to generate this list.}
 \item{\code{anon.example_values_n}}{Default \code{example_values_n} used by \code{\link[=anon_data_summary]{anon_data_summary()}}
@@ -186,7 +186,7 @@ options(anon.pattern_list = list("EMAIL" = "@\\\\S+"))
 options(anon.df_variable_names = "name")
 anon(df)  # Will anonymize emails and names using global settings
 
-# Combine anonymized objects
+# Combine processed objects
 anon_summary <- anon_data_summary(list(df = df))
 combined <- c(anon_df, anon_summary)
 combined

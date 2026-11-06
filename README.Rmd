@@ -20,38 +20,61 @@ set.seed(1234)
 [![coverage](https://img.shields.io/endpoint?url=https://nash-delcamp-slp.github.io/anon/coverage.json)](https://github.com/nash-delcamp-slp/anon/actions/workflows/pkgdown.yml)
 <!-- badges: end -->
 
-The anon package applies anonymization techniques (redaction, recoding with pseudonyms, date offsetting, generalization and perturbation) to sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.
+The anon package applies anonymization techniques (redaction, recoding or pseudonymization, generalization, randomization and date shifting) to sensitive information in R objects, including data frames, variable labels, lists, and character/factor/numeric vectors.
 
 ## Terminology
 
 In this package, "anonymize" means applying one of these techniques. It does
-not mean the result is anonymous data.
+not mean the result is anonymous or de-identified data.
 
-- **Anonymization techniques** include redaction, recoding (replacing values
-  with consistent pseudonyms in the same format), generalization, suppression
-  and date offsetting. These are the terms EMA and Health Canada use in their
+- **Anonymization techniques** include redaction, recoding or pseudonymization
+  (consistently replacing values, sometimes in the same format),
+  generalization, suppression, randomization (perturbation) and date offsetting.
+  These terms come from EMA's
   [Anonymisation Report Form Instructions](https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf)
-  (EMA/482639/2023).
-- **Pseudonymized data** can still be linked to a person with additional
-  information, such as a pseudonym key or a date offset, and remains personal
-  data. GDPR [Article 4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
-  defines pseudonymisation as processing personal data so that it "can no
-  longer be attributed to a specific data subject without the use of
-  additional information", and Recital 26 states that such data "should be
-  considered to be information on an identifiable natural person".
-- **Anonymous data** relates to no identifiable person once "all the means
-  reasonably likely to be used" are considered (GDPR Recital 26). Regulators
-  judge this by the re-identification risk that remains: Health Canada and EMA
-  encourage a maximum risk of 0.09 for public release of clinical information
-  ([Health Canada guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html)).
-  Under HIPAA, data is de-identified through Safe Harbor or Expert
-  Determination ([HHS guidance](https://www.hhs.gov/hipaa/for-professionals/special-topics/de-identification/index.html)).
-  Shifted dates do not meet Safe Harbor, which removes all elements of dates
-  except the year.
+  (EMA/482639/2023), used for EMA Policy 0070 and Health Canada submissions, and
+  from the definitions in Health Canada's
+  [Public Release of Clinical Information guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html),
+  which calls them techniques of anonymization. `anon_date_shift()` adds one
+  fixed offset per call (or the `offset` you supply), which matches Health
+  Canada's "offsetting" but not EMA's "date offsetting", where each participant
+  gets their own random offset.
+- **Pseudonymized data (GDPR).**
+  [Article 4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj) defines
+  pseudonymisation as processing personal data so that it "can no longer be
+  attributed to a specific data subject without the use of additional
+  information, provided that such additional information is kept separately and
+  is subject to technical and organisational measures". Recital 26 states that
+  pseudonymised data which could be attributed to a person using additional
+  information "should be considered to be information on an identifiable
+  natural person".
+- **Anonymous data (GDPR).** Recital 26 describes anonymous information as
+  information that does not relate to an identified or identifiable person,
+  taking into account "all the means reasonably likely to be used". GDPR sets no
+  numerical threshold.
+- **Public release of clinical information (Health Canada and EMA).** When risk
+  is measured quantitatively, both encourage a re-identification risk threshold
+  of 0.09
+  ([Health Canada guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html);
+  [EMA form instructions](https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf),
+  section J). A qualitative approach must show there is no serious possibility of
+  re-identification.
+- **De-identified data (HIPAA).**
+  [HHS guidance](https://www.hhs.gov/hipaa/for-professionals/special-topics/de-identification/index.html)
+  describes two methods: Safe Harbor (remove a list of identifiers, with no
+  actual knowledge that the rest could identify someone) and Expert
+  Determination (an expert finds the risk "very small"; HHS states there is "no
+  explicit numerical level"). Safe Harbor removes all elements of dates (except
+  year) directly related to an individual and does not allow derivatives of the
+  listed identifiers (FAQ 3.2). HHS does not address date shifting directly, but
+  shifted dates are derived from the real dates, so they do not meet Safe
+  Harbor; whether they are acceptable under Expert Determination is for the
+  expert to decide.
 
 Applying anon's functions reduces what you share, but by itself does not
 establish that the output is anonymous or de-identified under any of these
-rules.
+rules. The output may still be personal data, pseudonymized or directly
+identifiable, for example when a detection step misses something.
 
 ## Installation
 
@@ -327,7 +350,7 @@ old_options <- anon_options(
 
 ## Automatic NLP-Powered Redaction
 
-The anon package includes NLP functions that detect and redact different types of named entities in text.
+The anon package includes NLP functions that detect and redact different types of named entities in text. Detection is model-based and can miss entities, so review the output before sharing it.
 
 ### Individual NLP Functions
 
@@ -351,7 +374,7 @@ anon_nlp_numbers(a_new_hope_intro)
 
 ## Data Environment Summary
 
-The `anon_data_summary()` function provides a redacted overview of the data in your environment:
+The `anon_data_summary()` function provides an overview of the data in your environment, with your patterns and rules applied:
 
 ```{r}
 anon_data_summary()

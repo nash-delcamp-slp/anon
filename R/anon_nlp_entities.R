@@ -2,7 +2,8 @@
 #'
 #' These functions use natural language processing to identify and redact
 #' different types of named entities from text. Each function combines NLP
-#' entity extraction with pattern-based redaction.
+#' entity extraction with pattern-based redaction. Detection is model-based and
+#' can miss entities, so review the output before sharing it.
 #'
 #' @inheritParams anon
 #' @inheritParams nlp_get_entities

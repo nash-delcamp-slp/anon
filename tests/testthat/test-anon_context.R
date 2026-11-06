@@ -88,7 +88,7 @@ test_that("print.anon_context_collection outputs header", {
   b <- new_anon_context("content_b")
   collection <- c(a, b)
 
-  expect_output(print(collection), "=== ANONYMIZED DATA CONTEXT ===")
+  expect_output(print(collection), "=== DATA CONTEXT ===")
 })
 
 test_that("print.anon_context_collection with named elements shows name headers", {

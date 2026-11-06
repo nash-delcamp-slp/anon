@@ -3,7 +3,7 @@ Title: Redact and Pseudonymize Sensitive Data in R Objects
 Version: 0.0.0.9000
 Authors@R: 
     person("Nash", "Delcamp", , "nash.delcamp@simulations-plus.com", role = c("aut", "cre"))
-Description: Applies anonymization techniques (redaction, recoding with pseudonyms, date offsetting, generalization and perturbation) to sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based and NLP-based redaction, functions for common data types (identifiers, dates, emails, phone numbers, numeric values), and environment summaries with these techniques applied. Designed to help data scientists share code, results and context while protecting sensitive information. Applying these techniques does not by itself make data anonymous; that depends on the re-identification risk that remains.
+Description: Applies anonymization techniques (redaction, recoding or pseudonymization, generalization, randomization and date shifting) to sensitive information in R objects including data frames, variable labels, lists, and character/factor/numeric vectors. Features pattern-based and NLP-based redaction, functions for common data types (identifiers, dates, emails, phone numbers, numeric values), and environment summaries with these techniques applied. Designed to help data scientists share code, results and context while protecting sensitive information. Applying these techniques does not by itself make data anonymous; that depends on the re-identification risk that remains.
 URL: https://nash-delcamp-slp.github.io/anon/, https://github.com/nash-delcamp-slp/anon
 BugReports: https://github.com/nash-delcamp-slp/anon/issues
 License: MIT + file LICENSE

@@ -2,7 +2,7 @@
 % Please edit documentation in R/runtime_helpers.R
 \name{anon_inventory}
 \alias{anon_inventory}
-\title{Build a redacted inventory of objects in an environment or list}
+\title{Build an inventory of objects, applying your redaction rules}
 \usage{
 anon_inventory(
   envir = globalenv(),
@@ -36,9 +36,9 @@ matches using string distance. Default is
 \code{check_approximate} is \code{TRUE}. Default is \code{2}.}
 }
 \value{
-A tibble with one row per object and anonymized metadata about the
+A tibble with one row per object and metadata, with your patterns applied, about the
 available objects.
 }
 \description{
-Build a redacted inventory of objects in an environment or list
+Build an inventory of objects, applying your redaction rules
 }

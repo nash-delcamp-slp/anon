@@ -72,7 +72,7 @@ A named list of default replacement values that can be set with \code{\link[=opt
 \description{
 This function creates a named list of default replacement values for different
 types of NLP entity-based anonymization. It provides a centralized way to manage
-default replacements for entities anonymized in \code{\link[=anon_nlp_entities]{anon_nlp_entities()}} and
+default replacements for entities redacted in \code{\link[=anon_nlp_entities]{anon_nlp_entities()}} and
 \code{\link[=anon_nlp_proper_nouns]{anon_nlp_proper_nouns()}} when set as the global option \code{anon.nlp_default_replacements}.
 }
 \examples{

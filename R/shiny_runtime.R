@@ -1,7 +1,7 @@
 #' Launch the local `anon` Shiny app
 #'
 #' The `anon` Shiny app provides a local, session-oriented workflow for reviewing an
-#' environment, selecting objects, cleaning text, and generating anonymized
+#' environment, selecting objects, cleaning text, and generating redacted
 #' structural reports suitable for prompt building.
 #'
 #' @param envir Environment or list to inspect. Defaults to `globalenv()`.
@@ -594,7 +594,7 @@ anon_app_server <- function(
       report <- report_data()
 
       if (is.null(report)) {
-        return("Generate a report to preview anonymized context.")
+        return("Generate a report to preview the context.")
       }
 
       anon_prompt_bundle(
