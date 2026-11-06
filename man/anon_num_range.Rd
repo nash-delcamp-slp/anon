@@ -16,7 +16,8 @@ anon_num_range(
 \arguments{
 \item{x}{A vector to anonymize}
 
-\item{n_breaks}{Number of range categories to create (default: 5)}
+\item{n_breaks}{Number of range categories to create, at least 1
+(default: 5)}
 
 \item{method}{Method for creating breaks: "equal_width" or "equal_count"}
 

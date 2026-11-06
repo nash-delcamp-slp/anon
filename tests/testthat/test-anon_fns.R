@@ -570,6 +570,43 @@ test_that("anon_num_range() equal_count handles unclean and collapsing breaks", 
   expect_true(all(!is.na(result)))
 })
 
+test_that("anon_num_range() rejects n_breaks that is not a single number >= 1", {
+  x <- c(150, 160, 170)
+  msg <- "`n_breaks` must be a single number of at least 1."
+  expect_error(anon_num_range(x, n_breaks = 0), msg, fixed = TRUE)
+  expect_error(
+    anon_num_range(x, n_breaks = 0, method = "equal_width", clean_breaks = FALSE),
+    msg,
+    fixed = TRUE
+  )
+  expect_error(anon_num_range(x, n_breaks = -1), msg, fixed = TRUE)
+  expect_error(anon_num_range(x, n_breaks = NA), msg, fixed = TRUE)
+  expect_error(anon_num_range(x, n_breaks = NA_real_), msg, fixed = TRUE)
+  expect_error(anon_num_range(x, n_breaks = c(2, 3)), msg, fixed = TRUE)
+})
+
+test_that("anon_num_range() labels identical values with a single-point range", {
+  expect_equal(
+    anon_num_range(c(160, 160, 160), n_breaks = 1),
+    rep("[160,160]", 3)
+  )
+})
+
+test_that("build_single_range_result() labels with the min and max of values", {
+  expect_equal(
+    build_single_range_result(c(170, 150, 160), keep_values = TRUE),
+    rep("[150,170]", 3)
+  )
+  expect_equal(
+    build_single_range_result(c(5, 5), keep_values = TRUE),
+    rep("[5,5]", 2)
+  )
+  expect_equal(
+    build_single_range_result(c(170, 150), keep_values = FALSE),
+    rep("Range_01", 2)
+  )
+})
+
 test_that("more_patterns() returns nothing for empty or all-missing input", {
   expect_equal(more_patterns(character(0)), character(0))
   expect_equal(more_patterns(NA_character_), character(0))
