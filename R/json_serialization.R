@@ -40,6 +40,7 @@ as_anon_json <- function(x, pretty = TRUE, auto_unbox = TRUE) {
     auto_unbox = auto_unbox,
     null = "null",
     na = "null",
+    digits = NA,
     force = TRUE
   )
 }
@@ -358,6 +359,10 @@ serialize_supported_value <- function(x, path = "$") {
 
   if (inherits(x, "anon_report")) {
     return(as_anon_payload.anon_report(x, path = path))
+  }
+
+  if (inherits(x, "anon_risk")) {
+    return(as_anon_payload.anon_risk(x, path = path))
   }
 
   if (inherits(x, "anon_data_summary")) {

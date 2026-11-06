@@ -20,12 +20,14 @@ Imports:
     stopwords,
     stringi,
     tibble,
-    utils
+    utils,
+    vctrs
 Suggests:
     bench,
     bslib,
     officer,
     pdftools,
+    pharmaversesdtm,
     pkgload,
     readxl,
     shiny,

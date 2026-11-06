@@ -42,6 +42,15 @@ reference:
       - anon_num_preserve_distribution
       - anon_num_range
 
+  - title: De-identification
+    desc: >
+      Measure re-identification risk from quasi-identifiers across linked
+      datasets.
+    contents:
+      - anon_risk
+      - anon_risk_subjects
+      - anon_quasi_values
+
   - title: Named entity recognition
     desc: >
       Find and redact people, organizations, places, dates and other entities
