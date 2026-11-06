@@ -48,6 +48,7 @@ reference:
       datasets.
     contents:
       - anon_risk
+      - anon_risk_subjects
       - anon_quasi_values
 
   - title: Named entity recognition

@@ -12,9 +12,10 @@ test_that("anon_risk() measures group sizes and risk per subject", {
   risk <- anon_risk(risk_dm(), quasi = c("AGE", "SEX"), k = 3)
 
   expect_s3_class(risk, "anon_risk")
-  expect_equal(risk$subjects$USUBJID, sprintf("S%02d", 1:8))
-  expect_equal(risk$subjects$k, c(4, 4, 4, 4, 2, 2, 1, 1))
-  expect_equal(risk$subjects$risk, 1 / c(4, 4, 4, 4, 2, 2, 1, 1))
+  subjects <- anon_risk_subjects(risk_dm(), quasi = c("AGE", "SEX"))
+  expect_equal(subjects$USUBJID, sprintf("S%02d", 1:8))
+  expect_equal(subjects$k, c(4, 4, 4, 4, 2, 2, 1, 1))
+  expect_equal(subjects$risk, 1 / c(4, 4, 4, 4, 2, 2, 1, 1))
 
   s <- risk$summary
   expect_equal(s$n_subjects, 8)
@@ -76,8 +77,7 @@ test_that("anon_risk() meets the target when every group is large enough", {
 
 test_that("anon_risk() treats missing values as a value of their own", {
   dm <- data.frame(USUBJID = c("a", "b", "c"), RACE = c(NA, NA, "WHITE"))
-  risk <- anon_risk(dm, quasi = "RACE", k = 2)
-  expect_equal(risk$subjects$k, c(2, 2, 1))
+  expect_equal(anon_risk_subjects(dm, quasi = "RACE")$k, c(2, 2, 1))
 })
 
 test_that("anon_risk() combines quasi-identifiers from several datasets", {
@@ -91,17 +91,14 @@ test_that("anon_risk() combines quasi-identifiers from several datasets", {
   )
   vs <- rbind(vs, data.frame(USUBJID = "S01", VSTESTCD = "WEIGHT", VSSTRESN = 65, VSBLFL = ""))
 
-  risk <- anon_risk(
-    list(dm = dm, vs = vs),
-    quasi = list(
-      dm = "SEX",
-      anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN", filter = ~ VSBLFL == "Y")
-    ),
-    k = 2
+  quasi <- list(
+    dm = "SEX",
+    anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN", filter = ~ VSBLFL == "Y")
   )
+  risk <- anon_risk(list(dm = dm, vs = vs), quasi = quasi, k = 2)
 
   expect_equal(risk$quasi, c("SEX", "HEIGHT", "WEIGHT"))
-  expect_equal(risk$subjects$k, c(4, 4, 4, 4, 3, 3, 1, 3))
+  expect_equal(anon_risk_subjects(list(dm = dm, vs = vs), quasi = quasi)$k, c(4, 4, 4, 4, 3, 3, 1, 3))
 })
 
 test_that("anon_quasi_values() uses the first value per subject and names columns by test", {
@@ -122,13 +119,12 @@ test_that("anon_quasi_values() uses the first value per subject and names column
 test_that("anon_risk() counts subjects missing from a quasi dataset", {
   dm <- data.frame(USUBJID = c("a", "b", "c"), SEX = c("F", "F", "M"))
   vs <- data.frame(USUBJID = c("a", "b"), VSTESTCD = "HEIGHT", VSSTRESN = c(160, 160))
-  risk <- anon_risk(
+  subjects <- anon_risk_subjects(
     list(dm = dm, vs = vs),
-    quasi = list(dm = "SEX", anon_quasi_values("vs", "VSTESTCD", "HEIGHT", "VSSTRESN")),
-    k = 1
+    quasi = list(dm = "SEX", anon_quasi_values("vs", "VSTESTCD", "HEIGHT", "VSSTRESN"))
   )
-  expect_equal(risk$subjects$USUBJID, c("a", "b", "c"))
-  expect_equal(risk$subjects$k, c(2, 2, 1))
+  expect_equal(subjects$USUBJID, c("a", "b", "c"))
+  expect_equal(subjects$k, c(2, 2, 1))
 })
 
 test_that("anon_risk() prefixes column names that appear in more than one dataset", {
@@ -167,6 +163,12 @@ test_that("anon_risk() print and JSON payload omit subject-level data", {
   json <- as_anon_json(risk)
   expect_false(grepl("S01", json, fixed = TRUE))
 
+  # anon() rebuilds lists without their class; nothing subject-level is left to show
+  redacted <- anon(risk)
+  expect_false(grepl("S01", as_anon_json(redacted), fixed = TRUE))
+  expect_false(grepl("S01", paste(capture.output(print(redacted)), collapse = "\n"), fixed = TRUE))
+  expect_false(grepl("S01", as_anon_json(anon(list(r = risk))), fixed = TRUE))
+
   nested <- serialize_supported_value(list(risk = risk))
   expect_equal(nested$risk$kind, "anon_risk")
 })
@@ -179,4 +181,95 @@ test_that("anon_risk() reproduces uniqueness in pharmaversesdtm dm", {
   expect_equal(risk$summary$n_unique, 202)
   expect_equal(risk$summary$n_below_k, 306)
   expect_false(risk$summary$meets_target)
+  expect_equal(risk$drivers$variable[1], "AGE")
+  expect_equal(risk$drivers$n_unique_without[1], 20)
+
+  risk <- anon_risk(
+    list(dm = dm, vs = pharmaversesdtm::vs),
+    quasi = list(
+      dm = c("AGE", "SEX", "RACE", "ETHNIC", "SITEID"),
+      anon_quasi_values("vs", "VSTESTCD", "HEIGHT", "VSSTRESN"),
+      anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN", filter = ~ VSBLFL == "Y")
+    )
+  )
+  expect_equal(risk$summary$n_unique, 304)
+})
+
+test_that("anon_risk() evaluates filter with variables from where it was written", {
+  vs <- data.frame(USUBJID = c("a", "b", "c"), VSDY = c(1, 5, 9), VSTESTCD = "W", VSSTRESN = c(70, 80, 90))
+  by_day <- function(cut) {
+    anon_risk_subjects(
+      list(vs = vs),
+      quasi = list(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN", filter = ~ VSDY <= cut))
+    )
+  }
+  expect_equal(by_day(5)$k, c(1, 1, 1))
+  expect_error(
+    anon_risk(list(vs = vs), quasi = list(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN", filter = ~ VSDY))),
+    "must return TRUE or FALSE for each row"
+  )
+})
+
+test_that("anon_risk() requires the key to have the same type in every dataset", {
+  dm <- data.frame(USUBJID = c(1e5, 2e5), AGE = c(60, 70))
+  vs <- data.frame(USUBJID = c("100000", "200000"), VSTESTCD = "W", VSSTRESN = c(70, 80))
+  expect_error(
+    anon_risk(list(dm = dm, vs = vs), quasi = list(dm = "AGE", anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN"))),
+    "different types across datasets"
+  )
+
+  vs$USUBJID <- c(1e5, 2e5)
+  subjects <- anon_risk_subjects(
+    list(dm = dm, vs = vs),
+    quasi = list(dm = "AGE", anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN"))
+  )
+  expect_equal(subjects$USUBJID, c("100000", "200000"))
+
+  dm$USUBJID <- factor(c("a", "b"))
+  vs$USUBJID <- c("a", "b")
+  expect_equal(nrow(anon_risk_subjects(
+    list(dm = dm, vs = vs),
+    quasi = list(dm = "AGE", anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN"))
+  )), 2)
+})
+
+test_that("anon_risk() groups by exact values without separator collisions", {
+  d <- data.frame(USUBJID = 1:4, A = c("x\u001fy", "x", "\u0001NA", NA), B = c("z", "y\u001fz", "q", "q"))
+  expect_equal(anon_risk_subjects(d, quasi = c("A", "B"))$k, c(1, 1, 1, 1))
+
+  n <- data.frame(USUBJID = 1:2, X = c(0.1 + 0.2, 0.3))
+  risk <- anon_risk(n, quasi = "X", k = 1)
+  expect_equal(risk$summary$n_unique, 2)
+  expect_equal(risk$drivers$n_values, 2)
+
+  f <- data.frame(USUBJID = 1:3, SEX = factor(c("F", "F", "M")))
+  expect_equal(anon_risk_subjects(f, quasi = "SEX")$k, c(2, 2, 1))
+})
+
+test_that("anon_risk() warns about missing keys and rejects empty data and name clashes", {
+  dm <- data.frame(USUBJID = c("a", NA, "b", NA), AGE = c(60, 61, 62, 63))
+  expect_warning(risk <- anon_risk(dm, quasi = "AGE", k = 1), "2 row\\(s\\) with a missing `USUBJID` were dropped")
+  expect_equal(risk$summary$n_subjects, 2)
+
+  expect_error(anon_risk(dm[0, ], quasi = "AGE"), "No subjects found")
+  expect_error(anon_risk(risk_dm(), quasi = c("USUBJID", "AGE")), "must not be named like the key")
+  expect_error(anon_risk(risk_dm(), quasi = c("AGE", "AGE")), "must not contain duplicates")
+  expect_error(anon_quasi_values("vs", "VSTESTCD", c("W", "W"), "VSSTRESN"), "`tests` must not contain duplicates")
+  expect_error(anon_quasi_values(c("vs", "dm"), "VSTESTCD", "W", "VSSTRESN"), "`dataset` must be a single string")
+  expect_error(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN", names = "USUBJID") |>
+    (\(spec) anon_risk(list(vs = data.frame(USUBJID = "a", VSTESTCD = "W", VSSTRESN = 1)), quasi = list(spec)))(),
+    "must not be named like the key")
+})
+
+test_that("anon_risk() drivers handle a single quasi-identifier and report average risk", {
+  risk <- anon_risk(risk_dm(), quasi = "AGE", k = 3)
+  expect_equal(risk$drivers$min_k_without, 8)
+  expect_equal(risk$drivers$avg_risk_without, 1 / 8)
+})
+
+test_that("anon_risk() with k = 11 reports a maximum risk of 1/11", {
+  dm <- data.frame(USUBJID = 1:11, SEX = "F")
+  risk <- anon_risk(dm, quasi = "SEX")
+  expect_true(risk$summary$meets_target)
+  expect_equal(risk$summary$max_risk, 1 / 11)
 })

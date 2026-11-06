@@ -20,7 +20,8 @@ Imports:
     stopwords,
     stringi,
     tibble,
-    utils
+    utils,
+    vctrs
 Suggests:
     bench,
     bslib,

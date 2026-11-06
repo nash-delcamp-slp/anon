@@ -16,11 +16,14 @@ name (each subject must have one value per column, as in \code{dm}), and whose
 unnamed elements are \code{\link[=anon_quasi_values]{anon_quasi_values()}} specifications for values that
 vary by row, such as baseline height and weight in \code{vs}.}
 
-\item{key}{Name of the subject identifier column shared by the datasets.}
+\item{key}{Name of the subject identifier column shared by the datasets. It
+must have the same type (character or factor, or numeric) in every
+dataset used.}
 
 \item{k}{Target smallest group size. The default, 11, is the cell size that
 Health Canada equates with its encouraged re-identification risk threshold
-of 0.09 for public release of clinical information (see Details).}
+of 0.09 for public release of clinical information. Note that \code{1 / 11} is
+about 0.0909, slightly above 0.09; see Details.}
 }
 \value{
 An object of class \code{"anon_risk"}, a list with:
@@ -29,16 +32,17 @@ An object of class \code{"anon_risk"}, a list with:
 \code{n_unique} (subjects in a group of one), \code{min_k}, \code{max_risk}
 (\code{1 / min_k}), \code{avg_risk} (mean of \code{1 / k}), \code{n_below_k},
 \code{prop_below_k} and \code{meets_target} (\code{min_k >= k_target}).
-\item \code{drivers}: one row per quasi-identifier with \code{n_values} (distinct
-non-missing values), \code{n_missing}, and \code{n_unique_without},
-\code{n_below_k_without} and \code{min_k_without} (the result if that variable
-were left out), ordered from the variable whose removal helps most.
-\item \code{subjects}: one row per subject with the \code{key}, \code{k} and \code{risk}.
+\item \code{drivers}: one row per quasi-identifier with the number of distinct
+non-missing values (\code{n_values}), the number of missing values
+(\code{n_missing}), and \code{n_unique_without}, \code{n_below_k_without},
+\code{min_k_without} and \code{avg_risk_without} (the result if that variable were
+left out). Rows are ordered by \code{n_below_k_without}, then
+\code{n_unique_without}, then \code{avg_risk_without}, then the order of \code{quasi}.
 \item \code{quasi}, \code{key}: the quasi-identifier names and key used.
 }
 
-\code{subjects} contains the source key values. Printing and \code{\link[=as_anon_payload]{as_anon_payload()}}
-show only \code{summary} and \code{drivers}.
+The object holds counts only, no subject-level rows or key values. Use
+\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject results.
 }
 \description{
 Measures how easily subjects could be singled out from the combination of
@@ -49,26 +53,39 @@ size and the subject's risk is \code{1 / k}. Quasi-identifiers can come from
 several datasets linked by \code{key}.
 }
 \details{
-Subjects are all key values found in the datasets used by \code{quasi}. A subject
-with no value for a quasi-identifier (for example, missing from \code{vs}) gets
-\code{NA} for it, and \code{NA} is treated as a value of its own when forming groups.
+Subjects are all non-missing key values found in the datasets used by
+\code{quasi}; rows with a missing key are dropped with a warning. A subject with no
+value for a quasi-identifier (for example, missing from \code{vs}) gets \code{NA} for
+it, and \code{NA} is treated as a value of its own when forming groups. Values are
+grouped by exact equality.
 
 Risk is measured against the subjects in \code{data} only. Health Canada and EMA
-allow risk to be measured against a larger reference population, which gives
-lower risk; measuring within the data is the strictest reading.
+allow or encourage measuring risk against a larger reference population,
+which gives lower risk; measuring within the data, the smallest population,
+is the strictest reading.
 
-The threshold comes from Health Canada's \emph{Public Release of Clinical
-Information} guidance, which "encourages adopting a 9\% re-identification
-risk threshold (risk=0.09)" and states that it "equates to a target cell
+The default target comes from Health Canada's \emph{Public Release of Clinical
+Information} guidance. Its "Risk Threshold" section "encourages adopting a 9\%
+re-identification risk threshold (risk=0.09)", and its section on measuring
+risk states "Adopting a risk threshold of risk=0.09 equates to a target cell
 size of 11 patients"
 (\url{https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html}).
-EMA's Anonymisation Report Form Instructions (EMA/482639/2023) repeat the
-0.09 threshold for quantitative anonymisation under EMA Policy 0070. Both
-set it for public release of clinical documents; using it for other sharing
-is a deliberately conservative choice. GDPR and HIPAA set no numerical
-threshold. Meeting the target is evidence about re-identification risk from
-the chosen quasi-identifiers, not proof that data is anonymous or
+EMA's Anonymisation Report Form Instructions (EMA/482639/2023) state that
+"Health Canada PRCI and EMA Policy 0070 guidance encourages a 9\%
+re-identification risk threshold (risk=0.09)" and describe the target as a
+maximum "that should not be exceeded"
+(\url{https://www.ema.europa.eu/en/documents/other/anonymisation-report-form-instructions_en.pdf}).
+Both set the threshold for public release of clinical documents; using it for
+other sharing is a deliberately conservative choice. GDPR and HIPAA set no
+numerical threshold. Meeting the target is evidence about re-identification
+risk from the chosen quasi-identifiers, not proof that data is anonymous or
 de-identified under any regime.
+
+The \code{drivers} table shows what leaving out each quasi-identifier on its own
+would achieve. It cannot see variables that identify the same subjects
+together (for example height and weight), it shows the effect of removing a
+variable rather than generalizing it, and it does not measure information
+loss. Use it to decide what to try next, then measure again.
 }
 \examples{
 dm <- data.frame(
@@ -94,4 +111,7 @@ anon_risk(
   k = 2
 )
 
+}
+\seealso{
+\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject group sizes.
 }

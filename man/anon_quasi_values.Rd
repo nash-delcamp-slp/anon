@@ -16,10 +16,12 @@ anon_quasi_values(dataset, test, tests, result, filter = NULL, names = tests)
 \item{result}{Name of the column holding the result (e.g. \code{"VSSTRESN"}).}
 
 \item{filter}{Optional one-sided formula evaluated in the dataset to select
-rows, e.g. \code{~ VSBLFL == "Y"} for baseline values. It applies to every test
-in \code{tests}; use separate specifications when tests need different filters
-(for example, height recorded once at screening without a baseline flag).
-A warning is given when a test has no values.}
+rows, e.g. \code{~ VSBLFL == "Y"} for baseline values. Variables not found in
+the dataset are looked up where the formula was created. It must return
+\code{TRUE} or \code{FALSE} for each row. It applies to every test in \code{tests}; use
+separate specifications when tests need different filters (for example,
+height recorded once at screening without a baseline flag). A warning is
+given when a test has no values.}
 
 \item{names}{Names for the resulting quasi-identifiers. Defaults to \code{tests}.}
 }
