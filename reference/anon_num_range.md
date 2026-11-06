@@ -24,7 +24,7 @@ anon_num_range(
 
 - n_breaks:
 
-  Number of range categories to create (default: 5)
+  Number of range categories to create, at least 1 (default: 5)
 
 - method:
 
