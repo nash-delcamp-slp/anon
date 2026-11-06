@@ -26,6 +26,7 @@ Suggests:
     bslib,
     officer,
     pdftools,
+    pharmaversesdtm,
     pkgload,
     readxl,
     shiny,
