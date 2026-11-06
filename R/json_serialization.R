@@ -40,6 +40,7 @@ as_anon_json <- function(x, pretty = TRUE, auto_unbox = TRUE) {
     auto_unbox = auto_unbox,
     null = "null",
     na = "null",
+    digits = NA,
     force = TRUE
   )
 }

@@ -19,7 +19,8 @@
 #'   dataset used.
 #' @param max_risk Highest acceptable re-identification risk for any subject
 #'   (the maximum risk, `1 / k` for the smallest group). The target group size
-#'   is the smallest `k` with `1 / k <= max_risk`. The default, 0.09, is the
+#'   is the smallest `k` with `1 / k <= max_risk`, allowing for floating-point
+#'   error so that 0.1 and 1/3 give 10 and 3. The default, 0.09, is the
 #'   threshold Health Canada and EMA encourage for public release of clinical
 #'   information, and requires groups of at least 12. Health Canada equates
 #'   0.09 with a cell size of 11, but `1 / 11` is about 0.0909; to use groups of
@@ -52,7 +53,7 @@
 #' at least 12 so that the threshold is never exceeded; `max_risk = 1/11`
 #' follows Health Canada's stated cell size instead. Both set the threshold for public release of clinical documents; using it for
 #' other sharing is a deliberately conservative choice. GDPR and HIPAA set no
-#' numerical threshold. Meeting the target is evidence about re-identification
+#' numerical re-identification risk threshold. Meeting the target is evidence about re-identification
 #' risk from the chosen quasi-identifiers, not proof that data is anonymous or
 #' de-identified under any regime.
 #'
@@ -63,17 +64,20 @@
 #' loss. Use it to decide what to try next, then measure again.
 #'
 #' @return An object of class `"anon_risk"`, a list with:
-#'   - `summary`: one row with `n_subjects`, `n_quasi`, `max_risk_target`,
-#'     `k_target` (the group size it requires), `n_unique` (subjects in a
-#'     group of one), `min_k`, `max_risk` (`1 / min_k`), `avg_risk` (mean of
-#'     `1 / k`), `n_below_k` (subjects in groups smaller than `k_target`),
-#'     `prop_below_k` and `meets_target` (`max_risk <= max_risk_target`).
+#'   - `summary`: one row with `n_subjects`, `n_quasi`, `max_risk_target`
+#'     (the `max_risk` argument), `k_target` (the group size it requires),
+#'     `n_unique` (subjects in a group of one), `min_k`, `max_risk` (the
+#'     observed maximum, `1 / min_k`), `avg_risk` (mean of `1 / k` over
+#'     subjects, equal to the number of groups divided by `n_subjects`),
+#'     `n_below_k` (subjects in groups smaller than `k_target`),
+#'     `prop_below_k` and `meets_target` (`min_k >= k_target`).
 #'   - `drivers`: one row per quasi-identifier with the number of distinct
 #'     non-missing values (`n_values`), the number of missing values
 #'     (`n_missing`), and `n_unique_without`, `n_below_k_without`,
 #'     `min_k_without` and `avg_risk_without` (the result if that variable were
-#'     left out). Rows are ordered by `n_below_k_without`, then
-#'     `n_unique_without`, then `avg_risk_without`, then the order of `quasi`.
+#'     left out). Rows are ordered so the variable whose removal helps most
+#'     comes first: by `n_below_k_without`, then `n_unique_without`, then
+#'     `avg_risk_without` (all ascending), then the order of `quasi`.
 #'   - `quasi`, `key`: the quasi-identifier names and key used.
 #'
 #'   The object holds counts only, no subject-level rows or key values. Use
@@ -95,6 +99,9 @@
 #'   VSSTRESN = c(160, 60, 160, 60, 165, 62, 180, 80, 180, 80, 175, 90),
 #'   VSBLFL = "Y"
 #' )
+#' # Dropping any single variable changes nothing here: subjects 1-2 and 4-5
+#' # match on every variable, and HEIGHT and WEIGHT single out the same
+#' # subjects, which leave-one-out drivers cannot show.
 #' anon_risk(
 #'   list(dm = dm, vs = vs),
 #'   quasi = list(
@@ -220,17 +227,29 @@ print.anon_risk <- function(x, ...) {
   cat("======================\n\n")
   cat("Quasi-identifiers:", paste(x$quasi, collapse = ", "), "\n")
   cat("Subjects:", s$n_subjects, "\n")
-  cat("Target: maximum risk", format(signif(s$max_risk_target, 3)),
+  cat("Target: maximum risk", format(s$max_risk_target, digits = 7),
       paste0("(groups of at least ", s$k_target, ")"), "\n")
-  cat("Maximum risk:", format(signif(s$max_risk, 3)),
+  cat("Maximum risk:", format(s$max_risk, digits = 7),
       paste0("(smallest group: ", s$min_k, ")"),
-      " Average risk:", format(signif(s$avg_risk, 3)), "\n")
-  cat("Unique subjects:", s$n_unique, "\n")
-  cat("Subjects below target:", s$n_below_k,
-      paste0("(", format(round(100 * s$prop_below_k, 1)), "%)"), "\n")
+      " Average risk:", format(s$avg_risk, digits = 7), "\n")
+  cat("Unique subjects (group of 1):", s$n_unique, "\n")
+  cat("Subjects in groups smaller than ", s$k_target, ": ", s$n_below_k, " ",
+      paste0("(", format(round(100 * s$prop_below_k, 1)), "%)"), "\n", sep = "")
   cat("Meets target:", if (isTRUE(s$meets_target)) "yes" else "no", "\n\n")
-  cat("Drivers (result if each variable were left out):\n")
+  cat("Drivers (`_without` columns: result if that variable alone were left out):\n")
   print(as.data.frame(x$drivers), row.names = FALSE)
+  invisible(x)
+}
+
+#' @export
+print.anon_quasi_values <- function(x, ...) {
+  cat("Quasi-identifier values from `", x$dataset, "`: ",
+      paste0(x$names, " = first non-missing ", x$result_col, " where ",
+             x$test_col, " == \"", x$tests, "\"", collapse = "; "),
+      "\n", sep = "")
+  if (!is.null(x$filter)) {
+    cat("Filter:", rlang::expr_text(rlang::f_rhs(x$filter)), "\n")
+  }
   invisible(x)
 }
 
@@ -383,9 +402,11 @@ check_key_types <- function(data, key) {
   }
 }
 
+# Numeric keys are written with up to 15 significant digits, value by value,
+# so 1 and 2.5 give "1" and "2.5" and large IDs keep every digit.
 key_as_character <- function(x) {
   if (is.numeric(x)) {
-    out <- format(x, scientific = FALSE, trim = TRUE)
+    out <- sprintf("%.15g", x)
     out[is.na(x)] <- NA_character_
     out
   } else {

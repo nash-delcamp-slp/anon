@@ -155,7 +155,8 @@ test_that("anon_risk() print and JSON payload omit subject-level data", {
 
   output <- paste(capture.output(print(risk)), collapse = "\n")
   expect_match(output, "Re-identification risk", fixed = TRUE)
-  expect_match(output, "Target: maximum risk 0.333 (groups of at least 3)", fixed = TRUE)
+  expect_match(output, "Target: maximum risk 0.3333333 (groups of at least 3)", fixed = TRUE)
+  expect_match(output, "Subjects in groups smaller than 3: 4 (50%)", fixed = TRUE)
   expect_match(output, "Maximum risk: 1 (smallest group: 1)", fixed = TRUE)
   expect_false(grepl("S01", output, fixed = TRUE))
 
@@ -285,4 +286,32 @@ test_that("anon_risk() default 0.09 requires groups of 12; 1/11 allows 11", {
   expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 0.1)$summary$k_target, 10)
   expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 0.2)$summary$k_target, 5)
   expect_equal(anon_risk(dm, quasi = "SEX", max_risk = 1)$summary$k_target, 1)
+})
+
+test_that("anon_risk() output separates 1/11 from 0.0909 at the boundary", {
+  dm <- data.frame(USUBJID = 1:11, SEX = "F")
+  output <- capture.output(print(anon_risk(dm, quasi = "SEX", max_risk = 0.0909)))
+  expect_true(any(grepl("Target: maximum risk 0.0909 (groups of at least 12)", output, fixed = TRUE)))
+  expect_true(any(grepl("Maximum risk: 0.09090909 (smallest group: 11)", output, fixed = TRUE)))
+
+  json <- as_anon_json(anon_risk(dm, quasi = "SEX", max_risk = 0.0909))
+  expect_match(json, '"max_risk": 0.0909090909', fixed = TRUE)
+})
+
+test_that("numeric keys keep every digit and match across datasets", {
+  dm <- data.frame(ID = c(1, 2, 1000000.1, 1000000.2), AGE = c(60, 61, 62, 63))
+  vs <- data.frame(ID = c(1, 2.5), VSTESTCD = "W", VSSTRESN = c(70, 80))
+  subjects <- anon_risk_subjects(
+    list(dm = dm, vs = vs),
+    quasi = list(dm = "AGE", anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN")),
+    key = "ID"
+  )
+  expect_equal(subjects$ID, c("1", "2", "1000000.1", "1000000.2", "2.5"))
+})
+
+test_that("anon_quasi_values() prints what it selects", {
+  spec <- anon_quasi_values("vs", "VSTESTCD", c("HEIGHT", "WEIGHT"), "VSSTRESN", filter = ~ VSBLFL == "Y")
+  output <- paste(capture.output(print(spec)), collapse = "\n")
+  expect_match(output, "HEIGHT = first non-missing VSSTRESN where VSTESTCD == \"HEIGHT\"", fixed = TRUE)
+  expect_match(output, "Filter: VSBLFL == \"Y\"", fixed = TRUE)
 })

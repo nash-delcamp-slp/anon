@@ -22,7 +22,8 @@ dataset used.}
 
 \item{max_risk}{Highest acceptable re-identification risk for any subject
 (the maximum risk, \code{1 / k} for the smallest group). The target group size
-is the smallest \code{k} with \code{1 / k <= max_risk}. The default, 0.09, is the
+is the smallest \code{k} with \code{1 / k <= max_risk}, allowing for floating-point
+error so that 0.1 and 1/3 give 10 and 3. The default, 0.09, is the
 threshold Health Canada and EMA encourage for public release of clinical
 information, and requires groups of at least 12. Health Canada equates
 0.09 with a cell size of 11, but \code{1 / 11} is about 0.0909; to use groups of
@@ -31,17 +32,20 @@ information, and requires groups of at least 12. Health Canada equates
 \value{
 An object of class \code{"anon_risk"}, a list with:
 \itemize{
-\item \code{summary}: one row with \code{n_subjects}, \code{n_quasi}, \code{max_risk_target},
-\code{k_target} (the group size it requires), \code{n_unique} (subjects in a
-group of one), \code{min_k}, \code{max_risk} (\code{1 / min_k}), \code{avg_risk} (mean of
-\code{1 / k}), \code{n_below_k} (subjects in groups smaller than \code{k_target}),
-\code{prop_below_k} and \code{meets_target} (\code{max_risk <= max_risk_target}).
+\item \code{summary}: one row with \code{n_subjects}, \code{n_quasi}, \code{max_risk_target}
+(the \code{max_risk} argument), \code{k_target} (the group size it requires),
+\code{n_unique} (subjects in a group of one), \code{min_k}, \code{max_risk} (the
+observed maximum, \code{1 / min_k}), \code{avg_risk} (mean of \code{1 / k} over
+subjects, equal to the number of groups divided by \code{n_subjects}),
+\code{n_below_k} (subjects in groups smaller than \code{k_target}),
+\code{prop_below_k} and \code{meets_target} (\code{min_k >= k_target}).
 \item \code{drivers}: one row per quasi-identifier with the number of distinct
 non-missing values (\code{n_values}), the number of missing values
 (\code{n_missing}), and \code{n_unique_without}, \code{n_below_k_without},
 \code{min_k_without} and \code{avg_risk_without} (the result if that variable were
-left out). Rows are ordered by \code{n_below_k_without}, then
-\code{n_unique_without}, then \code{avg_risk_without}, then the order of \code{quasi}.
+left out). Rows are ordered so the variable whose removal helps most
+comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
+\code{avg_risk_without} (all ascending), then the order of \code{quasi}.
 \item \code{quasi}, \code{key}: the quasi-identifier names and key used.
 }
 
@@ -83,7 +87,7 @@ Because \code{1 / 11} (about 0.0909) exceeds 0.09, the default requires groups o
 at least 12 so that the threshold is never exceeded; \code{max_risk = 1/11}
 follows Health Canada's stated cell size instead. Both set the threshold for public release of clinical documents; using it for
 other sharing is a deliberately conservative choice. GDPR and HIPAA set no
-numerical threshold. Meeting the target is evidence about re-identification
+numerical re-identification risk threshold. Meeting the target is evidence about re-identification
 risk from the chosen quasi-identifiers, not proof that data is anonymous or
 de-identified under any regime.
 
@@ -107,6 +111,9 @@ vs <- data.frame(
   VSSTRESN = c(160, 60, 160, 60, 165, 62, 180, 80, 180, 80, 175, 90),
   VSBLFL = "Y"
 )
+# Dropping any single variable changes nothing here: subjects 1-2 and 4-5
+# match on every variable, and HEIGHT and WEIGHT single out the same
+# subjects, which leave-one-out drivers cannot show.
 anon_risk(
   list(dm = dm, vs = vs),
   quasi = list(
