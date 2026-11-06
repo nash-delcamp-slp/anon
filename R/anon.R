@@ -166,36 +166,15 @@ anon <- function(
   # Combine user arguments with global options
   if (!.self) {
     option_pattern_list <- getOption("anon.pattern_list", default = list())
-    option_df_variable_names <- getOption(
-      "anon.df_variable_names",
-      default = NULL
-    )
-    option_df_classes <- getOption("anon.df_classes", default = NULL)
 
     # Combine pattern_list with option
     if (length(option_pattern_list) > 0) {
       pattern_list <- c(pattern_list, option_pattern_list)
     }
 
-    # Combine df_variable_names with option
-    # Internally, df_variable_names might be passed as FALSE to ignore the option.
-    if (!is.null(option_df_variable_names) && !isFALSE(df_variable_names)) {
-      if (is.null(df_variable_names)) {
-        df_variable_names <- option_df_variable_names
-      } else {
-        df_variable_names <- c(df_variable_names, option_df_variable_names)
-      }
-    }
-
-    # Combine df_classes with option
-    # Internally, df_classes might be passed as FALSE to ignore the option.
-    if (!is.null(option_df_classes) && !isFALSE(df_classes)) {
-      if (is.null(df_classes)) {
-        df_classes <- option_df_classes
-      } else {
-        df_classes <- c(df_classes, option_df_classes)
-      }
-    }
+    # Internally, df_variable_names and df_classes may be FALSE to ignore the options.
+    df_variable_names <- merge_with_option(df_variable_names, "anon.df_variable_names")
+    df_classes <- merge_with_option(df_classes, "anon.df_classes")
   }
 
   # Track warnings at the anon() level
@@ -508,6 +487,16 @@ anon <- function(
 }
 
 # helpers -----------------------------------------------------------------
+
+# Combine a df_variable_names or df_classes argument with its global option.
+# FALSE means "ignore the option" and is returned unchanged.
+merge_with_option <- function(value, option_name) {
+  option_value <- getOption(option_name, default = NULL)
+  if (is.null(option_value) || isFALSE(value)) {
+    return(value)
+  }
+  if (is.null(value)) option_value else c(value, option_value)
+}
 
 # Find the df_classes rule that applies to a vector. Named rules are checked
 # first, in order, then unnamed ones. Returns NULL when nothing matches, or a

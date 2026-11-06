@@ -95,7 +95,9 @@ anon_report <- function(
       example_rows = example_rows,
       check_approximate = check_approximate,
       max_distance = max_distance,
-      nlp_auto = nlp_auto
+      nlp_auto = nlp_auto,
+      df_variable_names = df_variable_names,
+      df_classes = df_classes
     )
   )
 

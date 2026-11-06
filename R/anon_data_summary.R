@@ -16,7 +16,9 @@
 #' @param example_rows Optional example-row specification for data frames.
 #'   Use `NULL` to disable examples, a single number to request that many rows
 #'   per data frame, or [anon_example_rows()] to build a spec with explicit
-#'   arguments such as `n`, `key`, `method`, and `n_key_values`.
+#'   arguments such as `n`, `key`, `method`, and `n_key_values`. Rows are
+#'   chosen on the source values, so `key` and `value` refer to the data as
+#'   passed in.
 #' @inheritParams anon
 #'
 #' @return An object of class `"anon_data_summary"` containing:
@@ -36,6 +38,13 @@
 #' 1. Generates detailed summaries for all objects
 #' 2. Creates structured output with summary statistics and detailed information about data frames
 #' 3. Applies anonymization using [anon()] with the provided patterns
+#'
+#' Example values and example rows are taken from a copy of each data frame
+#' with the `df_variable_names` and `df_classes` rules applied (combined with
+#' their global options, as in [anon()]), so replaced columns show their
+#' replacements. Structure statistics such as data types, distinct counts and
+#' missing values describe the data as passed in. Patterns and NLP are then
+#' applied to the whole summary.
 #'
 #' For data frames, the function captures:
 #' - Structural information: dimensions, memory usage, and data frame-level labels
@@ -97,7 +106,9 @@ anon_data_summary <- function(
   example_rows = getOption("anon.example_rows"),
   check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  df_variable_names = NULL,
+  df_classes = NULL
 ) {
   name <- type <- NULL
 
@@ -115,14 +126,27 @@ anon_data_summary <- function(
   objects <- normalize_object_source(envir, selection = selection)
   obj_names <- names(objects)
 
+  # Example values and rows are shown from a copy with the column rules
+  # applied; structure statistics describe the source objects. Without
+  # examples nothing is shown, so the rules are not run.
+  display_objects <- objects
+  if (example_values_n > 0L || !is.null(example_rows)) {
+    display_objects <- apply_column_rules(
+      objects,
+      df_variable_names = merge_with_option(df_variable_names, "anon.df_variable_names"),
+      df_classes = merge_with_option(df_classes, "anon.df_classes"),
+      default_replacement = default_replacement
+    )
+  }
+
   summaries <- purrr::map(
     obj_names,
     ~ {
-      obj <- objects[[.x]]
       get_object_summary(
         .x,
-        obj,
-        example_values_n = example_values_n
+        objects[[.x]],
+        example_values_n = example_values_n,
+        display = display_objects[[.x]]
       )
     }
   ) |>
@@ -145,7 +169,8 @@ anon_data_summary <- function(
 
   examples <- build_example_payload(
     objects,
-    example_rows = example_rows
+    example_rows = example_rows,
+    display_objects = display_objects
   )
   if (!is.null(examples)) {
     result$examples <- examples
@@ -185,10 +210,37 @@ anon_data_summary <- function(
 
 # helpers -----------------------------------------------------------------
 
+# Apply df_variable_names and df_classes rules to each object without patterns
+# or NLP; those run once over the finished summary.
+apply_column_rules <- function(objects, df_variable_names, df_classes, default_replacement) {
+  no_rules <- (is.null(df_variable_names) || isFALSE(df_variable_names)) &&
+    (is.null(df_classes) || isFALSE(df_classes))
+  if (no_rules) {
+    return(objects)
+  }
+
+  lapply(objects, function(obj) {
+    result <- anon(
+      obj,
+      pattern_list = list(),
+      default_replacement = default_replacement,
+      df_variable_names = df_variable_names,
+      df_classes = df_classes,
+      check_names = FALSE,
+      check_labels = FALSE,
+      nlp_auto = FALSE,
+      .self = TRUE
+    )
+    attr(result, "approximate_warnings") <- NULL
+    result
+  })
+}
+
 get_object_summary <- function(
   obj_name,
   obj,
-  example_values_n = 0L
+  example_values_n = 0L,
+  display = obj
 ) {
 
   if (is.data.frame(obj)) {
@@ -214,8 +266,8 @@ get_object_summary <- function(
 
     if (example_values_n > 0L) {
       var_info$example_values <- purrr::map(
-        obj,
-        ~ get_example_values(.x, n = example_values_n)
+        seq_along(obj),
+        ~ get_example_values(display[[.x]], n = example_values_n)
       )
     }
 
@@ -419,26 +471,33 @@ supports_example_values <- function(x) {
   is.character(x) || is.factor(x) || is.logical(x)
 }
 
-build_example_payload <- function(objects, example_rows = NULL) {
+# Example rows are chosen on the source objects (so keys and values given in
+# `example_rows` refer to source values) and shown from `display_objects`,
+# which have the column rules applied and the same rows in the same order.
+build_example_payload <- function(objects, example_rows = NULL, display_objects = objects) {
   if (is.null(example_rows)) {
     return(NULL)
   }
 
-  data_frames <- objects[vapply(objects, is.data.frame, logical(1))]
+  is_df <- vapply(objects, is.data.frame, logical(1))
+  data_frames <- objects[is_df]
+  display_frames <- display_objects[is_df]
   if (length(data_frames) == 0L) {
     return(NULL)
   }
 
   if (is.null(example_rows$key)) {
-    rows <- purrr::map2(
-      data_frames,
-      seq_along(data_frames),
-      ~ select_example_rows(
-        .x,
-        n = example_rows$n,
-        method = example_rows$method,
-        seed = derive_example_seed(example_rows$seed, .y - 1L)
-      )
+    rows <- purrr::pmap(
+      list(data_frames, display_frames, seq_along(data_frames)),
+      function(df, display, i) {
+        select_example_rows(
+          df,
+          n = example_rows$n,
+          method = example_rows$method,
+          seed = derive_example_seed(example_rows$seed, i - 1L),
+          display = display
+        )
+      }
     )
     names(rows) <- names(data_frames)
     rows <- rows[vapply(rows, nrow, integer(1)) > 0L]
@@ -457,7 +516,8 @@ build_example_payload <- function(objects, example_rows = NULL) {
     method = example_rows$method,
     value = example_rows$value,
     n_key_values = example_rows$n_key_values,
-    seed = example_rows$seed
+    seed = example_rows$seed,
+    display_frames = display_frames
   )
 }
 
@@ -468,9 +528,12 @@ build_keyed_examples <- function(
   method = "first",
   value = NULL,
   n_key_values = 1L,
-  seed = NULL
+  seed = NULL,
+  display_frames = data_frames
 ) {
-  keyed_tables <- data_frames[vapply(data_frames, function(x) key %in% names(x), logical(1))]
+  has_key <- vapply(data_frames, function(x) key %in% names(x), logical(1))
+  keyed_tables <- data_frames[has_key]
+  display_tables <- display_frames[has_key]
   if (length(keyed_tables) == 0L) {
     return(NULL)
   }
@@ -496,7 +559,8 @@ build_keyed_examples <- function(
       value = .x,
       method = method,
       n = n,
-      seed = derive_example_seed(seed, .y * 1000L)
+      seed = derive_example_seed(seed, .y * 1000L),
+      display_tables = display_tables
     )
   )
   scenarios <- purrr::compact(scenarios)
@@ -513,18 +577,30 @@ build_keyed_examples <- function(
   result
 }
 
-build_single_scenario <- function(keyed_tables, key, value, method = "first", n, seed = NULL) {
-  scenario_tables <- purrr::map2(
-    keyed_tables,
-    seq_along(keyed_tables),
-    ~ select_matching_rows(
-      .x,
-      key = key,
-      value = value,
-      n = n,
-      method = method,
-      seed = derive_example_seed(seed, .y - 1L)
-    )
+# The scenario's shown value is the key as it appears in the display tables,
+# as character so that patterns also apply to numeric and date keys.
+build_single_scenario <- function(
+  keyed_tables,
+  key,
+  value,
+  method = "first",
+  n,
+  seed = NULL,
+  display_tables = keyed_tables
+) {
+  scenario_tables <- purrr::pmap(
+    list(keyed_tables, display_tables, seq_along(keyed_tables)),
+    function(df, display, i) {
+      select_matching_rows(
+        df,
+        key = key,
+        value = value,
+        n = n,
+        method = method,
+        seed = derive_example_seed(seed, i - 1L),
+        display = display
+      )
+    }
   )
   names(scenario_tables) <- names(keyed_tables)
   scenario_tables <- scenario_tables[vapply(scenario_tables, nrow, integer(1)) > 0L]
@@ -535,7 +611,7 @@ build_single_scenario <- function(keyed_tables, key, value, method = "first", n,
 
   list(
     key = key,
-    value = value,
+    value = as.character(scenario_tables[[1]][[key]][[1]]),
     method = method,
     tables = scenario_tables
   )
@@ -576,13 +652,9 @@ collect_key_value_candidates <- function(keyed_tables, key) {
   unique(values)
 }
 
-select_example_rows <- function(df, n, method = "first", seed = NULL) {
+select_example_rows <- function(df, n, method = "first", seed = NULL, display = df) {
   index <- select_example_indices(nrow(df), n = n, method = method, seed = seed)
-  if (length(index) == 0L) {
-    return(df[0, , drop = FALSE])
-  }
-
-  df[index, , drop = FALSE]
+  display[index, , drop = FALSE]
 }
 
 select_example_indices <- function(n_total, n, method = "first", seed = NULL) {
@@ -627,14 +699,10 @@ derive_example_seed <- function(seed, offset = 0L) {
   as.integer(seed + offset)
 }
 
-select_matching_rows <- function(df, key, value, n, method = "first", seed = NULL) {
-  matches <- !is.na(df[[key]]) & values_match(df[[key]], value)
-  matched_df <- df[matches, , drop = FALSE]
-  if (nrow(matched_df) == 0L) {
-    return(matched_df)
-  }
-
-  select_example_rows(matched_df, n = n, method = method, seed = seed)
+select_matching_rows <- function(df, key, value, n, method = "first", seed = NULL, display = df) {
+  matched <- which(!is.na(df[[key]]) & values_match(df[[key]], value))
+  index <- select_example_indices(length(matched), n = n, method = method, seed = seed)
+  display[matched[index], , drop = FALSE]
 }
 
 values_match <- function(x, value) {

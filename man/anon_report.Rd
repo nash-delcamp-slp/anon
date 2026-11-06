@@ -42,7 +42,9 @@ example values.}
 \item{example_rows}{Optional example-row specification for data frames.
 Use \code{NULL} to disable examples, a single number to request that many rows
 per data frame, or \code{\link[=anon_example_rows]{anon_example_rows()}} to build a spec with explicit
-arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}.}
+arguments such as \code{n}, \code{key}, \code{method}, and \code{n_key_values}. Rows are
+chosen on the source values, so \code{key} and \code{value} refer to the data as
+passed in.}
 
 \item{check_approximate}{Logical indicating whether to check for approximate
 matches using string distance. Default is
