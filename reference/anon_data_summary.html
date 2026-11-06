@@ -60,7 +60,9 @@ information through pattern-based redaction.</p>
 <span>  example_rows <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.example_rows"</span><span class="op">)</span>,</span>
 <span>  check_approximate <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.check_approximate"</span>, default <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span>,</span>
 <span>  max_distance <span class="op">=</span> <span class="fl">2</span>,</span>
-<span>  nlp_auto <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.nlp_auto"</span><span class="op">)</span></span>
+<span>  nlp_auto <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.nlp_auto"</span><span class="op">)</span>,</span>
+<span>  df_variable_names <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  df_classes <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -100,7 +102,9 @@ example values.</p></dd>
 <dd><p>Optional example-row specification for data frames.
 Use <code>NULL</code> to disable examples, a single number to request that many rows
 per data frame, or <code><a href="anon_example_rows.html">anon_example_rows()</a></code> to build a spec with explicit
-arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>.</p></dd>
+arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>. Rows are
+chosen on the source values, so <code>key</code> and <code>value</code> refer to the data as
+passed in.</p></dd>
 
 
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>
@@ -118,6 +122,27 @@ matches using string distance. Default is
 <dd><p>List of logical values with names corresponding to entity names. Can be
 generated with <code><a href="nlp_auto.html">nlp_auto()</a></code> and can be set as the <code>anon.nlp_auto</code> global option.
 This argument overrides the global option.</p></dd>
+
+
+<dt id="arg-df-variable-names">df_variable_names<a class="anchor" aria-label="anchor" href="#arg-df-variable-names"></a></dt>
+<dd><p>For data frames, a character vector or named list
+specifying which variable names should be anonymized:</p><ul><li><p>Unnamed elements: variables are replaced with <code>default_replacement</code></p></li>
+<li><p>Named elements: variable names are keys, value can be either a replacement value or a function
+This parameter is combined with the global option <code>getOption("anon.df_variable_names")</code>.</p></li>
+</ul></dd>
+
+
+<dt id="arg-df-classes">df_classes<a class="anchor" aria-label="anchor" href="#arg-df-classes"></a></dt>
+<dd><p>For data frames, a character vector or named list specifying
+which variable classes should be anonymized:</p><ul><li><p>Unnamed elements: variables with matching classes are replaced with <code>default_replacement</code></p></li>
+<li><p>Named elements: class names are keys, value can be either a replacement value or a function
+Class names are matched case-insensitively against <code><a href="https://rdrr.io/r/base/class.html" class="external-link">class()</a></code> of each column. <code>"double"</code>
+also matches plain double columns (not <code>Date</code> or <code>POSIXct</code>). Character columns also match
+<code>"double"</code>/<code>"numeric"</code>, <code>"integer"</code>, <code>"Date"</code> or <code>"POSIXct"</code> when every non-missing,
+non-blank value parses as that type (dates as ISO 8601); a replacement function then
+receives the parsed values.
+This parameter is combined with the global option <code>getOption("anon.df_classes")</code>.</p></li>
+</ul></dd>
 
 </dl></div>
     <div class="section level2">
@@ -138,7 +163,13 @@ rows per data frame or one or more keyed cross-source scenarios</p></li>
     <p>The function operates in a few key steps:</p><ol><li><p>Generates detailed summaries for all objects</p></li>
 <li><p>Creates structured output with summary statistics and detailed information about data frames</p></li>
 <li><p>Applies anonymization using <code><a href="anon.html">anon()</a></code> with the provided patterns</p></li>
-</ol><p>For data frames, the function captures:</p><ul><li><p>Structural information: dimensions, memory usage, and data frame-level labels</p></li>
+</ol><p>Example values and example rows are taken from a copy of each data frame
+with the <code>df_variable_names</code> and <code>df_classes</code> rules applied (combined with
+their global options, as in <code><a href="anon.html">anon()</a></code>), so replaced columns show their
+replacements. Structure statistics such as data types, distinct counts and
+missing values describe the data as passed in. Patterns and NLP are then
+applied to the whole summary.</p>
+<p>For data frames, the function captures:</p><ul><li><p>Structural information: dimensions, memory usage, and data frame-level labels</p></li>
 <li><p>Variable details: data types, missing value counts, distinct value counts,
 variable labels, and optional example values</p></li>
 <li><p>Optional example payloads: either sample rows or one or more keyed

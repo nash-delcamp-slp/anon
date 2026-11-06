@@ -20,7 +20,9 @@ anon_data_summary(
   example_rows = getOption("anon.example_rows"),
   check_approximate = getOption("anon.check_approximate", default = FALSE),
   max_distance = 2,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  df_variable_names = NULL,
+  df_classes = NULL
 )
 ```
 
@@ -68,7 +70,8 @@ anon_data_summary(
   frame, or
   [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
   to build a spec with explicit arguments such as `n`, `key`, `method`,
-  and `n_key_values`.
+  and `n_key_values`. Rows are chosen on the source values, so `key` and
+  `value` refer to the data as passed in.
 
 - check_approximate:
 
@@ -88,6 +91,36 @@ anon_data_summary(
   [`nlp_auto()`](https://nash-delcamp-slp.github.io/anon/reference/nlp_auto.md)
   and can be set as the `anon.nlp_auto` global option. This argument
   overrides the global option.
+
+- df_variable_names:
+
+  For data frames, a character vector or named list specifying which
+  variable names should be anonymized:
+
+  - Unnamed elements: variables are replaced with `default_replacement`
+
+  - Named elements: variable names are keys, value can be either a
+    replacement value or a function This parameter is combined with the
+    global option `getOption("anon.df_variable_names")`.
+
+- df_classes:
+
+  For data frames, a character vector or named list specifying which
+  variable classes should be anonymized:
+
+  - Unnamed elements: variables with matching classes are replaced with
+    `default_replacement`
+
+  - Named elements: class names are keys, value can be either a
+    replacement value or a function Class names are matched
+    case-insensitively against
+    [`class()`](https://rdrr.io/r/base/class.html) of each column.
+    `"double"` also matches plain double columns (not `Date` or
+    `POSIXct`). Character columns also match `"double"`/`"numeric"`,
+    `"integer"`, `"Date"` or `"POSIXct"` when every non-missing,
+    non-blank value parses as that type (dates as ISO 8601); a
+    replacement function then receives the parsed values. This parameter
+    is combined with the global option `getOption("anon.df_classes")`.
 
 ## Value
 
@@ -123,6 +156,14 @@ The function operates in a few key steps:
 3.  Applies anonymization using
     [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
     with the provided patterns
+
+Example values and example rows are taken from a copy of each data frame
+with the `df_variable_names` and `df_classes` rules applied (combined
+with their global options, as in
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)),
+so replaced columns show their replacements. Structure statistics such
+as data types, distinct counts and missing values describe the data as
+passed in. Patterns and NLP are then applied to the whole summary.
 
 For data frames, the function captures:
 

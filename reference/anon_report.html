@@ -90,7 +90,9 @@ example values.</p></dd>
 <dd><p>Optional example-row specification for data frames.
 Use <code>NULL</code> to disable examples, a single number to request that many rows
 per data frame, or <code><a href="anon_example_rows.html">anon_example_rows()</a></code> to build a spec with explicit
-arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>.</p></dd>
+arguments such as <code>n</code>, <code>key</code>, <code>method</code>, and <code>n_key_values</code>. Rows are
+chosen on the source values, so <code>key</code> and <code>value</code> refer to the data as
+passed in.</p></dd>
 
 
 <dt id="arg-check-approximate">check_approximate<a class="anchor" aria-label="anchor" href="#arg-check-approximate"></a></dt>

@@ -62,7 +62,8 @@ anon_report(
   frame, or
   [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
   to build a spec with explicit arguments such as `n`, `key`, `method`,
-  and `n_key_values`.
+  and `n_key_values`. Rows are chosen on the source values, so `key` and
+  `value` refer to the data as passed in.
 
 - check_approximate:
 
