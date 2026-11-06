@@ -785,7 +785,14 @@ shift_backreferences <- function(pattern, shift) {
   if (shift == 0L || !grepl("\\\\[1-9]", pattern)) {
     return(pattern)
   }
-  locs <- stringi::stri_locate_all_regex(pattern, "(?<!\\\\)(?:\\\\\\\\)*\\\\[1-9][0-9]*")[[1]]
+  locs <- stringi::stri_locate_all_regex(
+    pattern,
+    "(?<!\\\\)(?:\\\\\\\\)*\\\\[1-9][0-9]*",
+    omit_no_match = TRUE
+  )[[1]]
+  if (nrow(locs) == 0) {
+    return(pattern)
+  }
   pieces <- stringi::stri_sub(pattern, locs[, "start"], locs[, "end"])
   shifted <- vapply(
     pieces,

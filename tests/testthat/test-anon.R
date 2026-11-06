@@ -373,16 +373,21 @@ test_that("numbered backreferences in user patterns keep their meaning", {
     anon:::shift_backreferences("([0-9])\\1 \\\\1", 3L),
     "([0-9])\\4 \\\\1"
   )
+
+  # An escaped backslash before a digit is not a backreference
+  expect_equal(anon:::shift_backreferences("\\\\1", 1L), "\\\\1")
+  result <- anon(c("a\\1b", "zzz"), pattern_list = list(X = "\\\\1"))
+  expect_equal(as.character(result), c("aXb", "zzz"))
 })
 
 test_that("TIME pattern respects whole-value boundaries", {
   result <- anon(
-    c("A08:30B", "08:30", "2021-03-14T08:30", "08:30Z", "1.08:30"),
+    c("A08:30B", "ID1T08:30", "08:30", "2021-03-14T08:30", "08:30Z", "1.08:30"),
     pattern_list = list("[TIME]" = anon:::iso8601_patterns("TIME"))
   )
   expect_equal(
     as.character(result),
-    c("A08:30B", "[TIME]", "2021-03-14T[TIME]", "[TIME]", "1.08:30")
+    c("A08:30B", "ID1T08:30", "[TIME]", "2021-03-14T[TIME]", "[TIME]", "1.08:30")
   )
 })
 
