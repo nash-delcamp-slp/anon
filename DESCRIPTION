@@ -24,10 +24,14 @@ Imports:
 Suggests:
     bench,
     bslib,
+    knitr,
     officer,
     pdftools,
+    pharmaversesdtm,
     pkgload,
     readxl,
+    rmarkdown,
     shiny,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
+VignetteBuilder: knitr

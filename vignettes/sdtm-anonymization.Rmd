@@ -1,0 +1,242 @@
+---
+title: "Anonymizing SDTM data to share with an AI agent"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Anonymizing SDTM data to share with an AI agent}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = requireNamespace("pharmaversesdtm", quietly = TRUE)
+)
+```
+
+Clinical datasets carry identifiers, dates and product names that should not
+leave your environment, yet an AI agent helps most when it can see the real
+structure of the data: which domains exist, which variables they hold and what
+typical records look like. This article anonymizes five SDTM domains from
+[pharmaversesdtm](https://pharmaverse.github.io/pharmaversesdtm/) and produces
+two files:
+
+- a Markdown file describing the data, safe to paste into a prompt or hand to
+  an agent, and
+- an `.RData` file holding the anonymized datasets, for an agent or colleague
+  who needs to run code against them.
+
+Both files come from the same anonymized copy of the data, so the description
+matches the datasets exactly.
+
+```{r packages}
+library(anon)
+library(pharmaversesdtm)
+
+sdtm <- list(dm = dm, ex = ex, pc = pc, lb = lb, vs = vs)
+```
+
+## What needs protecting
+
+| Information | Variables | Treatment |
+|---|---|---|
+| Study identifier | `STUDYID` and any text containing it | Replace with `STUDY01` |
+| Subject identifiers | `USUBJID`, `SUBJID` | Pseudonyms, consistent across domains |
+| Site | `SITEID` | Pseudonyms |
+| Dates | every `--DTC` variable | Shift by one study-wide offset |
+| Date of birth | `BRTHDTC` | Remove |
+| Age | `AGE` | Cap at 90 |
+| Product and vendor names | `EXTRT`, `PCTEST`, `ARM`, `PCNAM`, ... | Replace by pattern |
+
+Two choices keep the anonymized data useful:
+
+- **Subject pseudonyms are built once for all domains.** Applying a sequence
+  function to each dataset separately would give the same subject different
+  IDs in `dm` and `pc`, and the domains could no longer be joined.
+- **All dates move by the same number of days.** Study days, time since dose
+  and visit windows stay correct, while calendar dates no longer identify
+  anyone.
+
+## Build the lookups
+
+```{r lookups}
+set.seed(2024)
+
+subjects <- sort(unique(unlist(lapply(sdtm, `[[`, "USUBJID"))))
+subject_key <- setNames(
+  anon_id_chr_sequence(subjects, scramble = TRUE, start = "SUBJ-"),
+  subjects
+)
+
+subjid_key <- setNames(sub("^SUBJ-", "", subject_key[dm$USUBJID]), dm$SUBJID)
+
+sites <- sort(unique(dm$SITEID))
+site_key <- setNames(
+  anon_id_chr_sequence(sites, scramble = TRUE, start = "SITE-"),
+  sites
+)
+
+date_offset <- -sample(365:1095, 1)
+```
+
+The seed makes this article reproducible. For real data, don't fix the seed,
+and keep `subject_key`, `site_key` and `date_offset` out of anything you share:
+they are what links the anonymized data back to the source.
+
+SDTM dates are ISO 8601 strings with varying precision, so a small helper
+shifts the date part and keeps any time part. Partial dates such as `2014-03`
+cannot be shifted by an exact number of days and are removed.
+
+```{r shift-dtc}
+shift_dtc <- function(x, days) {
+  out <- x
+  full <- !is.na(x) & grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}", x)
+  shifted <- as.Date(substr(x[full], 1, 10)) + days
+  out[full] <- paste0(format(shifted, "%Y-%m-%d"), substring(x[full], 11))
+  out[!is.na(x) & nzchar(x) & !full] <- ""
+  out
+}
+
+shift_dtc(c("2014-01-02", "2014-01-02T08:30", "2014-03", ""), date_offset)
+```
+
+## Set the rules as global options
+
+Global options apply to every later `anon()` call, so the same rules protect
+each domain without repeating them. `pattern_list` replaces text wherever it
+appears, including in labels; `df_variable_names` replaces whole columns by
+name, either with a fixed value or with a function of the column.
+
+```{r options}
+dtc_vars <- grep("DTC$", unique(unlist(lapply(sdtm, names))), value = TRUE)
+dtc_vars <- setdiff(dtc_vars, "BRTHDTC")
+dtc_vars
+
+dtc_rules <- setNames(
+  rep(list(~ shift_dtc(.x, date_offset)), length(dtc_vars)),
+  dtc_vars
+)
+
+old_options <- anon_options(
+  pattern_list = list(
+    STUDY01 = "CDISCPILOT01",
+    DRUG = c("Xanomeline", "\\bXAN\\b", "Xan(?=_)"),
+    "[LAB]" = "Imaginary Labs"
+  ),
+  df_variable_names = c(
+    list(
+      USUBJID = ~ unname(subject_key[.x]),
+      SUBJID = ~ unname(subjid_key[.x]),
+      SITEID = ~ unname(site_key[.x]),
+      AGE = ~ pmin(.x, 90),
+      BRTHDTC = ""
+    ),
+    dtc_rules
+  )
+)
+```
+
+`anon_options()` returns the previous values, so they can be restored later
+with `options(old_options)`.
+
+## Anonymize the domains
+
+```{r anonymize}
+anon_sdtm <- unclass(anon(sdtm))
+
+head(anon_sdtm$dm[, c("STUDYID", "USUBJID", "SUBJID", "SITEID", "RFSTDTC",
+                      "BRTHDTC", "AGE", "ARM")], 3)
+head(anon_sdtm$pc[, c("USUBJID", "PCTESTCD", "PCTEST", "PCNAM", "PCDTC")], 3)
+```
+
+The anonymized domains still join on `USUBJID`, and the time between dose and
+sample is unchanged:
+
+```{r checks}
+all(anon_sdtm$pc$USUBJID %in% anon_sdtm$dm$USUBJID)
+
+unique(
+  as.Date(substr(anon_sdtm$pc$PCDTC, 1, 10)) - as.Date(substr(pc$PCDTC, 1, 10))
+)
+```
+
+A quick check that none of the source identifiers or names remain:
+
+```{r leak-check}
+sensitive <- c(subjects, "CDISCPILOT01", "Xanomeline", "Imaginary Labs",
+               dm$BRTHDTC)
+shared_text <- unlist(lapply(anon_sdtm, function(df) {
+  unlist(lapply(df[vapply(df, is.character, logical(1))], unique))
+}))
+any(shared_text %in% sensitive)
+any(grepl("xanomeline|cdiscpilot|imaginary", shared_text, ignore.case = TRUE))
+```
+
+## Write the files to share
+
+The rules have done their job, so restore the previous options before building
+the report. The report then describes the anonymized data as it is, without
+applying the rules a second time.
+
+```{r restore}
+options(old_options)
+```
+
+```{r outputs}
+out_dir <- file.path(tempdir(), "sdtm-anon")
+dir.create(out_dir, showWarnings = FALSE)
+
+report <- anon_report(
+  anon_sdtm,
+  example_values_n = 3,
+  example_rows = anon_example_rows(n = 3, key = "USUBJID", method = "first")
+)
+
+context_file <- file.path(out_dir, "sdtm-context.md")
+writeLines(
+  anon_prompt_bundle(
+    report = report,
+    format = "markdown",
+    title = "Anonymized SDTM domains: dm, ex, pc, lb, vs"
+  ),
+  context_file
+)
+
+rdata_file <- file.path(out_dir, "sdtm-anon.RData")
+anon_env <- list2env(anon_sdtm)
+save(list = names(anon_sdtm), envir = anon_env, file = rdata_file)
+
+basename(list.files(out_dir))
+```
+
+`sdtm-context.md` lists each domain with its variables, missingness and a few
+example values, plus example records for one subject across every domain.
+Here is its start:
+
+```{r preview, echo = FALSE, comment = ""}
+cat(head(readLines(context_file), 40), sep = "\n")
+```
+
+Loading `sdtm-anon.RData` restores the five anonymized domains under their
+original names:
+
+```{r load}
+check_env <- new.env()
+load(rdata_file, envir = check_env)
+ls(check_env)
+nrow(check_env$pc)
+```
+
+## Before you share
+
+- Review the Markdown file once before sending it. The rules cover the
+  variables listed above; free-text variables such as comments
+  (`--ORRES` text, `CO` domain) need their own rules or NLP redaction with
+  `nlp_auto()`.
+- Keep the lookups and the date offset private, and don't save them in the
+  `.RData` file.
+- Build the report from the anonymized data, as here. Example values and
+  example rows in `anon_report()` and `anon_data_summary()` come from the data
+  you pass in, and only `pattern_list` is applied to them, so passing the raw
+  domains would expose identifiers that `df_variable_names` replaces.
