@@ -45,15 +45,26 @@ collect_text <- function(x) {
   return(text_clean)
 }
 
-# Whether `x` is a list whose elements should be visited one by one. List-based
-# vector classes such as POSIXlt return an element of their own class from
-# `[[`, so they are values rather than containers; recursing into them never
-# terminates.
+# Whether `x` is a list whose elements should be visited one by one.
+# List-based vector classes such as POSIXlt and vctrs records define their own
+# `[[` method, which returns a value of the same class rather than a stored
+# element, so they are values rather than containers; recursing into them never
+# terminates. Lists without their own `[[` method (plain lists, anon_context,
+# anon_context_collection) are containers even when their elements share their
+# class.
 is_container_list <- function(x) {
   if (!is.list(x)) {
     return(FALSE)
   }
-  if (!is.object(x) || length(x) == 0) {
+  if (!is.object(x) || is.data.frame(x) || length(x) == 0) {
+    return(TRUE)
+  }
+  has_subset_method <- any(vapply(
+    class(x),
+    function(cls) !is.null(utils::getS3method("[[", cls, optional = TRUE)),
+    logical(1)
+  ))
+  if (!has_subset_method) {
     return(TRUE)
   }
   first <- tryCatch(x[[1]], error = function(e) NULL)

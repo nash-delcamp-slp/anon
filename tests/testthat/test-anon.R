@@ -456,3 +456,30 @@ test_that("anon() treats POSIXlt values as values, not lists to recurse into", {
   expect_equal(result$t, lt)
   expect_equal(result$note, "P")
 })
+
+test_that("anon() recurses into nested anon_context objects", {
+  x <- anon(list(child = anon("Alice")))
+  result <- anon(x, pattern_list = list(PERSON = "Alice"))
+  expect_equal(as.character(unclass(result)$child), "PERSON")
+
+  y <- c(c(anon("Alice"), anon("Bob")), anon("Dan"))
+  expect_setequal(collect_text(y), c("Alice", "Bob", "Dan"))
+  result <- anon(y, pattern_list = list(PERSON = c("Alice", "Bob", "Dan")))
+  expect_false(any(grepl("Alice|Bob|Dan", unlist(unclass(result)))))
+})
+
+test_that("is_container_list() separates containers from list-based value classes", {
+  lt <- as.POSIXlt(c("2021-03-14", "2021-03-15"), tz = "UTC")
+  expect_false(is_container_list(lt))
+  expect_false(is_container_list("a"))
+  expect_true(is_container_list(list(1)))
+  expect_true(is_container_list(anon(list(child = anon("Alice")))))
+  expect_true(is_container_list(c(c(anon("a"), anon("b")), anon("c"))))
+  expect_true(is_container_list(data.frame(a = 1)))
+  expect_true(is_container_list(structure(list(), class = "custom")))
+})
+
+test_that("anon_inventory() detects text in nested anon_context objects", {
+  inventory <- anon_inventory(list(x = anon(list(child = anon("Alice")))))
+  expect_true(inventory$has_text)
+})
