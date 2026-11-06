@@ -127,13 +127,17 @@ anon_data_summary <- function(
   obj_names <- names(objects)
 
   # Example values and rows are shown from a copy with the column rules
-  # applied; structure statistics describe the source objects.
-  display_objects <- apply_column_rules(
-    objects,
-    df_variable_names = merge_with_option(df_variable_names, "anon.df_variable_names"),
-    df_classes = merge_with_option(df_classes, "anon.df_classes"),
-    default_replacement = default_replacement
-  )
+  # applied; structure statistics describe the source objects. Without
+  # examples nothing is shown, so the rules are not run.
+  display_objects <- objects
+  if (example_values_n > 0L || !is.null(example_rows)) {
+    display_objects <- apply_column_rules(
+      objects,
+      df_variable_names = merge_with_option(df_variable_names, "anon.df_variable_names"),
+      df_classes = merge_with_option(df_classes, "anon.df_classes"),
+      default_replacement = default_replacement
+    )
+  }
 
   summaries <- purrr::map(
     obj_names,
@@ -573,7 +577,8 @@ build_keyed_examples <- function(
   result
 }
 
-# The scenario's shown value is the key as it appears in the display tables.
+# The scenario's shown value is the key as it appears in the display tables,
+# as character so that patterns also apply to numeric and date keys.
 build_single_scenario <- function(
   keyed_tables,
   key,
@@ -606,7 +611,7 @@ build_single_scenario <- function(
 
   list(
     key = key,
-    value = scenario_tables[[1]][[key]][[1]],
+    value = as.character(scenario_tables[[1]][[key]][[1]]),
     method = method,
     tables = scenario_tables
   )

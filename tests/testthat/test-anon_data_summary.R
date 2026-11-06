@@ -612,3 +612,29 @@ test_that("anon_data_summary() and anon_report() use global column rules", {
   expect_equal(report$data_summary$examples$rows$df$ID, "[ID]")
   expect_equal(report$data_summary$examples$rows$df$N, "[N]")
 })
+
+test_that("anon_data_summary() applies patterns to numeric scenario keys", {
+  summary <- anon_data_summary(
+    list(df = data.frame(ID = c(12345, 67890), X = c("a", "b"))),
+    pattern_list = list("[ID]" = "12345"),
+    example_rows = anon_example_rows(n = 1, key = "ID", method = "first")
+  )
+  expect_equal(summary$examples$scenario$value, "[ID]")
+  heading <- grep("Example Scenario", capture.output(print(summary)), value = TRUE)
+  expect_equal(trimws(heading), "Example Scenario (ID = [ID]):")
+})
+
+test_that("anon_data_summary() skips column rules when no examples are requested", {
+  calls <- 0
+  count_calls <- function(x) {
+    calls <<- calls + 1
+    x
+  }
+  objects <- list(df = data.frame(ID = c("a", "b")))
+
+  anon_data_summary(objects, df_variable_names = list(ID = count_calls))
+  expect_equal(calls, 0)
+
+  anon_data_summary(objects, df_variable_names = list(ID = count_calls), example_values_n = 1)
+  expect_equal(calls, 1)
+})
