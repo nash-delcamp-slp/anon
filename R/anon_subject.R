@@ -3,19 +3,26 @@
 #' Replaces each subject's key (for example `USUBJID`) with a random pseudonym
 #' that is the same in every dataset, so the datasets can still be joined.
 #' Related identifier columns listed in `also` (for example `SUBJID`) are
-#' replaced with the pseudonym's number so they stay aligned with the key.
+#' replaced with the pseudonym's number so they stay aligned with the key, and
+#' columns listed in `key_cols` that hold other subjects' keys (for example
+#' `RSUBJID`) are mapped through the same pseudonyms.
 #'
-#' @param data A data frame, or a named list of data frames linked by `key`.
-#'   Datasets without the `key` column are returned unchanged.
+#' @param data A data frame, a named list of data frames linked by `key`, or
+#'   the result of an earlier step such as [anon_subject_dates()]. Datasets
+#'   without the `key` column are returned unchanged.
 #' @param key Name of the subject identifier column.
 #' @param also Names of related identifier columns that hold one value per
 #'   subject (default `"SUBJID"`). They are replaced with the pseudonym's
 #'   number. Columns not present in a dataset are skipped.
+#' @param key_cols Names of columns that hold subject keys, possibly of other
+#'   subjects (default `"RSUBJID"`, as in SDTM `RELSUB`). Each value is replaced
+#'   with that subject's pseudonym; values that are not a known key are removed
+#'   with a warning.
 #' @param prefix Prefix for character pseudonyms, followed by a zero-padded
 #'   number (e.g. `"SUBJ-042"`). Numeric keys get the number itself.
-#' @param keep_secrets Logical. If `TRUE`, keep the mapping from original keys
-#'   to pseudonyms; read it with [anon_secrets()]. Default `FALSE`: the mapping
-#'   is not kept anywhere.
+#' @param keep_secrets Logical. If `TRUE`, keep the mapping from keys to
+#'   pseudonyms; read it with [anon_secrets()]. Default `FALSE`: the mapping is
+#'   not kept anywhere.
 #' @param seed Optional seed for the random assignment, for reproducible tests.
 #'   Anyone with the seed and the original data can rebuild the mapping, so do
 #'   not set it for data you share. The global random number state is restored
@@ -23,10 +30,21 @@
 #'
 #' @details
 #' Pseudonyms are numbered in random order, so they do not reveal the order of
-#' the original keys. Column types are kept: character keys get character
-#' pseudonyms, numeric keys get numbers, factors stay factors. Missing and blank
-#' keys are left as they are. Values of `also` columns in rows without a key
-#' cannot be mapped and are removed (set to missing), with a warning.
+#' the original keys. Column types and attributes such as labels are kept:
+#' character keys get character pseudonyms, numeric keys get numbers, factors
+#' stay factors. Missing and blank keys are left as they are. Values of `also`
+#' columns in rows without a key cannot be mapped and are removed (set to
+#' missing), with a warning.
+#'
+#' A warning lists any other character or factor column in a keyed dataset that
+#' still contains original key values, and any dataset without `key` that has
+#' an `also` or `key_cols` column or a column named like `key` in another case.
+#' Identifiers embedded inside other text (for example in `--SPID`) are not
+#' detected.
+#'
+#' Random numbers come from R's random number generator. If your script calls
+#' [set.seed()] before this step, anyone with the script and the data can
+#' reproduce the assignment.
 #'
 #' Pseudonymized data remains personal data for anyone who holds the mapping or
 #' can re-identify subjects by other means; measure the remaining risk with
@@ -34,7 +52,9 @@
 #'
 #' @return An object of class `"anon_deid_step"`: a list with `data` (the
 #'   transformed data, in the same form as the input), `log` (a tibble of what
-#'   was changed) and `secrets` (`NULL` unless `keep_secrets = TRUE`).
+#'   was changed, including earlier steps when `data` was a step result) and
+#'   `secrets` (`NULL` unless `keep_secrets = TRUE` here or in an earlier step).
+#'   Saving the object (for example with [saveRDS()]) also saves its secrets.
 #'
 #' @seealso [anon_subject_dates()], [anon_secrets()], [anon_risk()]
 #'
@@ -51,6 +71,7 @@ anon_subject_ids <- function(
   data,
   key = "USUBJID",
   also = "SUBJID",
+  key_cols = "RSUBJID",
   prefix = "SUBJ-",
   keep_secrets = FALSE,
   seed = NULL
@@ -67,6 +88,7 @@ anon_subject_ids <- function(
 
   log <- deid_log_start("subject_ids", length(keys), key, seed)
   removed_also <- 0
+  removed_key_cols <- 0
 
   for (ds in keyed) {
     df <- data[[ds]]
@@ -83,6 +105,14 @@ anon_subject_ids <- function(
       log <- deid_log_add(log, ds, col, paste(sum(!is.na(idx)), "value(s) replaced with the pseudonym number"))
     }
 
+    for (col in setdiff(intersect(key_cols, names(df)), c(key, also))) {
+      col_idx <- match(normalize_keys(df[[col]]), keys)
+      unmapped <- is.na(col_idx) & !is.na(normalize_keys(df[[col]]))
+      removed_key_cols <- removed_key_cols + sum(unmapped)
+      df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped)
+      log <- deid_log_add(log, ds, col, paste(sum(!is.na(col_idx)), "value(s) replaced with pseudonyms"))
+    }
+
     data[[ds]] <- df
   }
   log <- deid_log_unkeyed(log, data, keyed, key)
@@ -94,11 +124,20 @@ anon_subject_ids <- function(
       call. = FALSE
     )
   }
+  if (removed_key_cols > 0) {
+    warning(
+      removed_key_cols, " value(s) of ", paste0("`", key_cols, "`", collapse = ", "),
+      " are not known `", key, "` values and were removed.",
+      call. = FALSE
+    )
+  }
+  warn_leftover_keys(data, keyed, key, keys)
+  warn_unkeyed_identifiers(data, keyed, key, c(also, key_cols), check_dates = FALSE)
 
   secrets <- if (isTRUE(keep_secrets)) {
-    list(subject_ids = tibble::tibble(original = keys, pseudonym = pseudonyms))
+    list(subject_ids = tibble::tibble(key = keys, pseudonym = pseudonyms))
   }
-  new_deid_step(input$unwrap(data), log, secrets)
+  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous)
 }
 
 #' Shift each subject's dates by a random offset
@@ -107,36 +146,59 @@ anon_subject_ids <- function(
 #' subject's dates in every dataset by it. Intervals within a subject (time
 #' since dose, study days, visit windows) are unchanged, while calendar dates no
 #' longer line up between subjects or with real dates. This is the "date
-#' offsetting" technique described by EMA and Health Canada.
+#' offsetting" technique described in EMA's Anonymisation Report Form
+#' Instructions: a random offset, with the same offset applied to all dates for
+#' each participant.
 #'
 #' @inheritParams anon_subject_ids
-#' @param vars Names of date columns to shift. By default, every character
-#'   column whose name ends in `DTC` (ISO 8601 dates, as in SDTM) and every Date
-#'   or POSIXct column, in each dataset that has the `key`.
+#' @param vars Names of date columns to shift. By default, every character or
+#'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
+#'   SDTM) and every Date or POSIXct column, in each dataset that has the `key`.
+#'   In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
+#'   values that are full ISO 8601 dates are shifted too. Columns given in
+#'   `vars` must be Date, POSIXct, or character or factor columns of ISO 8601
+#'   dates.
 #' @param max_days,min_days Each subject's offset is drawn uniformly from the
 #'   whole numbers between `min_days` and `max_days` days, earlier or later.
-#'   Defaults 30 and 365: nobody keeps their real dates or dates within a month
-#'   of them.
-#' @param partial How to handle partial ISO 8601 dates (`"2014-03"`, `"2014"`),
-#'   as in [anon_date_shift()]: `"shift"` moves the middle of the period and
-#'   keeps its precision, `"remove"` replaces them with `""`.
+#'   Defaults 30 and 365. A warning is given when the range is so narrow, or
+#'   includes 0, that offsets are easy to guess or some subjects keep their real
+#'   dates.
+#' @param partial How to handle partial ISO 8601 dates in character columns:
+#'   `"shift"` (default) or `"remove"` (replace them with `""`). With `"shift"`,
+#'   a year-and-month date (`"2014-03"`) moves the middle of the month by the
+#'   subject's offset and keeps month precision; a year-only date (`"2014"`)
+#'   moves by whole years, at least one, in the direction of the offset, so the
+#'   real year is never kept.
 #' @param keep_secrets Logical. If `TRUE`, keep each subject's offset; read it
 #'   with [anon_secrets()]. Default `FALSE`.
 #'
 #' @details
-#' ISO 8601 strings keep their format and precision, and any time part is kept.
-#' Date and POSIXct columns keep their type and time of day. Study day variables
-#' (`--DY`) are not changed and stay consistent with the shifted dates, because
-#' each subject's dates all move together.
+#' Full ISO 8601 dates move by exactly the subject's offset and keep their
+#' format and any time part. Date columns keep their type, and POSIXct columns
+#' keep their type, time zone and clock time (the calendar date moves, so a
+#' shift across a daylight saving change keeps 08:00 at 08:00). Column
+#' attributes such as labels are kept. Study day variables (`--DY`) are not
+#' changed and stay consistent with the shifted full dates, because each
+#' subject's dates all move together.
+#'
+#' Partial dates are shifted from the middle of their period, so the order
+#' between a partial date and a full date of the same subject can change (for
+#' example a start month can end up after an end date).
 #'
 #' Dates in rows without a key cannot be tied to a subject's offset and are
-#' removed (`""` or `NA`), with a warning. Datasets without the `key` column
-#' (for example trial-level domains such as `TS`) are left unchanged; the log
-#' lists them.
+#' removed, with a warning. Values that are not ISO 8601 dates are removed with
+#' a warning. Datasets without the `key` column (for example trial-level domains
+#' such as `TS`, `TV` and `TA`) are left unchanged and listed in the log; their
+#' real trial dates can narrow down subjects' offsets. A warning lists any other
+#' character or factor column in a keyed dataset that contains ISO 8601 dates
+#' but was not shifted, and any dataset without `key` that has date columns or a
+#' column named like `key` in another case.
 #'
-#' Run this before [anon_subject_ids()] or after it; each subject keeps one
-#' offset either way. Under HIPAA, shifted dates do not meet Safe Harbor, which
-#' removes all elements of dates except the year; see the package README.
+#' Random numbers come from R's random number generator; see
+#' [anon_subject_ids()]. Run this before or after [anon_subject_ids()]; each
+#' subject keeps one offset either way. Under HIPAA, HHS does not address date
+#' shifting directly, but Safe Harbor removes all elements of dates except the
+#' year, so shifted dates do not meet it; see the package README.
 #'
 #' @return An object of class `"anon_deid_step"`, as for [anon_subject_ids()].
 #'
@@ -167,7 +229,8 @@ anon_subject_dates <- function(
   keyed <- keyed_datasets(data, key)
   keys <- subject_keys(data[keyed], key)
 
-  date_vars <- lapply(data[keyed], function(df) dataset_date_vars(df, vars, key))
+  date_vars <- lapply(keyed, function(ds) dataset_date_vars(data[[ds]], vars, key, ds))
+  names(date_vars) <- keyed
   if (!is.null(vars) && length(unlist(date_vars)) == 0) {
     stop("None of `vars` were found in a dataset with `", key, "`.", call. = FALSE)
   }
@@ -176,7 +239,7 @@ anon_subject_dates <- function(
   offsets <- pool[sample_with_seed(length(pool), length(keys), seed = seed)]
 
   log <- deid_log_start("subject_dates", length(keys), key, seed)
-  removed <- 0
+  totals <- c(no_key = 0, invalid = 0)
 
   for (ds in keyed) {
     df <- data[[ds]]
@@ -185,37 +248,47 @@ anon_subject_dates <- function(
     for (col in date_vars[[ds]]) {
       shifted <- shift_dates_by_subject(df[[col]], subject_offset, partial)
       df[[col]] <- shifted$values
-      removed <- removed + shifted$removed
-      log <- deid_log_add(
-        log, ds, col,
-        paste0(shifted$shifted, " value(s) shifted",
-               if (shifted$removed > 0) paste0(", ", shifted$removed, " removed (no key)") else "")
-      )
+      totals <- totals + c(shifted$no_key, shifted$invalid)
+      log <- deid_log_add(log, ds, col, shift_detail(shifted))
+    }
+
+    if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
+      shifted <- shift_qval_dates(df$QVAL, subject_offset)
+      df$QVAL <- shifted$values
+      totals <- totals + c(shifted$no_key, 0)
+      if (shifted$shifted + shifted$no_key > 0) {
+        log <- deid_log_add(log, ds, "QVAL", paste0(shift_detail(shifted), " (ISO 8601 dates only)"))
+      }
     }
 
     data[[ds]] <- df
   }
   log <- deid_log_unkeyed(log, data, keyed, key)
 
-  if (removed > 0) {
-    warning(
-      removed, " date value(s) in rows without a `", key, "` were removed.",
-      call. = FALSE
-    )
+  if (totals[["no_key"]] > 0) {
+    warning(totals[["no_key"]], " date value(s) in rows without a `", key, "` were removed.", call. = FALSE)
   }
+  if (totals[["invalid"]] > 0) {
+    warning(totals[["invalid"]], " value(s) are not ISO 8601 dates and were removed.", call. = FALSE)
+  }
+  warn_unshifted_iso_dates(data, keyed, date_vars, key)
+  warn_unkeyed_identifiers(data, keyed, key, character(0), check_dates = TRUE)
 
   secrets <- if (isTRUE(keep_secrets)) {
-    list(date_offsets = tibble::tibble(original = keys, offset_days = offsets))
+    list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
   }
-  new_deid_step(input$unwrap(data), log, secrets)
+  new_deid_step(input$unwrap(data), log, secrets, previous = input$previous)
 }
 
 #' Read the secrets kept by a de-identification step
 #'
 #' Returns the information needed to link de-identified data back to the
-#' source, such as the mapping from original keys to pseudonyms or each
-#' subject's date offset. It exists only when the step was run with
-#' `keep_secrets = TRUE`. Keep it separate from anything you share.
+#' source, such as the mapping from keys to pseudonyms or each subject's date
+#' offset. It exists only when a step was run with `keep_secrets = TRUE`. Keep
+#' it separate from anything you share.
+#'
+#' Each table has a `key` column with the subject key as it was when that step
+#' ran: the original key, or the pseudonym if [anon_subject_ids()] ran first.
 #'
 #' @param x An object of class `"anon_deid_step"`.
 #'
@@ -239,7 +312,7 @@ anon_secrets <- function(x) {
 
 #' @export
 print.anon_deid_step <- function(x, ...) {
-  cat("De-identification step:", x$step, "\n")
+  cat("De-identification steps:", paste(unique(x$log$step), collapse = ", "), "\n")
   cat("Secrets:", if (is.null(x$secrets)) "not kept" else "kept (read with anon_secrets())", "\n\n")
   print(as.data.frame(x$log), row.names = FALSE)
   invisible(x)
@@ -252,31 +325,52 @@ print.anon_secrets <- function(x, ...) {
   invisible(x)
 }
 
+#' @exportS3Method
+as_anon_payload.anon_deid_step <- function(x, path = "$") {
+  list(
+    schema_version = anon_json_schema_version(),
+    kind = "anon_deid_step",
+    steps = unique(x$log$step),
+    log = serialize_table_payload(x$log, path = paste0(path, "$log"))
+  )
+}
+
 # helpers -----------------------------------------------------------------
 
 # Secrets live in an environment so that print(), anon() and JSON output never
-# show them by accident.
-new_deid_step <- function(data, log, secrets) {
+# show them by accident. Logs and secrets from an earlier step are carried on.
+new_deid_step <- function(data, log, secrets, previous = NULL) {
+  if (!is.null(previous)) {
+    log <- rbind(previous$log, log)
+    if (!is.null(previous$secrets)) {
+      secrets <- c(mget(ls(previous$secrets), envir = previous$secrets), secrets)
+    }
+  }
   secrets_env <- NULL
-  if (!is.null(secrets)) {
+  if (length(secrets) > 0) {
     secrets_env <- list2env(secrets, envir = new.env(parent = emptyenv()))
     class(secrets_env) <- "anon_secrets"
   }
   structure(
-    list(step = log$step[1], data = data, log = log, secrets = secrets_env),
+    list(data = data, log = log, secrets = secrets_env),
     class = "anon_deid_step"
   )
 }
 
 as_dataset_list <- function(data) {
+  previous <- NULL
+  if (inherits(data, "anon_deid_step")) {
+    previous <- data
+    data <- data$data
+  }
   if (is.data.frame(data)) {
-    return(list(data = list(data = data), unwrap = function(x) x[[1]]))
+    return(list(data = list(data = data), unwrap = function(x) x[[1]], previous = previous))
   }
   if (!is.list(data) || is.null(names(data)) || any(names(data) == "") ||
     !all(vapply(data, is.data.frame, logical(1)))) {
-    stop("`data` must be a data frame or a named list of data frames.", call. = FALSE)
+    stop("`data` must be a data frame, a named list of data frames, or a step result.", call. = FALSE)
   }
-  list(data = data, unwrap = function(x) x)
+  list(data = data, unwrap = function(x) x, previous = previous)
 }
 
 keyed_datasets <- function(data, key) {
@@ -296,22 +390,34 @@ subject_keys <- function(data, key) {
   unique(keys[!is.na(keys)])
 }
 
-# Replace identifiers by subject index, keeping the column's type. Rows without
-# a subject keep their value unless `remove` is TRUE for them.
+# Replace identifiers by subject index, keeping the column's type and
+# attributes (such as labels). Rows without a subject keep their value unless
+# `remove` is TRUE for them.
 replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x))) {
   has <- !is.na(idx)
   if (is.numeric(x)) {
     out <- x
     out[has] <- numbers[idx[has]]
     out[remove] <- NA
-    if (is.integer(x)) out <- as.integer(out)
     return(out)
   }
-  was_factor <- is.factor(x)
-  out <- as.character(x)
+  if (is.factor(x)) {
+    values <- as.character(x)
+    values[has] <- labels[idx[has]]
+    values[remove] <- missing_text_like(values)
+    return(with_attributes_of(factor(values), x))
+  }
+  out <- x
   out[has] <- labels[idx[has]]
-  out[remove] <- missing_text_like(out)
-  if (was_factor) factor(out) else out
+  out[remove] <- missing_text_like(as.character(x))
+  out
+}
+
+# Rebuild attributes (labels, formats, extra classes) on a new factor.
+with_attributes_of <- function(new, old) {
+  extra <- attributes(old)[setdiff(names(attributes(old)), c("levels", "class", "names"))]
+  attributes(new) <- c(attributes(new), extra)
+  new
 }
 
 # The missing value a character column already uses: "" if it has blank
@@ -337,16 +443,31 @@ validate_offset_range <- function(max_days, min_days) {
   if (!whole(min_days) || min_days < 0 || min_days > max_days) {
     stop("`min_days` must be a single whole number between 0 and `max_days`.", call. = FALSE)
   }
+  n_offsets <- 2 * (max_days - min_days + 1) - (min_days == 0)
+  if (min_days == 0) {
+    warning("`min_days = 0` lets some subjects keep their real dates.", call. = FALSE)
+  } else if (n_offsets < 30) {
+    warning("Only ", n_offsets, " possible offsets; offsets are easy to guess.", call. = FALSE)
+  }
 }
 
-dataset_date_vars <- function(df, vars, key) {
-  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct")), logical(1))
-  is_dtc <- grepl("DTC$", names(df)) & vapply(df, is.character, logical(1))
-  candidates <- names(df)[is_date | is_dtc]
+iso_full_date_pattern <- "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T.*)?$"
+
+dataset_date_vars <- function(df, vars, key, dataset) {
   if (!is.null(vars)) {
-    candidates <- intersect(vars, names(df))
+    selected <- setdiff(intersect(vars, names(df)), key)
+    for (col in selected) {
+      x <- df[[col]]
+      if (!(inherits(x, c("Date", "POSIXct")) || is.character(x) || is.factor(x))) {
+        stop("`", col, "` in `", dataset, "` is not a date column (Date, POSIXct, or ISO 8601 text).", call. = FALSE)
+      }
+    }
+    return(selected)
   }
-  setdiff(candidates, key)
+  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct")), logical(1))
+  is_text <- vapply(df, function(col) is.character(col) || is.factor(col), logical(1))
+  is_dtc <- grepl("DTC$", names(df), ignore.case = TRUE) & is_text
+  setdiff(names(df)[is_date | is_dtc], key)
 }
 
 # Draw `size` indices from 1:n with replacement, restoring the global RNG state.
@@ -365,25 +486,145 @@ sample_with_seed <- function(n, size, seed = NULL) {
   sample.int(n, size = size, replace = TRUE)
 }
 
-# Shift each value by its subject's offset (days). Values without an offset are
+# Shift each value by its subject's offset (days), keeping the column's type and
+# attributes. Values without an offset, and text that is not ISO 8601, are
 # removed. Returns the new values and counts.
 shift_dates_by_subject <- function(x, offset, partial) {
+  if (is.factor(x)) {
+    shifted <- shift_dates_by_subject(as.character(x), offset, partial)
+    shifted$values <- with_attributes_of(factor(shifted$values), x)
+    return(shifted)
+  }
+
   present <- if (is.character(x)) !is.na(x) & nzchar(trimws(x)) else !is.na(x)
   no_offset <- present & is.na(offset)
   use <- ifelse(is.na(offset), 0, offset)
+  invalid <- rep(FALSE, length(x))
 
+  out <- x
   if (is.character(x)) {
-    out <- shift_iso8601(x, use, partial)
-    out[no_offset] <- ""
+    invalid <- present & !no_offset & parse_iso8601_dates(x)$kind == "invalid"
+    out[] <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
+    out[no_offset] <- missing_text_like(x)
+    out[invalid] <- missing_text_like(x)
   } else if (inherits(x, "POSIXct")) {
-    out <- x + use * 86400
+    tz <- attr(x, "tzone", exact = TRUE)
+    tz <- if (is.null(tz) || length(tz) == 0) "" else tz[[1]]
+    lt <- as.POSIXlt(x, tz = tz)
+    lt$mday <- lt$mday + use
+    lt$isdst <- -1L
+    out[] <- as.POSIXct(lt, tz = tz)
     out[no_offset] <- NA
   } else {
-    out <- x + use
+    out[] <- x + use
     out[no_offset] <- NA
   }
 
-  list(values = out, shifted = sum(present & !no_offset), removed = sum(no_offset))
+  list(
+    values = out,
+    shifted = sum(present & !no_offset & !invalid),
+    no_key = sum(no_offset),
+    invalid = sum(invalid)
+  )
+}
+
+# Shift QVAL values that are full ISO 8601 dates; other values are untouched.
+shift_qval_dates <- function(x, offset) {
+  text <- as.character(x)
+  is_date <- !is.na(text) & grepl(iso_full_date_pattern, text) &
+    parse_iso8601_dates(text)$kind == "full"
+  out <- x
+  if (!any(is_date)) {
+    return(list(values = out, shifted = 0, no_key = 0, invalid = 0))
+  }
+  no_offset <- is_date & is.na(offset)
+  movable <- is_date & !no_offset
+  new_text <- text
+  new_text[movable] <- shift_iso8601(text[movable], offset[movable], "shift")
+  new_text[no_offset] <- missing_text_like(text)
+  if (is.factor(x)) {
+    out <- with_attributes_of(factor(new_text), x)
+  } else {
+    out[] <- new_text
+  }
+  list(values = out, shifted = sum(movable), no_key = sum(no_offset), invalid = 0)
+}
+
+shift_detail <- function(shifted) {
+  removed <- c(
+    if (shifted$no_key > 0) paste0(shifted$no_key, " removed (no key)"),
+    if (shifted$invalid > 0) paste0(shifted$invalid, " removed (not ISO 8601)")
+  )
+  paste(c(paste0(shifted$shifted, " value(s) shifted"), removed), collapse = ", ")
+}
+
+# Warn about text columns in keyed datasets that still contain original keys.
+warn_leftover_keys <- function(data, keyed, key, keys) {
+  hits <- character(0)
+  for (ds in keyed) {
+    df <- data[[ds]]
+    for (col in setdiff(names(df), key)) {
+      x <- df[[col]]
+      if ((is.character(x) || is.factor(x)) && any(normalize_keys(x) %in% keys)) {
+        hits <- c(hits, paste0(ds, ".", col))
+      }
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These columns still contain original `", key, "` values: ",
+      paste(hits, collapse = ", "), ". Add them to `key_cols` or remove them.",
+      call. = FALSE
+    )
+  }
+}
+
+# Warn about text columns in keyed datasets that hold ISO 8601 dates but were
+# not shifted.
+warn_unshifted_iso_dates <- function(data, keyed, date_vars, key) {
+  hits <- character(0)
+  for (ds in keyed) {
+    df <- data[[ds]]
+    skip <- c(key, date_vars[[ds]], if (all(c("QNAM", "QVAL") %in% names(df))) "QVAL")
+    for (col in setdiff(names(df), skip)) {
+      x <- df[[col]]
+      if ((is.character(x) || is.factor(x)) && any(grepl(iso_full_date_pattern, as.character(x)))) {
+        hits <- c(hits, paste0(ds, ".", col))
+      }
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These columns contain ISO 8601 dates but were not shifted: ",
+      paste(hits, collapse = ", "), ". Add them to `vars` or remove them.",
+      call. = FALSE
+    )
+  }
+}
+
+# Warn about datasets without the key that hold identifiers or dates, which
+# pass through unchanged.
+warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates) {
+  hits <- character(0)
+  for (ds in setdiff(names(data), keyed)) {
+    df <- data[[ds]]
+    cols <- names(df)
+    flagged <- c(
+      intersect(id_cols, cols),
+      cols[tolower(cols) == tolower(key)],
+      if (check_dates) dataset_date_vars(df, NULL, key, ds)
+    )
+    if (length(flagged) > 0) {
+      hits <- c(hits, paste0(ds, " (", paste(unique(flagged), collapse = ", "), ")"))
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "Datasets without `", key, "` were left unchanged but contain identifiers or dates: ",
+      paste(hits, collapse = "; "), ".",
+      call. = FALSE
+    )
+  }
 }
 
 deid_log_start <- function(step, n_subjects, key, seed) {

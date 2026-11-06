@@ -14,9 +14,13 @@ A named list of tibbles, e.g. \code{subject_ids} or \code{date_offsets}.
 }
 \description{
 Returns the information needed to link de-identified data back to the
-source, such as the mapping from original keys to pseudonyms or each
-subject's date offset. It exists only when the step was run with
-\code{keep_secrets = TRUE}. Keep it separate from anything you share.
+source, such as the mapping from keys to pseudonyms or each subject's date
+offset. It exists only when a step was run with \code{keep_secrets = TRUE}. Keep
+it separate from anything you share.
+}
+\details{
+Each table has a \code{key} column with the subject key as it was when that step
+ran: the original key, or the pseudonym if \code{\link[=anon_subject_ids]{anon_subject_ids()}} ran first.
 }
 \examples{
 data <- data.frame(USUBJID = c("a", "b"))

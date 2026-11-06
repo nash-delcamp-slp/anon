@@ -16,23 +16,32 @@ anon_subject_dates(
 )
 }
 \arguments{
-\item{data}{A data frame, or a named list of data frames linked by \code{key}.
-Datasets without the \code{key} column are returned unchanged.}
+\item{data}{A data frame, a named list of data frames linked by \code{key}, or
+the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. Datasets
+without the \code{key} column are returned unchanged.}
 
 \item{key}{Name of the subject identifier column.}
 
-\item{vars}{Names of date columns to shift. By default, every character
-column whose name ends in \code{DTC} (ISO 8601 dates, as in SDTM) and every Date
-or POSIXct column, in each dataset that has the \code{key}.}
+\item{vars}{Names of date columns to shift. By default, every character or
+factor column whose name ends in \code{DTC} (any case; ISO 8601 dates, as in
+SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}.
+In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
+values that are full ISO 8601 dates are shifted too. Columns given in
+\code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
+dates.}
 
 \item{max_days, min_days}{Each subject's offset is drawn uniformly from the
 whole numbers between \code{min_days} and \code{max_days} days, earlier or later.
-Defaults 30 and 365: nobody keeps their real dates or dates within a month
-of them.}
+Defaults 30 and 365. A warning is given when the range is so narrow, or
+includes 0, that offsets are easy to guess or some subjects keep their real
+dates.}
 
-\item{partial}{How to handle partial ISO 8601 dates (\code{"2014-03"}, \code{"2014"}),
-as in \code{\link[=anon_date_shift]{anon_date_shift()}}: \code{"shift"} moves the middle of the period and
-keeps its precision, \code{"remove"} replaces them with \code{""}.}
+\item{partial}{How to handle partial ISO 8601 dates in character columns:
+\code{"shift"} (default) or \code{"remove"} (replace them with \code{""}). With \code{"shift"},
+a year-and-month date (\code{"2014-03"}) moves the middle of the month by the
+subject's offset and keeps month precision; a year-only date (\code{"2014"})
+moves by whole years, at least one, in the direction of the offset, so the
+real year is never kept.}
 
 \item{keep_secrets}{Logical. If \code{TRUE}, keep each subject's offset; read it
 with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}.}
@@ -50,22 +59,37 @@ Gives every subject one random offset, in whole days, and shifts all of that
 subject's dates in every dataset by it. Intervals within a subject (time
 since dose, study days, visit windows) are unchanged, while calendar dates no
 longer line up between subjects or with real dates. This is the "date
-offsetting" technique described by EMA and Health Canada.
+offsetting" technique described in EMA's Anonymisation Report Form
+Instructions: a random offset, with the same offset applied to all dates for
+each participant.
 }
 \details{
-ISO 8601 strings keep their format and precision, and any time part is kept.
-Date and POSIXct columns keep their type and time of day. Study day variables
-(\code{--DY}) are not changed and stay consistent with the shifted dates, because
-each subject's dates all move together.
+Full ISO 8601 dates move by exactly the subject's offset and keep their
+format and any time part. Date columns keep their type, and POSIXct columns
+keep their type, time zone and clock time (the calendar date moves, so a
+shift across a daylight saving change keeps 08:00 at 08:00). Column
+attributes such as labels are kept. Study day variables (\code{--DY}) are not
+changed and stay consistent with the shifted full dates, because each
+subject's dates all move together.
+
+Partial dates are shifted from the middle of their period, so the order
+between a partial date and a full date of the same subject can change (for
+example a start month can end up after an end date).
 
 Dates in rows without a key cannot be tied to a subject's offset and are
-removed (\code{""} or \code{NA}), with a warning. Datasets without the \code{key} column
-(for example trial-level domains such as \code{TS}) are left unchanged; the log
-lists them.
+removed, with a warning. Values that are not ISO 8601 dates are removed with
+a warning. Datasets without the \code{key} column (for example trial-level domains
+such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
+real trial dates can narrow down subjects' offsets. A warning lists any other
+character or factor column in a keyed dataset that contains ISO 8601 dates
+but was not shifted, and any dataset without \code{key} that has date columns or a
+column named like \code{key} in another case.
 
-Run this before \code{\link[=anon_subject_ids]{anon_subject_ids()}} or after it; each subject keeps one
-offset either way. Under HIPAA, shifted dates do not meet Safe Harbor, which
-removes all elements of dates except the year; see the package README.
+Random numbers come from R's random number generator; see
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each
+subject keeps one offset either way. Under HIPAA, HHS does not address date
+shifting directly, but Safe Harbor removes all elements of dates except the
+year, so shifted dates do not meet it; see the package README.
 }
 \examples{
 data <- list(

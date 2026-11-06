@@ -214,7 +214,10 @@ iso8601_center_offset <- function(x, center_date) {
   round(as.numeric(center_date - mean(parsed$reference[usable])))
 }
 
-shift_iso8601 <- function(x, offset, partial = "shift") {
+# With year_step = TRUE, year-only values move by whole years (at least one, in
+# the direction of the offset) instead of from the middle of the year, so a
+# non-zero offset always changes the year.
+shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
   parsed <- parse_iso8601_dates(x)
   kind <- parsed$kind
   shifted <- parsed$reference + offset
@@ -226,7 +229,15 @@ shift_iso8601 <- function(x, offset, partial = "shift") {
   is_partial <- kind %in% c("month", "year")
   if (partial == "shift") {
     out[kind == "month"] <- format(shifted[kind == "month"], "%Y-%m")
-    out[kind == "year"] <- format(shifted[kind == "year"], "%Y")
+    is_year <- kind == "year"
+    if (year_step && any(is_year)) {
+      year_offset <- rep_len(offset, length(x))[is_year]
+      years <- as.integer(x[is_year]) +
+        sign(year_offset) * pmax(1, round(abs(year_offset) / 365.25))
+      out[is_year] <- sprintf("%04d", as.integer(years))
+    } else {
+      out[is_year] <- format(shifted[is_year], "%Y")
+    }
   } else {
     out[is_partial] <- ""
   }

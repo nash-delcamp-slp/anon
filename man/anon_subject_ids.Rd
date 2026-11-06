@@ -8,14 +8,16 @@ anon_subject_ids(
   data,
   key = "USUBJID",
   also = "SUBJID",
+  key_cols = "RSUBJID",
   prefix = "SUBJ-",
   keep_secrets = FALSE,
   seed = NULL
 )
 }
 \arguments{
-\item{data}{A data frame, or a named list of data frames linked by \code{key}.
-Datasets without the \code{key} column are returned unchanged.}
+\item{data}{A data frame, a named list of data frames linked by \code{key}, or
+the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. Datasets
+without the \code{key} column are returned unchanged.}
 
 \item{key}{Name of the subject identifier column.}
 
@@ -23,12 +25,17 @@ Datasets without the \code{key} column are returned unchanged.}
 subject (default \code{"SUBJID"}). They are replaced with the pseudonym's
 number. Columns not present in a dataset are skipped.}
 
+\item{key_cols}{Names of columns that hold subject keys, possibly of other
+subjects (default \code{"RSUBJID"}, as in SDTM \code{RELSUB}). Each value is replaced
+with that subject's pseudonym; values that are not a known key are removed
+with a warning.}
+
 \item{prefix}{Prefix for character pseudonyms, followed by a zero-padded
 number (e.g. \code{"SUBJ-042"}). Numeric keys get the number itself.}
 
-\item{keep_secrets}{Logical. If \code{TRUE}, keep the mapping from original keys
-to pseudonyms; read it with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}: the mapping
-is not kept anywhere.}
+\item{keep_secrets}{Logical. If \code{TRUE}, keep the mapping from keys to
+pseudonyms; read it with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}: the mapping is
+not kept anywhere.}
 
 \item{seed}{Optional seed for the random assignment, for reproducible tests.
 Anyone with the seed and the original data can rebuild the mapping, so do
@@ -38,20 +45,35 @@ afterwards.}
 \value{
 An object of class \code{"anon_deid_step"}: a list with \code{data} (the
 transformed data, in the same form as the input), \code{log} (a tibble of what
-was changed) and \code{secrets} (\code{NULL} unless \code{keep_secrets = TRUE}).
+was changed, including earlier steps when \code{data} was a step result) and
+\code{secrets} (\code{NULL} unless \code{keep_secrets = TRUE} here or in an earlier step).
+Saving the object (for example with \code{\link[=saveRDS]{saveRDS()}}) also saves its secrets.
 }
 \description{
 Replaces each subject's key (for example \code{USUBJID}) with a random pseudonym
 that is the same in every dataset, so the datasets can still be joined.
 Related identifier columns listed in \code{also} (for example \code{SUBJID}) are
-replaced with the pseudonym's number so they stay aligned with the key.
+replaced with the pseudonym's number so they stay aligned with the key, and
+columns listed in \code{key_cols} that hold other subjects' keys (for example
+\code{RSUBJID}) are mapped through the same pseudonyms.
 }
 \details{
 Pseudonyms are numbered in random order, so they do not reveal the order of
-the original keys. Column types are kept: character keys get character
-pseudonyms, numeric keys get numbers, factors stay factors. Missing and blank
-keys are left as they are. Values of \code{also} columns in rows without a key
-cannot be mapped and are removed (set to missing), with a warning.
+the original keys. Column types and attributes such as labels are kept:
+character keys get character pseudonyms, numeric keys get numbers, factors
+stay factors. Missing and blank keys are left as they are. Values of \code{also}
+columns in rows without a key cannot be mapped and are removed (set to
+missing), with a warning.
+
+A warning lists any other character or factor column in a keyed dataset that
+still contains original key values, and any dataset without \code{key} that has
+an \code{also} or \code{key_cols} column or a column named like \code{key} in another case.
+Identifiers embedded inside other text (for example in \code{--SPID}) are not
+detected.
+
+Random numbers come from R's random number generator. If your script calls
+\code{\link[=set.seed]{set.seed()}} before this step, anyone with the script and the data can
+reproduce the assignment.
 
 Pseudonymized data remains personal data for anyone who holds the mapping or
 can re-identify subjects by other means; measure the remaining risk with

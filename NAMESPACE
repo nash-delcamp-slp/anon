@@ -3,6 +3,7 @@
 S3method(as_anon_payload,anon_context)
 S3method(as_anon_payload,anon_context_collection)
 S3method(as_anon_payload,anon_data_summary)
+S3method(as_anon_payload,anon_deid_step)
 S3method(as_anon_payload,anon_inventory)
 S3method(as_anon_payload,anon_prompt_bundle)
 S3method(as_anon_payload,anon_report)
