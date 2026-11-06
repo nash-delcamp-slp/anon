@@ -402,11 +402,10 @@ anon_num_range <- function(
         c(min(x_clean), quantile_breaks, max(x_clean)),
         n = n_breaks
       )
-      breaks <- breaks[breaks >= min(x_clean) & breaks <= max(x_clean)]
-      # Ensure we have enough breaks
-      if (length(breaks) < 2) {
-        breaks <- c(min(x_clean), max(x_clean))
-      }
+      # Keep the pretty breaks inside the data and use the data's min and max
+      # as the outer breaks, so every value falls in a range
+      inside <- breaks[breaks > min(x_clean) & breaks < max(x_clean)]
+      breaks <- c(min(x_clean), inside, max(x_clean))
     } else {
       breaks <- stats::quantile(
         x_clean,

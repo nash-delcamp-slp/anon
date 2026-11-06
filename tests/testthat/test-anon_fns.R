@@ -565,7 +565,7 @@ test_that("anon_num_range() equal_count handles unclean and collapsing breaks", 
   result <- anon_num_range(x, n_breaks = 2, method = "equal_count", clean_breaks = FALSE)
   expect_length(unique(result), 2)
 
-  # When fewer than two pretty() breaks fall inside the data, the data range is used
+  # A single pretty() break inside the data still yields two ranges
   result <- anon_num_range(c(1.001, 1.009), n_breaks = 2, method = "equal_count")
   expect_true(all(!is.na(result)))
 })
@@ -610,4 +610,15 @@ test_that("build_single_range_result() labels with the min and max of values", {
 test_that("more_patterns() returns nothing for empty or all-missing input", {
   expect_equal(more_patterns(character(0)), character(0))
   expect_equal(more_patterns(NA_character_), character(0))
+})
+
+test_that("anon_num_range() equal_count with clean breaks assigns every value a range", {
+  x <- c(150, 160, 170, 175, 180, 190)
+  result <- anon_num_range(x, n_breaks = 2, method = "equal_count")
+  expect_false(anyNA(result))
+  expect_equal(result[1], "[150,160)")
+  expect_equal(result[6], "[180,190]")
+
+  result <- anon_num_range(c(x, NA), n_breaks = 2, method = "equal_count", keep_values = FALSE)
+  expect_equal(is.na(result), c(rep(FALSE, 6), TRUE))
 })
