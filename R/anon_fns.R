@@ -332,7 +332,8 @@ anon_num_preserve_distribution <- function(
 #' ranges or creating anonymized range labels.
 #'
 #' @param x A vector to anonymize
-#' @param n_breaks Number of range categories to create (default: 5)
+#' @param n_breaks Number of range categories to create, at least 1
+#'   (default: 5)
 #' @param method Method for creating breaks: "equal_width" or "equal_count"
 #' @param clean_breaks Logical, whether to use pretty break points
 #' @param scramble Logical, whether to randomize the assignment order of generated results
@@ -353,21 +354,21 @@ anon_num_range <- function(
 ) {
   method <- match.arg(method)
 
+  if (
+    !is.numeric(n_breaks) ||
+      length(n_breaks) != 1 ||
+      !is.finite(n_breaks) ||
+      n_breaks < 1
+  ) {
+    stop("`n_breaks` must be a single number of at least 1.", call. = FALSE)
+  }
+
   # Handle missing values
   na_idx <- is.na(x)
   x_clean <- x[!na_idx]
 
   if (length(x_clean) == 0) {
     return(x)
-  }
-
-  build_single_range_result <- function(values, keep_values) {
-    if (keep_values) {
-      value_label <- format(values[[1]], trim = TRUE, scientific = FALSE)
-      rep(paste0("[", value_label, ",", value_label, "]"), length(values))
-    } else {
-      rep("Range_01", length(values))
-    }
   }
 
   if (min(x_clean) == max(x_clean)) {
@@ -453,6 +454,18 @@ anon_num_range <- function(
   final_result <- rep(NA_character_, length(x))
   final_result[!na_idx] <- result
   final_result
+}
+
+# Labels every value with one range spanning the minimum and maximum of
+# `values`, or with "Range_01" when `keep_values` is FALSE.
+build_single_range_result <- function(values, keep_values) {
+  if (keep_values) {
+    lower <- format(min(values), trim = TRUE, scientific = FALSE)
+    upper <- format(max(values), trim = TRUE, scientific = FALSE)
+    rep(paste0("[", lower, ",", upper, "]"), length(values))
+  } else {
+    rep("Range_01", length(values))
+  }
 }
 
 #' Anonymize phone numbers
