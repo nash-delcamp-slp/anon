@@ -529,10 +529,17 @@ test_that("anon_app_ui() renders the main controls", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
 
+  runtime_defaults <- anon_runtime_defaults()
+  runtime_defaults$pattern_list <- list(PERSON = c("Alice", "Carol"))
+  runtime_defaults$pattern_rules_text <- format_pattern_rule_text(
+    runtime_defaults$pattern_list
+  )
+
   html <- as.character(anon_app_ui(
+    runtime_defaults = runtime_defaults,
     initial_state = anon_app_initial_state(
       envir = list(study = data.frame(x = 1)),
-      pattern_list = list(PERSON = "Alice"),
+      pattern_list = runtime_defaults$pattern_list,
       default_replacement = "[REDACTED]"
     )
   ))
@@ -541,7 +548,12 @@ test_that("anon_app_ui() renders the main controls", {
                "copy_prompt_bundle_json", "download_prompt_bundle_json")) {
     expect_match(html, paste0('id="', id, '"'), fixed = TRUE)
   }
-  expect_match(html, "PERSON = Alice", fixed = TRUE)
+  # The textarea body holds the configured rules; the placeholder attribute
+  # holds an unrelated example, so match the element content only.
+  expect_match(
+    html,
+    '<textarea id="pattern_rules"[^>]*>PERSON = Alice \\| Carol</textarea>'
+  )
 
   expect_s3_class(anon_app_ui(), "shiny.tag.list")
 })
