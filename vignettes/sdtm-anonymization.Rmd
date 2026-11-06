@@ -54,9 +54,10 @@ Two choices keep the anonymized data useful:
 - **Subject pseudonyms are built once for all domains.** Applying a sequence
   function to each dataset separately would give the same subject different
   IDs in `dm` and `pc`, and the domains could no longer be joined.
-- **All dates move by the same number of days.** Study days, time since dose
-  and visit windows stay correct, while calendar dates no longer identify
-  anyone.
+- **All full dates move by the same number of days.** Study days, time since
+  dose and visit windows stay correct, while calendar dates no longer identify
+  anyone. (The domains used here have no partial dates; see below for how they
+  are handled.)
 
 ## Build the lookups
 
@@ -85,9 +86,11 @@ and keep `subject_key`, `site_key` and `date_offset` out of anything you share:
 they are what links the anonymized data back to the source.
 
 SDTM dates are ISO 8601 strings with varying precision. `anon_date_shift()`
-with a fixed `offset` moves each one by exactly that many days and returns it
-in the same format: any time part is kept, and a partial date such as
-`2014-03` keeps its precision.
+with a fixed `offset` returns each one in the same format. Full dates move by
+exactly `offset` days and keep any time part, so intervals between them are
+preserved. A partial date such as `2014-03` is shifted from the middle of its
+month or year and keeps its original precision, so it lands in roughly the
+right period but intervals involving it are only approximate.
 
 ```{r shift-dtc}
 anon_date_shift(
