@@ -277,6 +277,10 @@ anon_prompt_bundle <- function(
 # helpers -----------------------------------------------------------------
 
 normalize_object_source <- function(envir, selection = NULL) {
+  # A de-identification step stands for its data.
+  if (inherits(envir, "anon_deid_step")) {
+    envir <- if (is.data.frame(envir$data)) list(data = envir$data) else envir$data
+  }
   if (is.environment(envir)) {
     object_names <- ls(envir = envir)
     objects <- stats::setNames(
@@ -300,6 +304,8 @@ normalize_object_source <- function(envir, selection = NULL) {
   } else {
     stop("`envir` must be an environment or a list.", call. = FALSE)
   }
+
+  objects <- lapply(objects, function(obj) if (inherits(obj, "anon_deid_step")) obj$data else obj)
 
   if (!is.null(selection)) {
     missing_selection <- setdiff(selection, names(objects))

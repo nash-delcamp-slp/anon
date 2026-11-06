@@ -30,7 +30,8 @@ values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
 numbers; the unshifted-dates warning does not cover them). In columns not
 named \verb{*DTC}, such as \code{QVAL} or a result column given in \code{vars}, only the
-values that are dates are shifted and other values are kept. Columns given in
+values that are dates are shifted and other values, including bare
+four-digit numbers, are kept. Columns given in
 \code{vars} must be Date, POSIXct, or character or factor columns of ISO 8601
 dates.}
 
@@ -94,10 +95,11 @@ are kept. Text
 columns given in \code{vars} must contain at least one recognised date. Datasets without the \code{key} column (for example trial-level domains
 such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
 real trial dates can narrow down subjects' offsets. A warning lists any other
-character or factor column in a keyed dataset that contains ISO 8601 dates
-but was not shifted, and any dataset without \code{key} that has date columns,
-text columns containing ISO 8601 dates, or a column named like \code{key} in
-another case.
+column in a keyed dataset that holds dates but was not shifted: Date or
+POSIXct columns left out of \code{vars}, numeric columns with a SAS date format,
+and text columns with ISO 8601 dates as whole values or inside text (which
+can't be shifted). It also lists any dataset without \code{key} that has such
+columns or a column named like \code{key} in another case.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

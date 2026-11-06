@@ -217,7 +217,7 @@ test_that("RSUBJID is mapped through the pseudonyms; other key columns are flagg
     dm = data.frame(USUBJID = c("S-1", "S-2")),
     relsub = data.frame(USUBJID = c("S-1", "S-2"), RSUBJID = c("S-2", "S-1"), NOTE = c("S-1", "x"))
   )
-  expect_warning(result <- anon_subject_ids(rel, seed = 14), "still contain original `USUBJID` values: relsub.NOTE")
+  expect_warning(result <- anon_subject_ids(rel, seed = 14), "still contain original `USUBJID` values, possibly inside text: relsub.NOTE")
   out <- result$data
   expect_equal(out$relsub$RSUBJID, rev(out$relsub$USUBJID))
   expect_warning(
@@ -470,13 +470,14 @@ test_that("row names are reset so they can't hold keys", {
   expect_equal(rownames(anon_subject_ids(one, seed = 1)$data), "1")
 })
 
-test_that("SPSS missing-value codes are dropped with value labels", {
+test_that("SPSS value labels are dropped and missing-value codes that aren't IDs kept", {
   skip_if_not_installed("haven")
   d <- data.frame(USUBJID = c("a", "b"))
-  d$SUBJID <- haven::labelled_spss(c(1015, 1028), na_values = c(-9, 1028))
+  d$SUBJID <- haven::labelled_spss(c(1015, 1028), labels = c("Pat 1015" = 1015), na_values = -9)
   out <- anon_subject_ids(d, seed = 1)$data$SUBJID
-  expect_null(attr(out, "na_values"))
-  expect_null(attr(out, "na_range"))
+  expect_null(attr(out, "labels"))
+  expect_equal(attr(out, "na_values"), -9)
+  expect_false(any(c(1015, 1028) %in% unlist(attributes(out))))
 })
 
 test_that("narrow ranges that include 0 give both warnings", {
@@ -587,4 +588,75 @@ test_that("duplicate column names are rejected", {
   expect_error(anon_subject_dates(d), "`AESTDTC` repeats")
   expect_error(anon_subject_ids(list(ae = d)), "Column names in `ae` must be unique")
   expect_error(anon_risk(d, quasi = "USUBJID", key = "AESTDTC"), "must be unique")
+})
+
+test_that("four-digit numbers in mixed columns are not shifted as years", {
+  fa <- data.frame(USUBJID = "a", FAORRES = c("2014-03-05", "1500", "2000", "POSITIVE"))
+  out <- anon_subject_dates(fa, vars = "FAORRES", seed = 1)$data$FAORRES
+  expect_equal(out[2:4], c("1500", "2000", "POSITIVE"))
+  expect_false(out[1] == "2014-03-05")
+
+  supp <- data.frame(USUBJID = "a", QNAM = "X", QVAL = c("1000", "1000/2000", "2014-03-05"))
+  expect_equal(anon_subject_dates(list(suppx = supp), seed = 1)$data$suppx$QVAL[1:2], c("1000", "1000/2000"))
+  expect_equal(anon_subject_dates(list(suppx = supp), vars = "QVAL", seed = 1)$data$suppx$QVAL[1:2], c("1000", "1000/2000"))
+})
+
+test_that("date columns left out of vars, SAS-formatted dates and dates in text are flagged", {
+  ad <- data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", TRTSDT = as.Date("2014-01-02"),
+                   COVAL = "Seen on 2014-01-05")
+  ad$NUMDT <- 19000
+  attr(ad$NUMDT, "format.sas") <- "DATE9"
+  expect_warning(
+    anon_subject_dates(ad, vars = "RFSTDTC", seed = 1),
+    "data.TRTSDT, data.COVAL, data.NUMDT"
+  )
+})
+
+test_that("original keys inside text are flagged", {
+  co <- data.frame(USUBJID = "01-701-1015", COVAL = "Ref subject 01-701-1015")
+  expect_warning(anon_subject_ids(co, seed = 1), "possibly inside text: data.COVAL")
+})
+
+test_that("NLP on a list holding a step with secrets works", {
+  st <- anon_subject_ids(data.frame(USUBJID = c("a", "b")), keep_secrets = TRUE, seed = 1)
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types, return_list = FALSE) {
+    stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+  })
+  expect_no_error(anon(list(st = st), nlp_auto = nlp_auto(person = TRUE)))
+})
+
+test_that("steps can't be combined with c(), with a clear message", {
+  st <- anon(anon_subject_ids(data.frame(USUBJID = "a"), seed = 1))
+  expect_error(c(st, anon("x")), "combine `step\\$data` instead")
+  expect_error(c(anon("x"), st), "combine `step\\$data` instead")
+})
+
+test_that("summaries and reports describe a step's data", {
+  data <- list(dm = data.frame(USUBJID = c("a", "b"), AGE = c(60, 70)), vs = data.frame(USUBJID = "a", X = 1))
+  st <- anon_subject_ids(data, seed = 1)
+  expect_setequal(anon_data_summary(st)$data_frames$structure$name, c("dm", "vs"))
+  expect_setequal(anon_report(st)$object_names, c("dm", "vs"))
+  expect_equal(anon_data_summary(list(st = anon_subject_ids(data$dm, seed = 1)))$data_frames$structure$name, "st")
+})
+
+test_that("missing values in also columns stay missing", {
+  out <- anon_subject_ids(data.frame(USUBJID = c("a", "b", "c"), SUBJID = c("1", NA, "")), seed = 1)
+  expect_equal(sum(is.na(out$data$SUBJID) | out$data$SUBJID == ""), 2)
+  expect_equal(out$log$n_changed[out$log$variable %in% "SUBJID"], 1L)
+})
+
+test_that("anon(step, check_names = FALSE) leaves log names alone", {
+  st <- anon_subject_dates(list(Boston = data.frame(USUBJID = "a", XDTC = "2020-01-01")), seed = 1)
+  a <- anon(st, pattern_list = list("[CITY]" = "Boston"), check_names = FALSE)
+  expect_named(a$data, "Boston")
+  expect_true("Boston" %in% a$log$dataset)
+})
+
+test_that("missing-value codes that aren't keys are kept on keys", {
+  skip_if_not_installed("haven")
+  d <- data.frame(row = 1:3)
+  d$USUBJID <- haven::labelled_spss(c(1015, 1023, -9), na_values = -9)
+  out <- anon_subject_ids(d, seed = 1)$data$USUBJID
+  expect_equal(attr(out, "na_values"), -9)
+  expect_true(is.na(out[3]) || out[3] == -9)
 })

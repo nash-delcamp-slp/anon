@@ -50,7 +50,9 @@
 #'   recursive calls to avoid recompiling patterns. Default is `NULL`.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
-#'   information replaced. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
+#'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
+#'   itself is returned with its data redacted and the patterns also applied to its log and
+#'   settings; combine `step$data` rather than the step with `c()`. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
 #'   If `.self` is `TRUE`, warnings are attached as an attribute.
 #'
 #' @details
@@ -314,7 +316,8 @@ anon <- function(
     result$data <- step_data
     # The log and settings name datasets and columns; apply the patterns to
     # their text too. Counts are left alone.
-    for (col in c("dataset", "variable", "detail")) {
+    log_cols <- c(if (isTRUE(check_names)) c("dataset", "variable"), "detail")
+    for (col in log_cols) {
       result$log[[col]] <- apply_patterns(result$log[[col]], compiled, FALSE, max_distance)
     }
     result$settings <- rapply(
@@ -688,6 +691,9 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
 # The part of `x` whose text is searched for NLP entities: data frame columns
 # that are replaced wholesale are dropped, recursively through lists.
 nlp_text_source <- function(x, df_variable_names, df_classes) {
+  if (inherits(x, "anon_deid_step")) {
+    return(nlp_text_source(x$data, df_variable_names, df_classes))
+  }
   if (is.data.frame(x)) {
     keep <- !vapply(
       names(x),

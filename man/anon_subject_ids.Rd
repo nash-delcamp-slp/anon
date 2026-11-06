@@ -73,12 +73,15 @@ and are removed (set to missing), with a warning. \code{key}, \code{also} and
 \code{key_cols} must not overlap.
 
 A warning lists any other character or factor column (values or factor
-levels) in a keyed dataset that still contains original key values (checked
-for character keys only, since numeric keys match many unrelated codes), and
+levels) in a keyed dataset that still contains original key values, as whole
+values or inside text (checked for character keys only, since numeric keys
+match many unrelated codes), and
 any dataset without \code{key} that has an \code{also} or \code{key_cols} column or a column
 named like \code{key} in another case.
-Identifiers embedded inside other text (for example in \code{--SPID}) are not
-detected.
+Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not
+checked, because short numbers match many unrelated values. Missing values in
+\code{also} columns stay missing, and haven missing-value codes (\code{na_values}) that
+are not subject keys are kept.
 
 Random numbers come from R's random number generator. If your script calls
 \code{\link[=set.seed]{set.seed()}} before this step, anyone with the script and the data can
