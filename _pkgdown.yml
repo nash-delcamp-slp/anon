@@ -10,3 +10,84 @@ navbar:
       icon: fa-gauge-high
       href: bench/index.html
       aria-label: Benchmarks
+
+reference:
+  - title: Anonymize objects
+    desc: >
+      Redact sensitive text in vectors, data frames, lists and labels using
+      patterns, column rules and NLP, and set package-wide defaults.
+    contents:
+      - anon
+      - more_patterns
+      - anon_options
+
+  - title: Anonymize specific data types
+    desc: >
+      Replace or transform identifiers, dates, contact details and numbers
+      while keeping their structure useful.
+  - subtitle: Identifiers
+    contents:
+      - anon_id_chr_sequence
+      - anon_id_num_sequence
+  - subtitle: Dates
+    contents:
+      - anon_date_shift
+  - subtitle: Contact details
+    contents:
+      - anon_email
+      - anon_phone_number
+  - subtitle: Numbers
+    contents:
+      - anon_num_preserve_distribution
+      - anon_num_range
+
+  - title: Named entity recognition
+    desc: >
+      Find and redact people, organizations, places, dates and other entities
+      with spaCy, and configure which entity types `anon()` redacts
+      automatically.
+    contents:
+      - anon_nlp_entities
+      - nlp_get_entities
+      - nlp_entity_sets
+      - nlp_auto
+      - nlp_default_replacements
+
+  - title: Summarize data for sharing
+    desc: >
+      Describe the objects in an environment or list without exposing
+      sensitive values.
+    contents:
+      - anon_inventory
+      - anon_data_summary
+      - anon_example_rows
+      - anon_report
+
+  - title: Prepare text and prompts
+    desc: >
+      Import documents, clean and compare text, and assemble anonymized
+      context into a prompt bundle.
+    contents:
+      - read_content
+      - anon_clean_text
+      - anon_compare_text
+      - anon_prompt_bundle
+
+  - title: Export to JSON
+    contents:
+      - as_anon_json
+      - as_anon_payload
+
+  - title: Interactive app
+    contents:
+      - run_anon_app
+
+  - title: Results and printing
+    desc: >
+      Combine and print the `anon_context` objects returned by `anon()` and
+      the summary functions.
+    contents:
+      - c.anon_context
+      - print.anon_context
+      - print.anon_context_collection
+      - print.anon_data_summary
