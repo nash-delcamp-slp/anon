@@ -775,6 +775,18 @@ structure useful.
 - [`anon_num_range()`](https://nash-delcamp-slp.github.io/anon/reference/anon_num_range.md)
   : Generalize numeric values into range categories
 
+## De-identification
+
+Measure re-identification risk from quasi-identifiers across linked
+datasets.
+
+- [`anon_risk()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk.md)
+  : Measure re-identification risk from quasi-identifiers
+- [`anon_risk_subjects()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk_subjects.md)
+  : Per-subject re-identification risk
+- [`anon_quasi_values()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_values.md)
+  : Specify quasi-identifier values that vary by row
+
 ## Named entity recognition
 
 Find and redact people, organizations, places, dates and other entities
