@@ -209,6 +209,12 @@ for (pipeline_name in names(deid_pipelines)) {
           } else {
             expect_identical(as.vector(unclass(got)), as.vector(unclass(expected))[keep][ord], info = id)
           }
+          # Names of a vector column follow its values, rewritten.
+          want_names <- names(original[[col]])
+          if (!is.null(want_names)) {
+            want_names <- deid_rewrite_text(want_names, oracle)[keep][ord]
+          }
+          expect_identical(names(got), want_names, info = id)
         }
       }
     })
@@ -234,11 +240,12 @@ for (pipeline_name in names(deid_pipelines)) {
     rewrite <- function(x) deid_rewrite_text(x, text_oracle)
     kept <- setdiff(names(data), pipeline$removed)
     expect_named(out, rewrite(kept))
+    replaced_cols <- c(key, "SUBJID", "RSUBJID", deid_date_cols)
     # Attributes that change on purpose: row names (reset), factor levels
     # (they hold keys or dates), and haven value labels and missing-value
     # codes (they describe the original values, and are dropped from replaced
-    # and shifted columns; where kept, they are checked below). Names are
-    # checked on their own.
+    # and shifted columns; elsewhere they are checked below). Names are
+    # checked on their own, a column's with its values.
     changing <- c("row.names", "levels", "labels", "na_values", "na_range")
     keep <- function(x, also = character(0)) {
       a <- attributes(x)
@@ -257,10 +264,14 @@ for (pipeline_name in names(deid_pipelines)) {
         type <- if (is.null(pipeline$types[[id]])) typeof(data[[ds]][[col]]) else pipeline$types[[id]]
         expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
-        expect_identical(keep(x, also), keep(expected[[rewrite(col)]], also), info = id)
+        expect_identical(keep(x, c(also, "names")), keep(expected[[rewrite(col)]], c(also, "names")), info = id)
+        # Value labels and missing-value codes are kept on columns that are
+        # neither replaced nor shifted, and are never anything but the
+        # rewritten original.
         for (name in setdiff(c("labels", "na_values", "na_range"), also)) {
-          if (!is.null(attr(x, name, exact = TRUE))) {
-            expect_identical(attr(x, name, exact = TRUE), attr(expected[[rewrite(col)]], name, exact = TRUE), info = paste(id, name))
+          want <- attr(expected[[rewrite(col)]], name, exact = TRUE)
+          if (!col %in% replaced_cols || !is.null(attr(x, name, exact = TRUE))) {
+            expect_identical(attr(x, name, exact = TRUE), want, info = paste(id, name))
           }
         }
       }
@@ -333,6 +344,12 @@ for (pipeline_name in names(deid_pipelines)) {
     })
   }
 }
+
+test_that("the fixture holds its haven-labelled columns", {
+  # Without haven they are not planted, and the invariants cover less.
+  skip_if_not_installed("haven")
+  expect_true(all(vapply(deid_fixture()$dm[c("GRP", "ARMCD", "SITE")], inherits, logical(1), "haven_labelled")))
+})
 
 test_that("each subject's New York times are on either side of a daylight saving change", {
   vs <- deid_fixture()$vs

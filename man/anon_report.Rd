@@ -78,10 +78,10 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 (column names, row names, list names). Default is \code{TRUE}.}
 
 \item{check_labels}{Logical indicating whether to anonymize labels
-(attributes): variable and data frame labels, and haven value labels (the
-label names, and the label values when they are text) and text
-user-defined missing values (\code{na_values}).
-Default is \code{TRUE}.}
+(attributes) of columns and data frames: variable and data frame labels,
+comments and other character attributes that aren't structural, haven
+value labels (the label names, and the label values when they are text)
+and text user-defined missing values (\code{na_values}). Default is \code{TRUE}.}
 
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.

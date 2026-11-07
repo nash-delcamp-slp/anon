@@ -207,7 +207,7 @@ test_that("unshifted ISO dates and unkeyed datasets with dates or IDs give warni
   )
   expect_warning(
     expect_warning(anon_subject_dates(d, seed = 13), "contain dates that were not shifted: ae.AESTTPT"),
-    "Datasets without `USUBJID` were left unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
+    "Datasets without `USUBJID` kept their values unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
   )
   expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)")
 })
@@ -967,9 +967,10 @@ test_that("anon_subject_ids() replaces keys in value labels and missing-value co
   skip_if_not_installed("haven")
   dm <- data.frame(USUBJID = c("S-01", "S-02"))
   dm$GRP <- haven::labelled(c(1, 2), labels = c("S-01" = 1, Other = 2))
-  dm$ARM <- haven::labelled(c("S-02", "x"), labels = c("Group of S-02" = "S-02"))
+  dm$ARM <- haven::labelled(c("S-02", "x"), labels = c("Group of S-02" = "S-02", "S-01 arm" = "S-01"))
   dm$SITE <- haven::labelled_spss(c("A", "B"), na_values = "S-01")
-  # Values are data: the key left in ARM is flagged, not rewritten.
+  # Values are data: the key left in ARM is flagged, not rewritten, and so is
+  # the code that labels it.
   expect_warning(
     step <- anon_subject_ids(dm, keep_secrets = TRUE, seed = 4),
     "still contain original `USUBJID` values.*: data.ARM"
@@ -978,7 +979,10 @@ test_that("anon_subject_ids() replaces keys in value labels and missing-value co
   out <- step$data[match(new[c("S-01", "S-02")], step$data$USUBJID), ]
 
   expect_equal(attr(out$GRP, "labels"), stats::setNames(c(1, 2), c(new[["S-01"]], "Other")))
-  expect_equal(attr(out$ARM, "labels"), stats::setNames(new[["S-02"]], paste("Group of", new[["S-02"]])))
+  expect_equal(
+    attr(out$ARM, "labels"),
+    stats::setNames(c("S-02", new[["S-01"]]), c(paste("Group of", new[["S-02"]]), paste(new[["S-01"]], "arm")))
+  )
   expect_equal(attr(out$SITE, "na_values"), new[["S-01"]])
   expect_equal(vctrs::vec_data(out$ARM), c("S-02", "x"))
 })
@@ -1033,5 +1037,184 @@ test_that("a later step renames the datasets and columns named in earlier steps'
   data[["S-01"]] <- data.frame(X = 1)
   step <- anon_subject_ids(anon_subject_dates(data, seed = 1), seed = 2)
   expect_false(any(grepl("S-01", step$log$dataset)))
-  expect_equal(sum(step$log$detail == "no `USUBJID` column; left unchanged"), 2)
+  expect_equal(sum(step$log$detail == "no `USUBJID` column; values left unchanged"), 2)
+})
+
+test_that("a key that starts another is not taken for it", {
+  d <- data.frame(USUBJID = c("S-1", "S-1-2"), V = 1:2)
+  attr(d$V, "label") <- "S-1-2 and S-1"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 3)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_equal(attr(step$data$V, "label"), paste(new[["S-1-2"]], "and", new[["S-1"]]))
+  expect_warning(anon_subject_ids(data.frame(USUBJID = c("S-1", "S-1-2"), N = c("S-1-2", "x")), seed = 1), "data.N")
+})
+
+test_that("grouped tibbles keep their label, attributes and grouping", {
+  g <- dplyr::group_by(tibble::tibble(USUBJID = c("S-01", "S-02", "S-01"), `S-02` = 1:3, A = 1), USUBJID, `S-02`)
+  attr(g, "label") <- "Vital Signs"
+  attr(g, "note") <- "S-01"
+  step <- anon_subject_ids(list(vs = g), keep_secrets = TRUE, seed = 1)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data$vs
+  expect_s3_class(out, "grouped_df")
+  expect_equal(attr(out, "label"), "Vital Signs")
+  expect_equal(attr(out, "note"), new[["S-01"]])
+  expect_equal(dplyr::group_vars(out), c("USUBJID", new[["S-02"]]))
+  expect_equal(names(dplyr::group_data(out)), c("USUBJID", new[["S-02"]], ".rows"))
+  expect_false(any(c("S-01", "S-02") %in% unlist(dplyr::group_data(out)[1])))
+  dates <- anon_subject_dates(list(vs = dplyr::group_by(tibble::tibble(USUBJID = "a", X = 1), X)), seed = 1)$data$vs
+  expect_s3_class(dates, "grouped_df")
+  # Nothing to rewrite: the dataset is returned as it was.
+  te <- dplyr::group_by(tibble::tibble(ARMCD = c("A", "B")), ARMCD)
+  attr(te, "label") <- "Trial Elements"
+  out <- anon_subject_dates(list(dm = data.frame(USUBJID = "a"), te = te), seed = 1)$data$te
+  expect_identical(out, te)
+})
+
+test_that("keys are rewritten at any depth of attributes, in vector names, dimnames and packed columns", {
+  d <- tibble::tibble(USUBJID = c("S-01", "S-02"), W = c("S-01" = 1, "S-02" = 2))
+  d$M <- matrix(1:4, 2, dimnames = list(c("S-01", "x"), c(S = "S-02", "y")))
+  d$P <- tibble::tibble(`S-01` = 1:2, Q = structure(1:2, label = "for S-02"))
+  attr(d$W, "meta") <- list(by = structure(c(who = "S-01"), note = "S-02"), f = factor("S-02"))
+  attr(d$W, "S-01") <- "an attribute named by a key"
+  data <- list(dm = d)
+  attr(data, "note") <- c(n = "made from S-02")
+  step <- anon_subject_ids(data, keep_secrets = TRUE, seed = 2)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data$dm
+  s1 <- new[["S-01"]]
+  s2 <- new[["S-02"]]
+  expect_equal(names(out$W), unname(new[c("S-01", "S-02")]))
+  expect_equal(dimnames(out$M), list(c(s1, "x"), c(S = s2, "y")))
+  expect_named(out$P, c(s1, "Q"))
+  expect_equal(attr(out$P$Q, "label"), paste("for", s2))
+  meta <- attr(out$W, "meta")
+  expect_equal(meta$by, structure(c(who = s1), note = s2))
+  expect_equal(levels(meta$f), s2)
+  expect_equal(attr(out$W, s1), "an attribute named by a key")
+  expect_null(attr(out$W, "S-01"))
+  expect_equal(attr(step$data, "note"), c(n = paste("made from", s2)))
+  expect_true(any(is.na(step$log$dataset) & grepl("in attributes and names: 1 attribute", step$log$detail)))
+})
+
+test_that("keys and dates inside list-column elements are flagged, not rewritten", {
+  d <- tibble::tibble(
+    USUBJID = c("S-01", "S-02"), RFSTDTC = c("2014-01-01", "2014-02-01"),
+    L = list(list(`S-02` = 1), structure(2, note = "x")),
+    D = list(1, structure(2, note = "seen 2014-01-05"))
+  )
+  expect_warning(out <- anon_subject_ids(d, seed = 1)$data, "still contain original `USUBJID` values.*: data.L\\.")
+  expect_true("S-02" %in% unlist(lapply(out$L, names)))
+  expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.D\\.")
+})
+
+test_that("text that isn't valid UTF-8 is named in a warning; latin1 text is searched", {
+  bad <- "Caf\xe9 S-01"
+  d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2, T = c(bad, "ok"))
+  attr(d$V, "label") <- bad
+  expect_warning(
+    out <- anon_subject_ids(list(dm = d), seed = 1)$data$dm,
+    "^2 value\\(s\\) aren't valid UTF-8 and couldn't be checked: dm.T, dm.V\\."
+  )
+  expect_equal(attr(out$V, "label"), bad)
+  expect_warning(anon_subject_dates(list(dm = d), seed = 1), "aren't valid UTF-8 and couldn't be checked: dm.T, dm.V\\.")
+  latin <- "Caf\xe9 S-01"
+  Encoding(latin) <- "latin1"
+  d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2)
+  attr(d$V, "label") <- latin
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  expect_equal(attr(step$data$V, "label"), paste0("Caf\u00e9 ", anon_secrets(step)$subject_ids$pseudonym[1]))
+})
+
+test_that("settings and log text naming renamed columns are rewritten", {
+  d <- data.frame(USUBJID = c("AB-1", "AB-2"), `X2014-01-05DTC` = c("2014-01-05", "2014-02-01"), check.names = FALSE)
+  d$`AB-1` <- 1:2
+  step <- anon_subject_ids(anon_subject_dates(list(dm = d), vars = "X2014-01-05DTC", seed = 1), also = "AB-1", seed = 2)
+  text <- c(capture.output(print(step)), as_anon_json(step), unlist(step$settings))
+  expect_false(any(grepl("2014-01-05|AB-1", text)))
+  expect_equal(step$settings$subject_dates$vars, "X[DATE]DTC")
+  expect_equal(step$settings$subject_ids$also, "SUBJ-1")
+  # The renamed date column was shifted and is named by its new name in the log.
+  expect_named(step$data$dm, c("USUBJID", "X[DATE]DTC", "SUBJ-1"))
+  expect_false(any(step$data$dm[["X[DATE]DTC"]] %in% d[["X2014-01-05DTC"]]))
+  expect_true("X[DATE]DTC" %in% step$log$variable[step$log$step == "subject_dates"])
+  expect_true("SUBJ-1" %in% step$log$variable[step$log$step == "subject_ids"])
+})
+
+test_that("a column renamed by a later step is renamed in earlier steps' logs", {
+  d <- data.frame(USUBJID = c("S-01", "S-02"), `S-01_DTC` = c("2014-01-05", "2014-02-01"), check.names = FALSE)
+  step <- anon_subject_ids(anon_subject_dates(d, seed = 1), seed = 2)
+  shifted <- step$log[step$log$step == "subject_dates" & !is.na(step$log$variable), ]
+  expect_equal(shifted$variable, setdiff(names(step$data), "USUBJID"))
+  expect_false(any(grepl("S-0", unlist(step$log[c("variable", "detail")]))))
+})
+
+test_that("SDTM partial dates in attributes are replaced", {
+  d <- data.frame(USUBJID = "a", V = 1)
+  attr(d$V, "label") <- "from 2014-01--T08:00 and 2014---15; not 20140105 or 2014-1-5"
+  out <- anon_subject_dates(d, seed = 1)$data
+  expect_equal(attr(out$V, "label"), "from [DATE]T08:00 and [DATE]; not 20140105 or 2014-1-5")
+})
+
+test_that("value-label codes and missing values equal to a value are not rewritten", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("AB-1", "AB-2", "AB-3"))
+  d$REF <- haven::labelled_spss(c("AB-1", "X", "AB-2"), labels = c("first subj" = "AB-1", other = "X"), na_values = "AB-2")
+  d$RNG <- haven::labelled_spss(c("AB-15", "B", "C"), na_range = c("AB-1", "AB-3"))
+  d$FREE <- haven::labelled_spss(c("Z", "Z", "Z"), labels = c(z = "AB-3"), na_range = c("AB-1", "AB-2"))
+  expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "data.REF")
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data
+  expect_equal(is.na(out$REF), is.na(d$REF))
+  expect_equal(attr(out$REF, "labels"), attr(d$REF, "labels"))
+  expect_equal(attr(out$REF, "na_values"), "AB-2")
+  # "AB-15" lies in the range AB-1 to AB-3, so the range is kept.
+  expect_equal(attr(out$RNG, "na_range"), c("AB-1", "AB-3"))
+  expect_equal(attr(out$FREE, "labels"), c(z = new[["AB-3"]]))
+  expect_equal(attr(out$FREE, "na_range"), unname(new[c("AB-1", "AB-2")]))
+})
+
+test_that("dates in value labels, missing values and ranges are replaced; structural attributes are not", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("a", "b"), RFSTDTC = c("2014-01-02", "2013-07-19"))
+  d$GRP <- haven::labelled(c(1, 2), labels = c("cut 2014-01-02" = 1, other = 2))
+  d$SITE <- haven::labelled_spss(c("S1", "S2"), labels = c(first = "2014-03-01"), na_values = "2014-01-05",
+                                 na_range = c("2015-01-01", "2015-12-31"))
+  d$N <- 1:2
+  attr(d$N, "format.sas") <- "2014-01-01"
+  attr(d$N, "units") <- "2014-01-01"
+  d$TM <- as.POSIXct(c("2014-01-02 10:00", "2013-07-19 10:00"), tz = "UTC")
+  step <- anon_subject_dates(d, seed = 1)
+  out <- step$data
+  expect_equal(names(attr(out$GRP, "labels")), c("cut [DATE]", "other"))
+  expect_equal(attr(out$SITE, "labels"), c(first = "[DATE]"))
+  expect_equal(attr(out$SITE, "na_values"), "[DATE]")
+  # Both ends become "[DATE]", so "S1" and "S2" are still outside the range.
+  expect_equal(attr(out$SITE, "na_range"), c("[DATE]", "[DATE]"))
+  expect_equal(attr(out$N, "format.sas"), "2014-01-01")
+  expect_equal(attr(out$N, "units"), "2014-01-01")
+  expect_equal(attr(out$TM, "tzone"), "UTC")
+  expect_match(step$log$detail[step$log$dataset %in% "data" & is.na(step$log$variable)], "5 value label\\(s\\) or missing-value code\\(s\\)")
+})
+
+test_that("na_range codes that are keys are rewritten when no value falls in either range", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("AB-1", "AB-2"))
+  d$C <- haven::labelled_spss(c("Z", "Z"), na_range = c("AB-1", "AB-2"))
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  expect_equal(attr(step$data$C, "na_range"), anon_secrets(step)$subject_ids$pseudonym)
+})
+
+test_that("rewritten names that clash are made unique in the ids step", {
+  d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1)
+  d[["S-01"]] <- 1
+  d[["SUBJ-1"]] <- 2
+  data <- list(dm = d, "SUBJ-2" = data.frame(X = 1), "S-02" = data.frame(Y = 1))
+  step <- anon_subject_ids(data, keep_secrets = TRUE, seed = 1)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  # The seed gives S-01 SUBJ-1 and S-02 SUBJ-2, clashing with existing names.
+  expect_equal(unname(new), c("SUBJ-1", "SUBJ-2"))
+  expect_named(step$data$dm, c("USUBJID", "V", "SUBJ-1_1", "SUBJ-1"))
+  expect_named(step$data, c("dm", "SUBJ-2", "SUBJ-2_1"))
+  expect_equal(step$data[["SUBJ-2_1"]], data.frame(Y = 1))
 })

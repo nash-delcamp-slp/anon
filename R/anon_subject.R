@@ -8,8 +8,9 @@
 #' `RSUBJID`) are mapped through the same pseudonyms.
 #'
 #' @param data A data frame, a named list of data frames linked by `key`, or
-#'   the result of an earlier step such as [anon_subject_dates()]. Datasets
-#'   without the `key` column are returned unchanged.
+#'   the result of an earlier step such as [anon_subject_dates()]. In datasets
+#'   without the `key` column the values are left unchanged; keys in their
+#'   attributes and names are rewritten (see Details).
 #' @param key Name of the subject identifier column.
 #' @param also Names of related identifier columns that hold one value per
 #'   subject (default `"SUBJID"`). They are replaced with the pseudonym's
@@ -34,30 +35,42 @@
 #' neither the pseudonyms nor the row order reveal the order of the original
 #' keys. Column types and attributes such as variable labels are kept
 #' (original keys in their text are rewritten, see below). Character keys get
-#' character pseudonyms, numeric keys get numbers, factors stay factors. Value labels (haven `labels`), which describe the original
-#' values, are dropped from replaced columns. Missing and blank keys are left
+#' character pseudonyms, numeric keys get numbers, factors stay factors. Value
+#' labels (haven `labels`), which describe the original values, are dropped
+#' from replaced columns. Missing and blank keys are left
 #' as they are. Values of `also` columns in rows without a key cannot be mapped
 #' and are removed (set to missing), with a warning. `key`, `also` and
 #' `key_cols` must not overlap.
 #'
 #' Original keys in text that describes the data are replaced with the
 #' subject's pseudonym, in every dataset (with or without `key`), when they
-#' appear as a whole value or a whole word: in character attributes of columns
-#' and data frames (such as `label`, `comment` or a custom note; not `class`,
-#' `levels`, `names`, `row.names`, `dim`, `dimnames`, `tzone`, `units` or
-#' formats such as `format.sas` and `display_width`), in haven value labels of
-#' columns that are not replaced (the label names, and the label values of
-#' character columns), in character user-defined missing values (`na_values`,
-#' `na_range`) of those columns, and in column names, character row names and
-#' dataset names. A rewritten name that clashes with another gets a numeric
-#' suffix (`"_1"`). Keys made only of digits, and numeric keys, are not
-#' rewritten, for the same reason they are not searched for below. The log has
-#' one row per dataset with such rewrites, with counts by kind; earlier steps'
-#' log rows are renamed to match. Values in the data are not rewritten.
+#' appear as a whole value or a whole word: in the attributes of columns, data
+#' frames and the list of datasets (such as `label`, `comment` or a custom
+#' note), at any depth (text in list or factor attributes, names of attribute
+#' vectors, attributes of attributes, attribute names); in the names of vector
+#' columns and the dimnames of matrix columns; in packed data frame columns, as
+#' in a data frame; in haven value labels of columns that are not replaced (the
+#' label names, and the label values of character columns) and in character
+#' user-defined missing values (`na_values`, `na_range`) of those columns; and
+#' in column names, character row names and dataset names. Structural
+#' attributes are left alone: `class`, `row.names`, `dim`, a column's
+#' `levels`, `tzone`, `units`, and formats such as `format.sas` and
+#' `display_width`. A label value or missing-value code is rewritten only when
+#' no value of the column equals it or its rewrite (or, for `na_range`, falls
+#' in either range), so the mapping from values to labels and which values
+#' are missing don't change; a column whose values still hold keys is named
+#' in the warning below. A rewritten name that clashes with another gets a
+#' numeric suffix (`"_1"`). Keys made only of digits, and numeric keys, are
+#' not rewritten, for the same reason they are not searched for below. The log
+#' has one row per dataset with such rewrites (and one for the list of
+#' datasets), with counts by kind; this and earlier steps' logs and settings
+#' are renamed and rewritten to match. Values in the data, including the
+#' elements of list columns, are not rewritten.
 #'
 #' A warning lists any other character or factor column (values or factor
-#' levels), or list column (its character and factor elements), in any
-#' dataset, that still contains original key values as whole
+#' levels), or list column (all the text its elements hold: values, factor
+#' levels, names and attributes, at any depth), in any dataset, that still
+#' contains original key values as whole
 #' values or as whole words inside text (checked for character keys that are
 #' not made only of digits, since numbers match many unrelated codes), and
 #' any dataset without `key` that has a column named like `key`, `also` or
@@ -165,14 +178,18 @@ anon_subject_ids <- function(
 
     data[[ds]] <- sort_by_new_key(df, idx, numbers)
   }
-  if (!any_numeric_key(data[keyed], key)) {
+  # Keys made only of digits, and numeric keys, match too much to be searched
+  # for in text.
+  searched <- !any_numeric_key(data[keyed], key) && length(searchable_keys(keys)) > 0
+  rewritten <- NULL
+  if (searched) {
     rewritten <- rewrite_described_text(
       data, key_rewriter(keys, pseudonyms), log, "original keys replaced with pseudonyms"
     )
     data <- rewritten$data
     log <- rewritten$log
     keyed <- rewritten$rename(keyed)
-    input$previous <- rename_previous_log(input$previous, rewritten)
+    input$previous <- rewrite_previous_step(input$previous, rewritten)
   }
   log <- deid_log_unkeyed(log, data, keyed, key)
 
@@ -195,6 +212,9 @@ anon_subject_ids <- function(
   }
   warn_id_name_variants(data, keyed, c(key, also, key_cols))
   warn_unkeyed_identifiers(data, keyed, key, c(also, key_cols), check_dates = FALSE)
+  if (searched) {
+    warn_invalid_utf8(data, rewritten$invalid)
+  }
 
   secrets <- if (isTRUE(keep_secrets)) {
     new_ids <- if (any_numeric_key(data[keyed], key)) numbers else pseudonyms
@@ -204,6 +224,9 @@ anon_subject_ids <- function(
     key = key, also = also, key_cols = key_cols, prefix = prefix,
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed)
   ))
+  if (searched) {
+    settings <- rewritten$settings(settings)
+  }
   new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
@@ -253,10 +276,12 @@ anon_subject_ids <- function(
 #' format and any time part. Date columns keep their type, and POSIXct columns
 #' keep their type, time zone and clock time (the calendar date moves, so a
 #' shift across a daylight saving change keeps 08:00 at 08:00). Column
-#' attributes such as variable labels are kept; value labels (haven `labels`)
-#' are dropped, and haven user-defined missing values (`na_values`, `na_range`)
-#' in the key and date columns become plain missing values. A clock time that doesn't exist on the new date (inside a
-#' daylight saving gap) moves forward by the gap. Study day variables (`--DY`) are not
+#' attributes such as variable labels are kept, with the dates in them
+#' replaced by `"[DATE]"` (see below); value labels (haven `labels`) are
+#' dropped from shifted columns, and haven user-defined missing values
+#' (`na_values`, `na_range`) in the key and date columns become plain missing
+#' values. A clock time that doesn't exist on the new date (inside a daylight
+#' saving gap) moves forward by the gap. Study day variables (`--DY`) are not
 #' changed and stay consistent with the shifted full dates, because each
 #' subject's dates all move together.
 #'
@@ -264,12 +289,15 @@ anon_subject_ids <- function(
 #' data, so there they are replaced with `"[DATE]"` (the default date
 #' replacement of [nlp_default_replacements()]): in every dataset, in the same
 #' attributes and names that [anon_subject_ids()] rewrites keys in (character
-#' attributes, value labels, user-defined missing values, column, row and
-#' dataset names). The forms replaced are those found inside text by the
-#' warning described below: ISO 8601 full and year-and-month dates, and dates
-#' with a month name or as numbers with separators. The log has one row per
-#' dataset with such replacements, with counts. Values in the data are not
-#' changed by this rule.
+#' attributes at any depth, vector names and dimnames, value labels and
+#' user-defined missing values under the same rule, column, row and dataset
+#' names), and in this and earlier steps' logs and settings. The forms
+#' replaced are those found inside text by the warning described below: ISO
+#' 8601 full and year-and-month dates, SDTM partial dates (`"2014-01--T08:00"`
+#' becomes `"[DATE]T08:00"`, and `"2014---15"`), and dates with a month name or
+#' as numbers with separators. The log has one row per dataset with such
+#' replacements, with counts. Values in the data are not changed by this
+#' rule.
 #'
 #' Year-and-month dates are shifted from the middle of the month, and year-only
 #' dates by whole years, so the order between a partial date and a full date of
@@ -281,10 +309,12 @@ anon_subject_ids <- function(
 #' ISO 8601 dates, or whose year would fall outside 0001-9999, are removed with
 #' a warning; this includes a month and day without a year (`"--12-15"`).
 #' Time-only values (`"-----T07:15"`) and durations (`"P1D"`) have no date and
-#' are kept. Text
-#' columns given in `vars` must contain at least one recognised date. Datasets without the `key` column (for example trial-level domains
-#' such as `TS`, `TV` and `TA`) are left unchanged and listed in the log; their
-#' real trial dates can narrow down subjects' offsets. A warning lists any other
+#' are kept. Text columns given in `vars` must contain at least one recognised
+#' date. In datasets without the `key` column (for example trial-level domains
+#' such as `TS`, `TV` and `TA`) the values are left unchanged (dates in their
+#' attributes and names are replaced as above), and they are listed in the
+#' log; their real trial dates can narrow down subjects' offsets. A warning
+#' lists any other
 #' column in a keyed dataset that holds dates but was not shifted: Date or
 #' POSIXct columns left out of `vars`, numeric columns with a SAS date format
 #' (in a separate warning; convert them to Date or POSIXct to shift them), and
@@ -292,9 +322,16 @@ anon_subject_ids <- function(
 #' (which can't be shifted) written as ISO 8601, with a month name
 #' (`05JAN2014`, `UNK-JAN-2014`, `5 Jan 2014`, `Jan 5, 2014`, `JAN2014`) or as
 #' numbers with separators (`01/05/2014`, `1/5/14`, `01.05.2014`,
-#' `2014/01/05`), including the values kept in mixed columns such as `QVAL`.
-#' Other formats, such as `20140105`, are not detected. It also lists any dataset without `key` that has such
-#' columns or a column named like `key` in another case.
+#' `2014/01/05`), including the values kept in mixed columns such as `QVAL`,
+#' and list columns (all the text their elements hold). Other formats, such as
+#' `20140105`, `2014.01.05`, `2014-1-5` and `Jan-05-2014`, are not detected,
+#' nor replaced in attributes and names. It also lists any dataset without
+#' `key` that has such columns or a column named like `key` in another case.
+#'
+#' Both steps warn about text that isn't valid UTF-8 (after converting text
+#' marked with another encoding, such as latin1), which can't be searched:
+#' they name the columns, or datasets, holding it. Convert it to UTF-8 (for
+#' example with [iconv()]) and run the step again.
 #'
 #' Random numbers come from R's random number generator; see
 #' [anon_subject_ids()]. Run this before or after [anon_subject_ids()]; each
@@ -410,7 +447,7 @@ anon_subject_dates <- function(
     date_vars[[ds]] <- rewritten$rename_columns(date_vars[[ds]], ds)
   }
   keyed <- rewritten$rename(keyed)
-  input$previous <- rename_previous_log(input$previous, rewritten)
+  input$previous <- rewrite_previous_step(input$previous, rewritten)
   log <- deid_log_unkeyed(log, data, keyed, key)
 
   if (totals[["no_key"]] > 0) {
@@ -440,6 +477,7 @@ anon_subject_dates <- function(
   }
   warn_unshifted_iso_dates(data, keyed, date_vars, key, qval_processed = is.null(vars))
   warn_unkeyed_identifiers(data, keyed, key, character(0), check_dates = TRUE)
+  warn_invalid_utf8(data, rewritten$invalid)
 
   secrets <- if (isTRUE(keep_secrets)) {
     list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
@@ -448,6 +486,7 @@ anon_subject_dates <- function(
     key = key, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed)
   ))
+  settings <- rewritten$settings(settings)
   new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
@@ -896,8 +935,7 @@ shift_detail <- function(shifted) {
 # `skip` columns, in any case, are not checked: they were just replaced, or
 # warn_id_name_variants() or warn_unkeyed_identifiers() names them. Keys made only of
 # digits are not searched for, as they match many unrelated numbers.
-# List columns are searched too, in their character and factor elements at any
-# depth.
+# List columns are searched too, in all the text their elements hold.
 warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
   keys <- searchable_keys(keys)
   if (length(keys) == 0) {
@@ -909,8 +947,7 @@ warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0)) {
     df <- data[[ds]]
     cols <- names(df)[!tolower(names(df)) %in% tolower(c(key, skip))]
     for (col in cols) {
-      x <- df[[col]]
-      values <- if (is.list(x) && !is.data.frame(x)) list_text_values(x) else text_values(x)
+      values <- text_values(df[[col]])
       if (length(values) > 0 && any(stringi::stri_detect_regex(values, key_pattern), na.rm = TRUE)) {
         hits <- c(hits, paste0(ds, ".", col))
       }
@@ -936,28 +973,22 @@ searchable_keys <- function(keys) {
 # An ICU regular expression matching any of `keys` as a whole value or a whole
 # word inside text.
 key_text_regex <- function(keys) {
+  # Longest first, so that a key that starts another ("S-1" and "S-1-2") doesn't
+  # match inside it.
+  keys <- keys[order(-nchar(keys))]
   paste0(whole_value_prefix, "(?:", paste(escape_regex_chars(keys), collapse = "|"), ")", whole_value_suffix)
-}
-
-# Distinct character and factor values held in a list column, at any depth.
-list_text_values <- function(x) {
-  values <- rapply(x, as.character, classes = c("character", "factor"), how = "unlist")
-  if (length(values) == 0) {
-    return(NULL)
-  }
-  valid_utf8_text(unique(unname(values)))
 }
 
 # Rewriting text that describes the data ----------------------------------
 
-# Attributes that hold structure, formats or the values themselves rather than
-# text about the data; rewrite_described_text() leaves them alone. Value labels
-# and user-defined missing values (`labels`, `na_values`, `na_range`) are
-# rewritten on their own terms.
+# Attributes that hold structure, formats or values rather than text about the
+# data; rewrite_attributes() leaves them alone. A column's factor levels are
+# its values, but the levels of a factor held in an attribute are text and are
+# rewritten. `names`, `dimnames`, value labels and user-defined missing values
+# (`labels`, `na_values`, `na_range`) are rewritten on their own terms.
 non_text_attributes <- c(
-  "class", "names", "row.names", "dim", "dimnames", "levels", "tzone", "units",
-  "format.sas", "informat.sas", "format.spss", "format.stata", "display_width",
-  "labels", "na_values", "na_range"
+  "class", "row.names", "dim", "levels", "tzone", "units",
+  "format.sas", "informat.sas", "format.spss", "format.stata", "display_width"
 )
 
 # A function that replaces each of `keys` found as a whole value or a whole
@@ -985,11 +1016,15 @@ key_rewriter <- function(keys, pseudonyms) {
   }
 }
 
-# Replaces each date that has_dates_in_text() would find with "[DATE]", the
-# package's default replacement for dates.
+# Replaces each date that has_dates_in_text() would find, and SDTM partial
+# dates inside text, with "[DATE]", the package's default replacement for
+# dates.
 date_rewriter <- function(x) {
   text <- enc2utf8(as.character(x))
   hit <- which(!is.na(text) & validUTF8(text))
+  # Every date form has a digit; looking for one first is much faster than the
+  # case-insensitive search.
+  hit <- hit[grepl("[0-9]", text[hit])]
   opts <- stringi::stri_opts_regex(case_insensitive = TRUE)
   hit <- hit[stringi::stri_detect_regex(text[hit], date_in_text_regex, opts_regex = opts)]
   x[hit] <- stringi::stri_replace_all_regex(
@@ -999,60 +1034,44 @@ date_rewriter <- function(x) {
 }
 
 # Apply `rewrite` (text in, text out) to the text that describes the data
-# rather than the values: character attributes of each column and data frame
-# (labels, comments, notes), haven value labels (their names, and their values
-# in character columns), character user-defined missing values, column names,
-# character row names and dataset names. A rewritten name that clashes with
-# another is made unique with a numeric suffix. Adds one row per changed
-# dataset to `log`, with counts, and renames datasets and columns in it.
-# Returns the data, the log, and functions mapping old dataset names (and
-# column names of a dataset, given its new name) to new ones, and renaming
-# them in another log.
+# rather than its values, in every dataset (see rewrite_frame()), and to the
+# attributes of the list of datasets and the dataset names. A rewritten name
+# that clashes with another is made unique with a numeric suffix. Adds one row
+# per changed dataset to `log`, with counts, renames datasets and columns in
+# it and rewrites its details. Returns the data, the log, functions that
+# rename datasets and columns in another step's log and rewrite settings, and
+# the number of texts that aren't valid UTF-8 (which can't be searched) by
+# location.
 rewrite_described_text <- function(data, rewrite, log, detail) {
-  n_changed <- function(old, new) sum(!is.na(old) & old != new)
-  old_ds <- names(data)
-  new_ds <- unique_rewritten(rewrite(old_ds), old_ds)
-  column_maps <- list()
-  rows <- list()
-  for (i in seq_along(data)) {
-    df <- data[[i]]
-    counts <- c(attributes = 0, value_labels = 0, names = n_changed(old_ds[i], new_ds[i]))
-    for (j in seq_along(df)) {
-      column <- rewrite_attribute_text(df[[j]], rewrite)
-      if (sum(column$counts) > 0) {
-        df[[j]] <- column$x
-        counts <- counts + c(column$counts, 0)
-      }
-    }
-    frame <- rewrite_attribute_text(df, rewrite)
-    df <- frame$x
-    counts[["attributes"]] <- counts[["attributes"]] + frame$counts[["attributes"]]
-
-    old_cols <- names(df)
-    new_cols <- unique_rewritten(rewrite(old_cols), old_cols)
-    names(df) <- new_cols
-    column_maps[[new_ds[i]]] <- stats::setNames(new_cols, old_cols)
-    counts[["names"]] <- counts[["names"]] + n_changed(old_cols, new_cols)
-    row_names <- attr(df, "row.names")
-    if (is.character(row_names)) {
-      new_rows <- unique_rewritten(rewrite(row_names), row_names)
-      attr(df, "row.names") <- new_rows
-      counts[["names"]] <- counts[["names"]] + n_changed(row_names, new_rows)
-    }
-    data[[i]] <- df
-    if (sum(counts) > 0) {
-      rows[[new_ds[i]]] <- counts
-    }
+  # Every text is rewritten in one call, so that regular expressions are
+  # compiled once and repeated text is rewritten once.
+  seen <- list()
+  rewrite_datasets(new_rewrite_context(function(x) {
+    seen[[length(seen) + 1]] <<- as.character(x)
+    x
+  }), data)
+  texts <- unique(unlist(seen, use.names = FALSE))
+  texts <- texts[!is.na(texts)]
+  new_texts <- rewrite(texts)
+  changed <- new_texts != texts
+  texts <- texts[changed]
+  new_texts <- new_texts[changed]
+  lookup <- function(x) {
+    i <- match(x, texts)
+    hit <- which(!is.na(i))
+    x[hit] <- new_texts[i[hit]]
+    x
   }
-  names(data) <- new_ds
 
+  ctx <- new_rewrite_context(lookup)
+  out <- rewrite_datasets(ctx, data)
   rename <- function(ds) {
-    known <- !is.na(ds) & ds %in% old_ds
-    ds[known] <- new_ds[match(ds[known], old_ds)]
+    known <- !is.na(ds) & ds %in% out$old
+    ds[known] <- out$new[match(ds[known], out$old)]
     ds
   }
   rename_columns <- function(cols, ds) {
-    map <- column_maps[[ds]]
+    map <- out$columns[[ds]]
     known <- !is.na(cols) & cols %in% names(map)
     cols[known] <- unname(map[cols[known]])
     cols
@@ -1062,69 +1081,249 @@ rewrite_described_text <- function(data, rewrite, log, detail) {
       log$dataset[r] <- rename(log$dataset[r])
       log$variable[r] <- rename_columns(log$variable[r], log$dataset[r])
     }
+    log$detail <- rewrite(log$detail)
     log
   }
   log <- rename_log(log)
-  for (ds in names(rows)) {
-    counts <- rows[[ds]]
-    kinds <- c(attributes = "attribute value(s)", value_labels = "value label(s) or missing-value code(s)", names = "name(s)")
+  kinds <- c(attributes = "attribute value(s)", value_labels = "value label(s) or missing-value code(s)", names = "name(s)")
+  add_row <- function(log, ds, counts) {
+    if (sum(counts) == 0) {
+      return(log)
+    }
     shown <- counts > 0
-    log <- deid_log_add(
+    deid_log_add(
       log, ds, NA_character_,
       paste0(detail, " in attributes and names: ", paste(counts[shown], kinds[shown], collapse = ", ")),
       sum(counts)
     )
   }
-  list(data = data, log = log, rename = rename, rename_columns = rename_columns, rename_log = rename_log)
+  for (ds in names(out$counts)) {
+    log <- add_row(log, ds, out$counts[[ds]])
+  }
+  log <- add_row(log, NA_character_, out$list_counts)
+  list(
+    data = out$data, log = log, rename = rename, rename_columns = rename_columns, rename_log = rename_log,
+    settings = function(settings) rapply(settings, rewrite, classes = "character", how = "replace"),
+    invalid = ctx$invalid
+  )
 }
 
-# Earlier steps' logs name the same datasets and columns, so they are renamed
-# the same way.
-rename_previous_log <- function(previous, rewritten) {
+# Earlier steps' logs and settings name the same datasets and columns, so they
+# are renamed and rewritten the same way.
+rewrite_previous_step <- function(previous, rewritten) {
   if (!is.null(previous)) {
     previous$log <- rewritten$rename_log(previous$log)
+    previous$settings <- rewritten$settings(previous$settings)
   }
   previous
 }
 
-# Rewrite the text attributes of a column or data frame. Returns the object and
-# the number of changed attribute values and value labels.
-rewrite_attribute_text <- function(x, rewrite) {
-  n_changed <- function(old, new) sum(!is.na(old) & old != new)
-  counts <- c(attributes = 0, value_labels = 0)
-  for (name in setdiff(names(attributes(x)), non_text_attributes)) {
-    value <- attr(x, name, exact = TRUE)
-    if (is.character(value)) {
-      new <- rewrite(value)
-      counts[["attributes"]] <- counts[["attributes"]] + n_changed(value, new)
+# Rewrites text through `rewrite`, counting changes by kind ("attributes",
+# "value_labels" or "names") and texts that aren't valid UTF-8 by `where`, the
+# location being rewritten ("dataset.column" or "dataset").
+new_rewrite_context <- function(rewrite) {
+  ctx <- new.env(parent = emptyenv())
+  ctx$rewrite <- rewrite
+  ctx$counts <- c(attributes = 0, value_labels = 0, names = 0)
+  ctx$invalid <- integer(0)
+  ctx$where <- NA_character_
+  ctx
+}
+
+# Rewrite text, counting the changes as `kind` (not counted when NULL).
+rewrite_text <- function(ctx, x, kind) {
+  if (!is.character(x) || length(x) == 0) {
+    return(x)
+  }
+  bad <- sum(!is.na(x) & !validUTF8(enc2utf8(x)))
+  if (bad > 0 && !is.na(ctx$where)) {
+    ctx$invalid[ctx$where] <- sum(ctx$invalid[ctx$where], bad, na.rm = TRUE)
+  }
+  new <- ctx$rewrite(x)
+  if (!is.null(kind)) {
+    ctx$counts[[kind]] <- ctx$counts[[kind]] + sum(!is.na(x) & x != new)
+  }
+  new
+}
+
+# The data with every dataset rewritten by rewrite_frame(), then the
+# attributes of the list and the dataset names. Returns the data, the old and
+# new dataset names, each dataset's map from old to new column names, and the
+# counts of changes by dataset and on the list.
+rewrite_datasets <- function(ctx, data) {
+  old <- names(data)
+  ctx$where <- NA_character_
+  new <- unique_rewritten(rewrite_text(ctx, old, NULL), old)
+  counts <- list()
+  columns <- list()
+  for (i in seq_along(data)) {
+    ctx$counts[] <- 0
+    ctx$where <- new[i]
+    df <- rewrite_frame(ctx, data[[i]])
+    columns[[new[i]]] <- stats::setNames(names(df), names(data[[i]]))
+    data[[i]] <- df
+    counts[[new[i]]] <- ctx$counts + c(0, 0, old[i] != new[i])
+  }
+  ctx$counts[] <- 0
+  ctx$where <- NA_character_
+  data <- rewrite_attributes(ctx, data, frame = TRUE)
+  names(data) <- new
+  list(data = data, old = old, new = new, columns = columns, counts = counts, list_counts = ctx$counts)
+}
+
+# Rewrite a data frame's text: the attributes of each column (a packed data
+# frame column as a data frame), column names, character row names, and the
+# data frame's own attributes. Values are data and are not rewritten, nor are
+# list-column elements. Attributes are set directly, so that methods such as
+# those of grouped tibbles don't drop the others; grouping is rewritten with
+# the `groups` attribute.
+rewrite_frame <- function(ctx, df) {
+  where <- ctx$where
+  df <- rewrite_attributes(ctx, df, frame = TRUE)
+  old_cols <- names(df)
+  new_cols <- unique_rewritten(rewrite_text(ctx, old_cols, "names"), old_cols)
+  cls <- oldClass(df)
+  x <- unclass(df)
+  for (j in seq_along(x)) {
+    ctx$where <- paste0(where, ".", new_cols[j])
+    column <- x[[j]]
+    new <- if (is.data.frame(column)) rewrite_frame(ctx, column) else rewrite_attributes(ctx, column)
+    if (!identical(new, column)) {
+      x[[j]] <- new
+    }
+  }
+  ctx$where <- where
+  if (!identical(new_cols, old_cols)) {
+    attr(x, "names") <- new_cols
+  }
+  row_names <- attr(x, "row.names")
+  if (is.character(row_names)) {
+    new_rows <- unique_rewritten(rewrite_text(ctx, row_names, "names"), row_names)
+    if (!identical(new_rows, row_names)) {
+      attr(x, "row.names") <- new_rows
+    }
+  }
+  class(x) <- cls
+  x
+}
+
+# Rewrite the attributes of `x` (a column, a data frame, the list of datasets,
+# or a value held in an attribute): names and dimnames, value labels and
+# user-defined missing values, every other attribute that isn't structural (at
+# any depth, see rewrite_value()), and the attribute names themselves. With
+# `frame`, `names` are column or dataset names, left to the caller.
+rewrite_attributes <- function(ctx, x, frame = FALSE) {
+  attrs <- attributes(x)
+  if (length(attrs) == 0) {
+    return(x)
+  }
+  skip <- c(non_text_attributes, if (frame) "names")
+  codes <- c("labels", "na_values", "na_range")
+  values <- NULL
+  for (name in setdiff(names(attrs), skip)) {
+    value <- attrs[[name]]
+    new <- if (name == "names") {
+      rewrite_text(ctx, value, "names")
+    } else if (name == "dimnames") {
+      rewrite_dimnames(ctx, value)
+    } else if (name %in% codes && !frame) {
+      if (is.null(values)) values <- underlying_text(x)
+      rewrite_codes(ctx, name, value, values)
+    } else {
+      rewrite_value(ctx, value)
+    }
+    if (!identical(new, value)) {
       attr(x, name) <- new
     }
   }
-  if (!is.data.frame(x)) {
-    labels <- attr(x, "labels", exact = TRUE)
-    if (!is.null(labels)) {
-      if (!is.null(names(labels))) {
-        new <- rewrite(names(labels))
-        counts[["value_labels"]] <- counts[["value_labels"]] + n_changed(names(labels), new)
-        names(labels) <- new
-      }
-      if (is.character(labels)) {
-        new <- rewrite(unname(labels))
-        counts[["value_labels"]] <- counts[["value_labels"]] + n_changed(unname(labels), new)
-        labels[] <- new
-      }
-      attr(x, "labels") <- labels
-    }
-    for (name in c("na_values", "na_range")) {
-      value <- attr(x, name, exact = TRUE)
-      if (is.character(value)) {
-        new <- rewrite(value)
-        counts[["value_labels"]] <- counts[["value_labels"]] + n_changed(value, new)
-        attr(x, name) <- new
-      }
+  old <- names(attributes(x))
+  new_names <- rewrite_text(ctx, old, "names")
+  if (!identical(new_names, old)) {
+    new_names <- unique_rewritten(new_names, old)
+    for (k in which(new_names != old)) {
+      value <- attr(x, old[k], exact = TRUE)
+      attr(x, old[k]) <- NULL
+      attr(x, new_names[k]) <- value
     }
   }
-  list(x = x, counts = counts)
+  x
+}
+
+# Rewrite a value held in an attribute: its text (character values, factor
+# levels, list elements at any depth, data frames as in rewrite_frame()) and
+# its own attributes.
+rewrite_value <- function(ctx, v) {
+  if (is.data.frame(v)) {
+    return(rewrite_frame(ctx, v))
+  }
+  if (is.factor(v)) {
+    new <- rewrite_text(ctx, levels(v), "attributes")
+    if (!identical(new, levels(v))) {
+      levels(v) <- new
+    }
+  } else if (is.character(v)) {
+    v <- rewrite_text(ctx, v, "attributes")
+  } else if (is.list(v)) {
+    cls <- oldClass(v)
+    v <- unclass(v)
+    for (i in seq_along(v)) {
+      if (!is.null(v[[i]])) {
+        v[[i]] <- rewrite_value(ctx, v[[i]])
+      }
+    }
+    class(v) <- cls
+  }
+  rewrite_attributes(ctx, v)
+}
+
+rewrite_dimnames <- function(ctx, dimnames) {
+  for (i in seq_along(dimnames)) {
+    if (!is.null(dimnames[[i]])) {
+      dimnames[[i]] <- rewrite_text(ctx, dimnames[[i]], "names")
+    }
+  }
+  if (!is.null(names(dimnames))) {
+    names(dimnames) <- rewrite_text(ctx, names(dimnames), "names")
+  }
+  dimnames
+}
+
+# Value labels and user-defined missing values. Label names are text and are
+# rewritten. A text code (a label value, a missing value or an end of a
+# missing range) is rewritten only when no value of the column equals the
+# code or its rewrite (or, for a range, falls in either range), so that the
+# mapping from values to labels, and which values are missing, don't change.
+rewrite_codes <- function(ctx, name, codes, values) {
+  new <- codes
+  if (name == "labels" && !is.null(names(codes))) {
+    names(new) <- rewrite_text(ctx, names(codes), "value_labels")
+  }
+  if (!is.character(codes)) {
+    return(new)
+  }
+  rewritten <- rewrite_text(ctx, unname(codes), NULL)
+  changed <- !is.na(codes) & rewritten != codes
+  if (!any(changed)) {
+    return(new)
+  }
+  values <- unique(values[!is.na(values)])
+  keep <- if (name == "na_range") {
+    in_range <- function(r) length(r) == 2 && any(values >= r[[1]] & values <= r[[2]])
+    changed & !in_range(codes) & !in_range(rewritten)
+  } else {
+    changed & !codes %in% values & !rewritten %in% values
+  }
+  new[keep] <- rewritten[keep]
+  ctx$counts[["value_labels"]] <- ctx$counts[["value_labels"]] + sum(keep)
+  new
+}
+
+# A column's values as text, for comparing with its value-label codes.
+underlying_text <- function(x) {
+  if (is.list(x)) {
+    return(character(0))
+  }
+  as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else unclass(x))
 }
 
 # Rewritten names, with those that now clash with another made unique
@@ -1140,14 +1339,66 @@ unique_rewritten <- function(new, old) {
   new
 }
 
-# Distinct text values of a character column, or the levels of a factor
-# (including unused levels), as UTF-8; NULL for other columns.
+# Warn about text, anywhere in the data, that isn't valid UTF-8 and so couldn't
+# be searched: values (including list-column elements) by column, and texts
+# found while rewriting attributes and names (`invalid`, by location).
+warn_invalid_utf8 <- function(data, invalid = integer(0)) {
+  counts <- invalid
+  for (ds in names(data)) {
+    for (col in names(data[[ds]])) {
+      x <- data[[ds]][[col]]
+      text <- if (is.factor(x)) levels(x) else if (is.character(x)) as.character(x) else if (is.list(x) && !is.data.frame(x)) list_text(x)
+      bad <- if (length(text) == 0) 0 else sum(!is.na(text) & !validUTF8(enc2utf8(text)))
+      if (bad > 0) {
+        where <- paste0(ds, ".", col)
+        counts[where] <- sum(counts[where], bad, na.rm = TRUE)
+      }
+    }
+  }
+  if (length(counts) > 0) {
+    warning(
+      sum(counts), " value(s) aren't valid UTF-8 and couldn't be checked: ",
+      paste(sort(names(counts)), collapse = ", "),
+      ". Convert them to UTF-8 (for example with iconv()) and run the step again.",
+      call. = FALSE
+    )
+  }
+}
+
+# Distinct text values of a character column, the levels of a factor
+# (including unused levels), or the text held in a list column (see
+# list_text()), as UTF-8; NULL for other columns.
 text_values <- function(x) {
-  values <- if (is.factor(x)) levels(x) else if (is.character(x)) unique(as.character(x)) else NULL
+  values <- if (is.factor(x)) {
+    levels(x)
+  } else if (is.character(x)) {
+    unique(as.character(x))
+  } else if (is.list(x) && !is.data.frame(x)) {
+    unique(list_text(x))
+  }
   if (is.null(values)) {
     return(NULL)
   }
   valid_utf8_text(values)
+}
+
+# All text held in the elements of a list column, at any depth: character
+# values, factor levels, names, and the text in their attributes.
+list_text <- function(x) {
+  out <- list()
+  walk <- function(v) {
+    if (is.factor(v)) {
+      out[[length(out) + 1]] <<- levels(v)
+    } else if (is.character(v)) {
+      out[[length(out) + 1]] <<- as.character(v)
+    } else if (is.list(v)) {
+      for (e in unclass(v)) walk(e)
+    }
+    attrs <- attributes(v)
+    for (a in attrs[setdiff(names(attrs), "class")]) walk(a)
+  }
+  for (e in unclass(x)) walk(e)
+  unlist(out, use.names = FALSE)
 }
 
 # Non-missing values converted to UTF-8 from their declared encoding (such as
@@ -1282,12 +1533,17 @@ slash_date_core <- paste0(
 )
 slash_date_pattern <- paste0("(^|[^0-9/.-])(", slash_date_core, ")([^0-9/.-]|$)")
 
-# The dates found by has_dates_in_text() inside text (ISO 8601 full and
-# year-month dates, month-name and numeric forms), as one ICU regular
-# expression whose boundaries are lookarounds, so that a replacement keeps the
-# text around each date. Used case-insensitively, for month names.
+# The dates found by has_dates_in_text() (ISO 8601 full and year-month dates,
+# SDTM partial dates, month-name and numeric forms), anywhere in text, as one
+# ICU regular expression whose boundaries are lookarounds, so that a
+# replacement keeps the text around each date. Used case-insensitively, for
+# month names.
 date_in_text_regex <- paste0(
-  "(?<![0-9-])(?:", embedded_date_core, ")(?![0-9-])",
+  # SDTM partial dates: year and month with a time ("2014-01--T08:00"; the
+  # time is kept), and year and day ("2014---15").
+  "(?<![0-9-])[0-9]{4}-(0[1-9]|1[0-2])--(?=T)",
+  "|(?<![0-9-])[0-9]{4}---(0[1-9]|[12][0-9]|3[01])(?![0-9-])",
+  "|(?<![0-9-])(?:", embedded_date_core, ")(?![0-9-])",
   "|(?<![[:alnum:]])(?:", month_name_date_core, ")(?=[^[:alnum:]]|T[0-9]|$)",
   "|(?<![0-9/.-])(?:", slash_date_core, ")(?![0-9/.-])"
 )
@@ -1321,7 +1577,7 @@ warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates) {
   }
   if (length(hits) > 0) {
     warning(
-      "Datasets without `", key, "` were left unchanged but contain identifiers or dates: ",
+      "Datasets without `", key, "` kept their values unchanged but contain identifiers or dates: ",
       paste(hits, collapse = "; "), ".",
       call. = FALSE
     )
@@ -1407,7 +1663,7 @@ draw_offsets <- function(n, max_days, min_days, seed) {
 
 deid_log_unkeyed <- function(log, data, keyed, key) {
   for (ds in setdiff(names(data), keyed)) {
-    log <- deid_log_add(log, ds, NA_character_, paste0("no `", key, "` column; left unchanged"), 0, 0)
+    log <- deid_log_add(log, ds, NA_character_, paste0("no `", key, "` column; values left unchanged"), 0, 0)
   }
   log
 }

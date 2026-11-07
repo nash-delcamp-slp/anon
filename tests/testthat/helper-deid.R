@@ -25,8 +25,9 @@
 # both for every pipeline. Each start date lies a few days before a daylight
 # saving change in America/New_York (in March or November), and each
 # subject's two VS times are a week apart, on either side of the change, so
-# under almost any offset at least one of them crosses a change.
-deid_keys <- sprintf("ZQ-7701-%04d", 1:8)
+# under almost any offset at least one of them crosses a change. The last key
+# starts with the first, so text holding it must not be taken for the first.
+deid_keys <- c(sprintf("ZQ-7701-%04d", 1:7), "ZQ-7701-0001-2")
 deid_subjids <- sprintf("ZQ%04d", 1:8)
 deid_start <- as.Date(c(
   "2031-03-06", "2042-10-28", "2053-03-08", "2064-10-27",
@@ -53,6 +54,7 @@ deid_patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
 deid_flagged <- list(
   list(dataset = "dm", column = "COVAL", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "LINKS", reason = "still contain original `USUBJID` values"),
+  list(dataset = "dm", column = "REFS", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
@@ -113,6 +115,8 @@ deid_fixture <- function() {
   attr(dm$rficdtc, "label") <- "Date/Time of Informed Consent"
   # A list column holding a key, which can't be rewritten and is flagged.
   dm$LINKS <- I(as.list(c(deid_keys[1], "x", "y", "z", "w", "v", "u", "t")))
+  # A list column whose elements are named with keys, which is flagged too.
+  dm$REFS <- I(lapply(c(2:8, 1), function(i) stats::setNames(list(1), deid_keys[i])))
   # haven-labelled columns (when haven is installed): a key and a user-pattern
   # term in value labels, and a key as a user-defined missing value. Every exit
   # must also handle them, JSON included.
@@ -142,8 +146,11 @@ deid_fixture <- function() {
   vs$VSPOS <- "SITTING"
   attr(vs$VSPOS, "label") <- paste("Position for", deid_keys[3])
   comment(vs$VSPOS) <- deid_keys[4]
-  attr(vs, "note") <- paste("from", deid_keys[2])
+  attr(vs, "note") <- paste("from", deid_keys[8])
   vs[[deid_keys[3]]] <- 1
+  # A key and a real date in an attribute that holds a list, and in an
+  # attribute of that list's element.
+  attr(vs$VSPOS, "source") <- list(by = structure(paste("entered for", deid_keys[6]), on = paste("on", format(deid_start[2]))))
 
   ex <- data.frame(EXSTDTC = format(deid_start), EXENDTC = substr(format(deid_start + 20), 1, 7))
   ex$USUBJID <- structure(deid_keys, label = "Unique Subject Identifier")
@@ -188,51 +195,95 @@ deid_fixture <- function() {
   # with a key.
   ta <- data.frame(ARM = c("A", "B"), row.names = deid_keys[2:3])
   named <- data.frame(X = 1)
+  # A grouped tibble with a dataset label, which must keep its label and
+  # grouping.
+  te <- dplyr::group_by(tibble::tibble(ARMCD = c("A", "B", "A"), ETCD = c("SCRN", "TRT", "FU")), ARMCD)
+  attr(te, "label") <- "Trial Elements"
 
-  out <- list(dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta)
+  # A vector column named by subject, as made with split() (a tibble keeps the
+  # names, a data frame drops them).
+  vs_means <- vapply(split(vs$VSSTRESN, as.character(vs$USUBJID)), mean, numeric(1))
+  vsum <- tibble::tibble(USUBJID = deid_keys, VSMEAN = vs_means[deid_keys])
+
+  out <- list(
+    dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
+    vsum = vsum
+  )
   out[[deid_keys[4]]] <- named
   out
 }
 
 # Text that describes the data (attributes and names) as the pipelines should
 # leave it: each original key, as a whole word, becomes its subject's
-# pseudonym, and each ISO 8601 full date becomes "[DATE]".
+# pseudonym (longer keys first, as one key starts another), and each ISO 8601
+# full date becomes "[DATE]".
 deid_rewrite_text <- function(x, oracle) {
-  for (k in names(oracle$new_key)) {
+  keys <- names(oracle$new_key)
+  for (k in keys[order(-nchar(keys))]) {
     x <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], x, perl = TRUE)
   }
   gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", x)
 }
 
-# A data frame with its attributes and names rewritten as deid_rewrite_text()
-# says: character attributes of the data frame and its columns (except class,
-# levels and time zone), value-label names, and character value labels and
-# user-defined missing values; column names and character row names. Values
-# are untouched.
+# A data frame with the text that describes it rewritten as
+# deid_rewrite_text() says, and its values untouched: column names, character
+# row names, and the attributes of the data frame and its columns (see
+# deid_rewrite_attributes()).
 deid_rewrite_frame <- function(df, oracle) {
-  rewrite_attributes <- function(x) {
-    for (name in setdiff(names(attributes(x)), c("class", "levels", "names", "row.names", "tzone", "format.sas"))) {
-      value <- attr(x, name, exact = TRUE)
-      if (name == "labels") {
+  cls <- oldClass(df)
+  x <- unclass(df)
+  for (j in seq_along(x)) {
+    x[[j]] <- if (is.data.frame(x[[j]])) deid_rewrite_frame(x[[j]], oracle) else deid_rewrite_attributes(x[[j]], oracle)
+  }
+  attr(x, "names") <- deid_rewrite_text(names(x), oracle)
+  row_names <- attr(x, "row.names")
+  if (is.character(row_names)) {
+    attr(x, "row.names") <- deid_rewrite_text(row_names, oracle)
+  }
+  x <- deid_rewrite_attributes(x, oracle, frame = TRUE)
+  class(x) <- cls
+  x
+}
+
+# Attributes rewritten at any depth, except class, levels, row names, time
+# zone and SAS format (and a data frame's names). Value-label and
+# missing-value codes are rewritten only when no value of the column equals
+# the code or its rewrite.
+deid_rewrite_attributes <- function(x, oracle, frame = FALSE) {
+  values <- if (!frame && !is.list(x)) as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else unclass(x))
+  skip <- c("class", "levels", "row.names", "tzone", "format.sas", if (frame) "names")
+  for (name in setdiff(names(attributes(x)), skip)) {
+    value <- attr(x, name, exact = TRUE)
+    if (name %in% c("labels", "na_values", "na_range")) {
+      if (!is.null(names(value))) {
         names(value) <- deid_rewrite_text(names(value), oracle)
       }
       if (is.character(value)) {
-        value[] <- deid_rewrite_text(value, oracle)
+        new <- deid_rewrite_text(value, oracle)
+        free <- !value %in% values & !new %in% values
+        value[free] <- new[free]
       }
-      attr(x, name) <- value
+    } else {
+      value <- deid_rewrite_value(value, oracle)
     }
-    x
+    attr(x, name) <- value
   }
-  for (j in seq_along(df)) {
-    df[[j]] <- rewrite_attributes(df[[j]])
+  x
+}
+
+# A value held in an attribute: its text and its attributes, at any depth.
+deid_rewrite_value <- function(v, oracle) {
+  if (is.data.frame(v)) {
+    return(deid_rewrite_frame(v, oracle))
   }
-  df <- rewrite_attributes(df)
-  names(df) <- deid_rewrite_text(names(df), oracle)
-  row_names <- attr(df, "row.names")
-  if (is.character(row_names)) {
-    attr(df, "row.names") <- deid_rewrite_text(row_names, oracle)
+  if (is.list(v)) {
+    for (i in seq_along(v)) {
+      if (!is.null(v[[i]])) v[[i]] <- deid_rewrite_value(v[[i]], oracle)
+    }
+  } else if (is.character(v)) {
+    v[] <- deid_rewrite_text(v, oracle)
   }
-  df
+  deid_rewrite_attributes(v, oracle)
 }
 
 # Hiding places the package doesn't handle yet. Each `plant` adds one to the

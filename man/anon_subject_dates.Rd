@@ -17,8 +17,9 @@ anon_subject_dates(
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
-the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. Datasets
-without the \code{key} column are returned unchanged.}
+the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. In datasets
+without the \code{key} column the values are left unchanged; keys in their
+attributes and names are rewritten (see Details).}
 
 \item{key}{Name of the subject identifier column.}
 
@@ -77,10 +78,12 @@ Full ISO 8601 dates move by exactly the subject's offset and keep their
 format and any time part. Date columns keep their type, and POSIXct columns
 keep their type, time zone and clock time (the calendar date moves, so a
 shift across a daylight saving change keeps 08:00 at 08:00). Column
-attributes such as variable labels are kept; value labels (haven \code{labels})
-are dropped, and haven user-defined missing values (\code{na_values}, \code{na_range})
-in the key and date columns become plain missing values. A clock time that doesn't exist on the new date (inside a
-daylight saving gap) moves forward by the gap. Study day variables (\code{--DY}) are not
+attributes such as variable labels are kept, with the dates in them
+replaced by \code{"[DATE]"} (see below); value labels (haven \code{labels}) are
+dropped from shifted columns, and haven user-defined missing values
+(\code{na_values}, \code{na_range}) in the key and date columns become plain missing
+values. A clock time that doesn't exist on the new date (inside a daylight
+saving gap) moves forward by the gap. Study day variables (\code{--DY}) are not
 changed and stay consistent with the shifted full dates, because each
 subject's dates all move together.
 
@@ -88,12 +91,15 @@ Dates can't be tied to one subject's offset in text that describes the
 data, so there they are replaced with \code{"[DATE]"} (the default date
 replacement of \code{\link[=nlp_default_replacements]{nlp_default_replacements()}}): in every dataset, in the same
 attributes and names that \code{\link[=anon_subject_ids]{anon_subject_ids()}} rewrites keys in (character
-attributes, value labels, user-defined missing values, column, row and
-dataset names). The forms replaced are those found inside text by the
-warning described below: ISO 8601 full and year-and-month dates, and dates
-with a month name or as numbers with separators. The log has one row per
-dataset with such replacements, with counts. Values in the data are not
-changed by this rule.
+attributes at any depth, vector names and dimnames, value labels and
+user-defined missing values under the same rule, column, row and dataset
+names), and in this and earlier steps' logs and settings. The forms
+replaced are those found inside text by the warning described below: ISO
+8601 full and year-and-month dates, SDTM partial dates (\code{"2014-01--T08:00"}
+becomes \code{"[DATE]T08:00"}, and \code{"2014---15"}), and dates with a month name or
+as numbers with separators. The log has one row per dataset with such
+replacements, with counts. Values in the data are not changed by this
+rule.
 
 Year-and-month dates are shifted from the middle of the month, and year-only
 dates by whole years, so the order between a partial date and a full date of
@@ -105,10 +111,12 @@ removed, with a warning. In \verb{*DTC} columns, values that are not recognised
 ISO 8601 dates, or whose year would fall outside 0001-9999, are removed with
 a warning; this includes a month and day without a year (\code{"--12-15"}).
 Time-only values (\code{"-----T07:15"}) and durations (\code{"P1D"}) have no date and
-are kept. Text
-columns given in \code{vars} must contain at least one recognised date. Datasets without the \code{key} column (for example trial-level domains
-such as \code{TS}, \code{TV} and \code{TA}) are left unchanged and listed in the log; their
-real trial dates can narrow down subjects' offsets. A warning lists any other
+are kept. Text columns given in \code{vars} must contain at least one recognised
+date. In datasets without the \code{key} column (for example trial-level domains
+such as \code{TS}, \code{TV} and \code{TA}) the values are left unchanged (dates in their
+attributes and names are replaced as above), and they are listed in the
+log; their real trial dates can narrow down subjects' offsets. A warning
+lists any other
 column in a keyed dataset that holds dates but was not shifted: Date or
 POSIXct columns left out of \code{vars}, numeric columns with a SAS date format
 (in a separate warning; convert them to Date or POSIXct to shift them), and
@@ -116,9 +124,16 @@ text columns with ISO 8601 dates as whole values, or dates inside text
 (which can't be shifted) written as ISO 8601, with a month name
 (\verb{05JAN2014}, \code{UNK-JAN-2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}, \code{JAN2014}) or as
 numbers with separators (\code{01/05/2014}, \code{1/5/14}, \verb{01.05.2014},
-\code{2014/01/05}), including the values kept in mixed columns such as \code{QVAL}.
-Other formats, such as \code{20140105}, are not detected. It also lists any dataset without \code{key} that has such
-columns or a column named like \code{key} in another case.
+\code{2014/01/05}), including the values kept in mixed columns such as \code{QVAL},
+and list columns (all the text their elements hold). Other formats, such as
+\code{20140105}, \verb{2014.01.05}, \code{2014-1-5} and \code{Jan-05-2014}, are not detected,
+nor replaced in attributes and names. It also lists any dataset without
+\code{key} that has such columns or a column named like \code{key} in another case.
+
+Both steps warn about text that isn't valid UTF-8 (after converting text
+marked with another encoding, such as latin1), which can't be searched:
+they name the columns, or datasets, holding it. Convert it to UTF-8 (for
+example with \code{\link[=iconv]{iconv()}}) and run the step again.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

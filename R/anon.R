@@ -35,10 +35,10 @@
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels
-#'   (attributes): variable and data frame labels, and haven value labels (the
-#'   label names, and the label values when they are text) and text
-#'   user-defined missing values (`na_values`).
-#'   Default is `TRUE`.
+#'   (attributes) of columns and data frames: variable and data frame labels,
+#'   comments and other character attributes that aren't structural, haven
+#'   value labels (the label names, and the label values when they are text)
+#'   and text user-defined missing values (`na_values`). Default is `TRUE`.
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
 #'   This argument overrides the global option.
@@ -369,23 +369,13 @@ anon <- function(
         default_replacement
       )
 
-      # Anonymize column-level label only if check_labels is TRUE
-      if (isTRUE(check_labels)) {
-        col_label <- attr(result[[col_name]], "label", exact = TRUE)
-        if (!is.null(col_label)) {
-          attr(result[[col_name]], "label") <- apply_patterns(
-            col_label,
-            compiled,
-            check_approximate,
-            max_distance
-          )
-        }
-        if (has_value_labels(result[[col_name]])) {
-          result[[col_name]] <- redact_value_labels(
-            result[[col_name]],
-            function(text) apply_patterns(text, compiled, check_approximate, max_distance)
-          )
-        }
+      # Anonymize column-level labels and other text attributes only if
+      # check_labels is TRUE
+      if (isTRUE(check_labels) && has_text_attributes(result[[col_name]])) {
+        result[[col_name]] <- redact_text_attributes(
+          result[[col_name]],
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+        )
       }
 
       # Replace entire column with constant value if specified
@@ -462,17 +452,13 @@ anon <- function(
       )
     }
 
-    # Anonymize data frame level label only if check_labels is TRUE
+    # Anonymize data frame level labels and other text attributes only if
+    # check_labels is TRUE
     if (isTRUE(check_labels)) {
-      df_label <- attr(result, "label", exact = TRUE)
-      if (!is.null(df_label)) {
-        attr(result, "label") <- apply_patterns(
-          df_label,
-          compiled,
-          check_approximate,
-          max_distance
-        )
-      }
+      result <- redact_text_attributes(
+        result,
+        function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+      )
     }
   } else if (is_container_list(x)) {
     result <- purrr::map(
@@ -699,18 +685,27 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
   !is.null(find_df_class_rule(col, df_classes))
 }
 
-# The part of `x` whose text is searched for NLP entities: data frame columns
-# that are replaced wholesale are dropped, recursively through lists.
-has_value_labels <- function(x) {
-  !is.null(attr(x, "labels", exact = TRUE)) || !is.null(attr(x, "na_values", exact = TRUE))
+# Whether a column has attributes that redact_text_attributes() looks at.
+has_text_attributes <- function(x) {
+  attrs <- attributes(x)
+  text <- attrs[setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "na_range"))]
+  any(vapply(text, is.character, logical(1))) || !is.null(attrs$labels)
 }
 
-# Apply `redact` to haven value labels (their names, and their values when
-# they are text) and to text user-defined missing values (`na_values`), as the
-# column's values are redacted.
-redact_value_labels <- function(x, redact) {
-  labels <- attr(x, "labels", exact = TRUE)
-  if (!is.null(labels)) {
+# Apply `redact` to the text attributes of a column or data frame: labels,
+# comments and other character attributes that aren't structural (see
+# non_text_attributes), haven value labels (their names, and their values
+# when they are text) and text user-defined missing values (`na_values`), as
+# the column's values are redacted. Names are left to `check_names`.
+redact_text_attributes <- function(x, redact) {
+  attrs <- attributes(x)
+  for (name in setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "labels", "na_range"))) {
+    if (is.character(attrs[[name]])) {
+      attr(x, name) <- redact(attrs[[name]])
+    }
+  }
+  labels <- attrs$labels
+  if (!is.null(labels) && !is.data.frame(x)) {
     if (!is.null(names(labels))) {
       names(labels) <- redact(names(labels))
     }
@@ -719,13 +714,11 @@ redact_value_labels <- function(x, redact) {
     }
     attr(x, "labels") <- labels
   }
-  na_values <- attr(x, "na_values", exact = TRUE)
-  if (is.character(na_values)) {
-    attr(x, "na_values") <- redact(na_values)
-  }
   x
 }
 
+# The part of `x` whose text is searched for NLP entities: data frame columns
+# that are replaced wholesale are dropped, recursively through lists.
 nlp_text_source <- function(x, df_variable_names, df_classes) {
   if (inherits(x, "anon_deid_step")) {
     return(nlp_text_source(x$data, df_variable_names, df_classes))
@@ -890,7 +883,8 @@ as_valid_regex <- function(pattern) {
 }
 
 # Replace every match of the compiled regex with the replacement value of the
-# group that matched. Each distinct string is processed once.
+# group that matched, keeping the attributes of `text`. Each distinct string is
+# processed once.
 replace_compiled <- function(text, compiled) {
   if (length(compiled$groups) == 0 || length(text) == 0) {
     return(text)
@@ -911,7 +905,7 @@ replace_compiled <- function(text, compiled) {
       literal,
       opts_regex = opts
     )
-    return(replaced[match(text, keys)])
+    return(keep_attributes(text, replaced[match(text, keys)]))
   }
 
   hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
@@ -948,7 +942,14 @@ replace_compiled <- function(text, compiled) {
     to = lapply(locations, function(loc) loc[, "end"]),
     replacement = unname(split(compiled$replacements[group_idx], owner))
   )
-  replaced[match(text, keys)]
+  keep_attributes(text, replaced[match(text, keys)])
+}
+
+# The new values in place of the old ones, keeping the vector's attributes
+# (variable labels, haven classes and value labels, names).
+keep_attributes <- function(old, new) {
+  old[] <- new
+  old
 }
 
 # Helper function for approximate distance matching

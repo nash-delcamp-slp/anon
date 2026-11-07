@@ -179,6 +179,45 @@ test_that("anon() redacts haven value labels and missing-value codes with check_
   expect_equal(attr(kept$SITE, "na_values"), "DRUGQX")
 })
 
+test_that("anon() keeps the attributes of text columns, with one or two pattern groups", {
+  skip_if_not_installed("haven")
+  df <- data.frame(id = 1:2, TXT = c("DRUGQX given", "none"))
+  attr(df$TXT, "label") <- "Text"
+  comment(df$TXT) <- "free text"
+  df$ARM <- haven::labelled(c("DRUGQX", "B"), labels = c("Active" = "DRUGQX"), label = "Arm")
+  df$OTHER <- structure(c("x", "y"), label = "No match")
+  for (patterns in list(list("[DRUG]" = "DRUGQX"), list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX"))) {
+    result <- anon(df, pattern_list = patterns)
+    expect_equal(as.character(result$TXT), c("[DRUG] given", "none"))
+    expect_equal(attr(result$TXT, "label"), "Text")
+    expect_equal(comment(result$TXT), "free text")
+    expect_s3_class(result$ARM, "haven_labelled")
+    expect_equal(vctrs::vec_data(result$ARM), c("[DRUG]", "B"))
+    expect_equal(attr(result$ARM, "labels"), c("Active" = "[DRUG]"))
+    expect_equal(attr(result$ARM, "label"), "Arm")
+    expect_equal(attr(result$OTHER, "label"), "No match")
+  }
+  named <- c(a = "DRUGQX", b = "x")
+  expect_equal(names(anon(named, pattern_list = list("[DRUG]" = "DRUGQX"))), c("a", "b"))
+})
+
+test_that("anon() redacts comments and other text attributes with check_labels", {
+  df <- data.frame(id = 1:2, x = 1:2)
+  comment(df$x) <- "about DRUGQX"
+  attr(df$x, "note") <- "STUDYQX note"
+  attr(df$x, "format.sas") <- "DRUGQX"
+  attr(df, "note") <- "STUDYQX data"
+  patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
+  result <- anon(df, pattern_list = patterns)
+  expect_equal(comment(result$x), "about [DRUG]")
+  expect_equal(attr(result$x, "note"), "[STUDY] note")
+  expect_equal(attr(result$x, "format.sas"), "DRUGQX")
+  expect_equal(attr(result, "note"), "[STUDY] data")
+  kept <- anon(df, pattern_list = patterns, check_labels = FALSE)
+  expect_equal(comment(kept$x), "about DRUGQX")
+  expect_equal(attr(kept, "note"), "STUDYQX data")
+})
+
 test_that("anon() handles empty and edge cases", {
   # Empty character vector
   result <- anon(character(0), pattern_list = c("test"))
