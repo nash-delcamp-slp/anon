@@ -50,7 +50,9 @@
 #'   recursive calls to avoid recompiling patterns. Default is `NULL`.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
-#'   information replaced. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
+#'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
+#'   itself is returned with its data redacted, the patterns also applied to its log and
+#'   settings, and its secrets dropped (read them from the original step); combine `step$data` rather than the step with `c()`. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
 #'   If `.self` is `TRUE`, warnings are attached as an attribute.
 #'
 #' @details
@@ -269,7 +271,11 @@ anon <- function(
     enabled_nlp_entities <- get_enabled_nlp_entities(nlp_auto)
     if (length(enabled_nlp_entities) > 0) {
       nlp_pattern_list <- extract_nlp_patterns(
-        nlp_text_source(x, df_variable_names, df_classes),
+        nlp_text_source(
+          if (inherits(x, "anon_deid_step")) x$data else x,
+          df_variable_names,
+          df_classes
+        ),
         enabled_nlp_entities
       )
       if (length(nlp_pattern_list) > 0) {
@@ -287,7 +293,45 @@ anon <- function(
   compiled <- if (!is.null(.compiled)) .compiled else compile_patterns(pattern_replacements)
 
   # Dispatch based on object type (using the inner apply_patterns function)
-  if (is.character(x) || is.factor(x)) {
+  if (inherits(x, "anon_deid_step")) {
+    # Redact the step's data but keep the step, so print() and JSON still show
+    # only its log.
+    step_data <- anon(
+      x$data,
+      pattern_list = pattern_list,
+      default_replacement = default_replacement,
+      check_approximate = check_approximate,
+      max_distance = max_distance,
+      df_variable_names = df_variable_names,
+      df_classes = df_classes,
+      check_names = check_names,
+      check_labels = check_labels,
+      .self = TRUE,
+      .pattern_replacements = pattern_replacements,
+      .compiled = compiled
+    )
+    approximate_warnings <- c(approximate_warnings, attr(step_data, "approximate_warnings"))
+    attr(step_data, "approximate_warnings") <- NULL
+    result <- x
+    result$data <- step_data
+    # The redacted step is meant to be shared, so it doesn't carry the secrets.
+    result["secrets"] <- list(NULL)
+    # The log and settings name datasets and columns; apply the patterns to
+    # their text too. Counts are left alone.
+    log_cols <- c(if (isTRUE(check_names)) c("dataset", "variable"), "detail")
+    for (col in log_cols) {
+      result$log[[col]] <- apply_patterns(result$log[[col]], compiled, FALSE, max_distance)
+    }
+    result$settings <- rapply(
+      result$settings,
+      function(v) apply_patterns(v, compiled, FALSE, max_distance),
+      classes = "character",
+      how = "replace"
+    )
+    if (isTRUE(check_names) && length(result$settings) > 0) {
+      names(result$settings) <- apply_patterns(names(result$settings), compiled, FALSE, max_distance)
+    }
+  } else if (is.character(x) || is.factor(x)) {
     if (is.factor(x)) {
       levels(x) <- apply_patterns(
         levels(x),
@@ -480,7 +524,7 @@ anon <- function(
     }
   }
 
-  if (isFALSE(.self)) {
+  if (isFALSE(.self) && !inherits(result, "anon_deid_step")) {
     result <- new_anon_context(result)
   }
   result
@@ -649,6 +693,9 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
 # The part of `x` whose text is searched for NLP entities: data frame columns
 # that are replaced wholesale are dropped, recursively through lists.
 nlp_text_source <- function(x, df_variable_names, df_classes) {
+  if (inherits(x, "anon_deid_step")) {
+    return(nlp_text_source(x$data, df_variable_names, df_classes))
+  }
   if (is.data.frame(x)) {
     keep <- !vapply(
       names(x),

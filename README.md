@@ -30,8 +30,9 @@ does not mean the result is anonymous or de-identified data.
     guidance](https://www.canada.ca/en/health-canada/services/drug-health-product-review-approval/profile-public-release-clinical-information-guidance/document.html),
     which calls them techniques of anonymization. `anon_date_shift()`
     adds one fixed offset per call (or the `offset` you supply), which
-    matches Health Canada’s “offsetting” but not EMA’s “date
-    offsetting”, where each participant gets their own random offset.
+    matches Health Canada’s “offsetting”. `anon_subject_dates()` gives
+    each subject their own random offset, applied to all of that
+    subject’s dates, which matches EMA’s “date offsetting”.
   - **Pseudonymized data (GDPR).**
     [Article 4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
     defines pseudonymisation as processing personal data so that it “can

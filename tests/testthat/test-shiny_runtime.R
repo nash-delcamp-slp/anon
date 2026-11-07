@@ -846,3 +846,47 @@ test_that("import helpers handle empty selections and results", {
   local_mocked_bindings(list_excel_file_sheets = function(path) if (path == "a") character(0) else "S")
   expect_equal(unname(collect_excel_upload_sheet_choices(files)$choices), "2::S")
 })
+
+test_that("a failed report or rescan clears the earlier report", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+
+  e <- new.env()
+  e$st <- anon_subject_ids(list(dm = data.frame(USUBJID = c("a", "b"), NAME = c("Alice", "Bob"))), seed = 1)
+  e$x <- data.frame(y = 1)
+
+  shiny::testServer(
+    app = anon_app_server(envir = e, initial_selection = "st"),
+    {
+      session$flushReact()
+      session$setInputs(selected_objects = "st$dm")
+      session$setInputs(generate_report = 1)
+      session$flushReact()
+      expect_s3_class(report_data(), "anon_report")
+
+      assign("st$dm", data.frame(z = 1), envir = e)
+      session$setInputs(generate_report = 2)
+      session$flushReact()
+      expect_null(report_data())
+
+      rm("st$dm", envir = e)
+      session$setInputs(generate_report = 3)
+      session$flushReact()
+      expect_s3_class(report_data(), "anon_report")
+
+      assign("st$dm", data.frame(z = 1), envir = e)
+      session$setInputs(scan_environment = 1)
+      session$flushReact()
+      expect_null(report_data())
+    }
+  )
+})
+
+test_that("an empty initial selection selects nothing, and an empty step can be selected", {
+  objs <- list(a = data.frame(x = 1), b = data.frame(y = 1))
+  expect_equal(anon_app_initial_state(objs, initial_selection = character(0))$selected, character(0))
+
+  empty <- anon_subject_ids(data.frame(USUBJID = "a"), seed = 1)
+  empty$data <- list()
+  expect_equal(nrow(anon_inventory(list(es = empty, x = data.frame(y = 1)), selection = "es")), 0)
+})

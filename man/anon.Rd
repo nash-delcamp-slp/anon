@@ -85,7 +85,9 @@ recursive calls to avoid recompiling patterns. Default is \code{NULL}.}
 }
 \value{
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive
-information replaced. If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
+information replaced. For a de-identification step (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}), the step
+itself is returned with its data redacted, the patterns also applied to its log and
+settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}. If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
 If \code{.self} is \code{TRUE}, warnings are attached as an attribute.
 }
 \description{

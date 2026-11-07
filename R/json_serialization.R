@@ -365,6 +365,10 @@ serialize_supported_value <- function(x, path = "$") {
     return(as_anon_payload.anon_risk(x, path = path))
   }
 
+  if (inherits(x, "anon_deid_step")) {
+    return(as_anon_payload.anon_deid_step(x, path = path))
+  }
+
   if (inherits(x, "anon_data_summary")) {
     return(as_anon_payload.anon_data_summary(x, path = path))
   }

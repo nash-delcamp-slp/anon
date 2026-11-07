@@ -31,6 +31,10 @@ new_anon_context <- function(x, ...) {
 c.anon_context <- function(...) {
   dots <- list(...)
 
+  if (any(vapply(dots, inherits, logical(1), "anon_deid_step"))) {
+    stop("De-identification steps can't be combined with c(); combine `step$data` instead.", call. = FALSE)
+  }
+
   # Ensure all objects are anon_context
   if (!all(vapply(dots, inherits, logical(1), "anon_context"))) {
     stop("All objects must be anon_context objects", call. = FALSE)
@@ -87,4 +91,9 @@ print.anon_context <- function(x, ...) {
   class(x) <- setdiff(class(x), "anon_context")
   print(x, ...)
   invisible(x)
+}
+
+#' @export
+c.anon_deid_step <- function(...) {
+  stop("De-identification steps can't be combined with c(); combine `step$data` instead.", call. = FALSE)
 }
