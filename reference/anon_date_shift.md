@@ -58,9 +58,14 @@ call.
 
 Character input is read as ISO 8601 and returned as character in the
 same format and precision: a full date (`2014-01-02`) is shifted and any
-time part after `T` is kept as is. Partial dates (`2014-03`, `2014`) are
-handled by `partial`. Empty strings and `NA` are returned unchanged, and
-other values are removed with a warning.
+time part (after `T`, `t` or a space) is kept as is. Partial dates
+(`2014-03`, `2014`, and the SDTM forms `2014-03--T08:00` and
+`2014---15`) are handled by `partial`. Both date ends of an interval
+(`2014-01-02/2014-01-05`) are shifted; a duration end (`2014-01-02/P1D`)
+is kept. Time-only values (`-----T07:15`), durations, empty strings and
+`NA` are returned unchanged. Other values, including a month and day
+without a year (`--12-15`), and values whose shifted year would fall
+outside 0001-9999, are removed with a warning.
 
 ## Examples
 

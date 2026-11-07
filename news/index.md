@@ -10,6 +10,14 @@
 - Specialized anonymization helpers for common data types: ID sequences,
   date shifting, emails, phone numbers, and distribution-preserving
   numeric anonymization.
+- Clinical de-identification:
+  [`anon_risk()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk.md)
+  measures re-identification risk, and
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)
+  and
+  [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
+  pseudonymize subjects and offset each subject’s dates consistently
+  across datasets.
 - Environment summarization with
   [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md)
   and

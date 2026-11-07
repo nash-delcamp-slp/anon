@@ -132,7 +132,12 @@ anon(
 ## Value
 
 An object of class `anon_context` with the same structure as `x` but
-with sensitive information replaced. If approximate matches are found
+with sensitive information replaced. For a de-identification step (see
+[`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)),
+the step itself is returned with its data redacted, the patterns also
+applied to its log and settings, and its secrets dropped (read them from
+the original step); combine `step$data` rather than the step with
+[`c()`](https://rdrr.io/r/base/c.html). If approximate matches are found
 and `.self` is `FALSE`, warnings are issued. If `.self` is `TRUE`,
 warnings are attached as an attribute.
 

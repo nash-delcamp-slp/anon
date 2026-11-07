@@ -96,9 +96,14 @@ different amounts. To keep intervals between columns and datasets (for
 example dose and sample times), pass the same <code>offset</code> to every call.</p>
 <p>Character input is read as ISO 8601 and returned as character in the same
 format and precision: a full date (<code>2014-01-02</code>) is shifted and any time part
-after <code>T</code> is kept as is. Partial dates (<code>2014-03</code>, <code>2014</code>) are handled by
-<code>partial</code>. Empty strings and <code>NA</code> are returned unchanged, and other values
-are removed with a warning.</p>
+(after <code>T</code>, <code>t</code> or a space) is kept as is. Partial dates (<code>2014-03</code>, <code>2014</code>,
+and the SDTM forms <code>2014-03--T08:00</code> and <code>2014---15</code>) are handled by
+<code>partial</code>. Both date ends of an interval (<code>2014-01-02/2014-01-05</code>) are
+shifted; a duration end (<code>2014-01-02/P1D</code>) is kept. Time-only values
+(<code>-----T07:15</code>), durations, empty strings and <code>NA</code> are returned unchanged.
+Other values, including a month and day without a year (<code>--12-15</code>), and
+values whose shifted year would fall outside 0001-9999, are removed with a
+warning.</p>
     </div>
 
     <div class="section level2">

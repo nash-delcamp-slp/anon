@@ -47,7 +47,8 @@ structure useful.
 ## De-identification
 
 Measure re-identification risk from quasi-identifiers across linked
-datasets.
+datasets, and pseudonymize subjects and offset their dates consistently
+across datasets.
 
 - [`anon_risk()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk.md)
   : Measure re-identification risk from quasi-identifiers
@@ -55,6 +56,12 @@ datasets.
   : Per-subject re-identification risk
 - [`anon_quasi_values()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_values.md)
   : Specify quasi-identifier values that vary by row
+- [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)
+  : Pseudonymize subject identifiers consistently across datasets
+- [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
+  : Shift each subject's dates by a random offset
+- [`anon_secrets()`](https://nash-delcamp-slp.github.io/anon/reference/anon_secrets.md)
+  : Read the secrets kept by a de-identification step
 
 ## Named entity recognition
 

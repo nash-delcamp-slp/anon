@@ -17,7 +17,9 @@ anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
 
 - data:
 
-  A data frame, or a named list of data frames linked by `key`.
+  A data frame, a named list of data frames linked by `key`, or the
+  result of a de-identification step such as
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md).
 
 - quasi:
 

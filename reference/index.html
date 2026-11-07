@@ -154,7 +154,7 @@
       </dl></div><div class="section level2">
       <h2 id="de-identification">De-identification<a class="anchor" aria-label="anchor" href="#de-identification"></a></h2>
 
-      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets.</p></div>
+      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets, and pseudonymize subjects and offset their dates consistently across datasets.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -181,6 +181,27 @@
 
         </dt>
         <dd>Specify quasi-identifier values that vary by row</dd>
+
+        <dt>
+
+          <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>
+
+        </dt>
+        <dd>Pseudonymize subject identifiers consistently across datasets</dd>
+
+        <dt>
+
+          <code><a href="anon_subject_dates.html">anon_subject_dates()</a></code>
+
+        </dt>
+        <dd>Shift each subject's dates by a random offset</dd>
+
+        <dt>
+
+          <code><a href="anon_secrets.html">anon_secrets()</a></code>
+
+        </dt>
+        <dd>Read the secrets kept by a de-identification step</dd>
       </dl></div><div class="section level2">
       <h2 id="named-entity-recognition">Named entity recognition<a class="anchor" aria-label="anchor" href="#named-entity-recognition"></a></h2>
 

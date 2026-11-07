@@ -23,8 +23,10 @@ does not mean the result is anonymous or de-identified data.
   which calls them techniques of anonymization.
   [`anon_date_shift()`](https://nash-delcamp-slp.github.io/anon/reference/anon_date_shift.md)
   adds one fixed offset per call (or the `offset` you supply), which
-  matches Health Canada’s “offsetting” but not EMA’s “date offsetting”,
-  where each participant gets their own random offset.
+  matches Health Canada’s “offsetting”.
+  [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
+  gives each subject their own random offset, applied to all of that
+  subject’s dates, which matches EMA’s “date offsetting”.
 - **Pseudonymized data (GDPR).** [Article
   4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj) defines
   pseudonymisation as processing personal data so that it “can no longer

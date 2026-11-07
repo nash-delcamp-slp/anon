@@ -23,8 +23,10 @@ does not mean the result is anonymous or de-identified data.
   which calls them techniques of anonymization.
   [`anon_date_shift()`](https://nash-delcamp-slp.github.io/anon/reference/anon_date_shift.md)
   adds one fixed offset per call (or the `offset` you supply), which
-  matches Health Canada’s “offsetting” but not EMA’s “date offsetting”,
-  where each participant gets their own random offset.
+  matches Health Canada’s “offsetting”.
+  [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
+  gives each subject their own random offset, applied to all of that
+  subject’s dates, which matches EMA’s “date offsetting”.
 - **Pseudonymized data (GDPR).** [Article
   4(5)](https://eur-lex.europa.eu/eli/reg/2016/679/oj) defines
   pseudonymisation as processing personal data so that it “can no longer
@@ -778,7 +780,8 @@ structure useful.
 ## De-identification
 
 Measure re-identification risk from quasi-identifiers across linked
-datasets.
+datasets, and pseudonymize subjects and offset their dates consistently
+across datasets.
 
 - [`anon_risk()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk.md)
   : Measure re-identification risk from quasi-identifiers
@@ -786,6 +789,12 @@ datasets.
   : Per-subject re-identification risk
 - [`anon_quasi_values()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_values.md)
   : Specify quasi-identifier values that vary by row
+- [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)
+  : Pseudonymize subject identifiers consistently across datasets
+- [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
+  : Shift each subject's dates by a random offset
+- [`anon_secrets()`](https://nash-delcamp-slp.github.io/anon/reference/anon_secrets.md)
+  : Read the secrets kept by a de-identification step
 
 ## Named entity recognition
 
