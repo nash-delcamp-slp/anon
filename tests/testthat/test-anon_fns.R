@@ -680,6 +680,16 @@ test_that("anon_date_shift() shifts or removes partial ISO 8601 dates", {
   expect_equal(anon_date_shift(x, offset = 30, partial = "remove"), c("", "", "2014-04-09"))
 })
 
+test_that("shift_iso8601() shifts year-and-month dates from day 15 of the month", {
+  # From day 15, +16 and +17 land on 31 March and 1 April, -14 and -15 on
+  # 1 March and 28 February; from day 14 or 16 one of each pair would differ.
+  expect_identical(
+    shift_iso8601(rep("2031-03", 4), c(16, 17, -14, -15)),
+    c("2031-03", "2031-04", "2031-03", "2031-02")
+  )
+  expect_identical(shift_iso8601("2031-03--T08:00", 17), "2031-04--T08:00")
+})
+
 test_that("anon_date_shift() removes and warns about values that are not ISO 8601 dates", {
   expect_warning(
     result <- anon_date_shift(c("2014-01-02", "2014-13-45", "unknown"), offset = 1),
