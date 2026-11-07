@@ -52,6 +52,7 @@ deid_patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
 # describe values that were removed, so there is nothing to drop.
 deid_flagged <- list(
   list(dataset = "dm", column = "COVAL", reason = "still contain original `USUBJID` values"),
+  list(dataset = "dm", column = "LINKS", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
@@ -110,6 +111,16 @@ deid_fixture <- function() {
   attr(dm$USUBJID, "label") <- "Unique Subject Identifier"
   attr(dm$RFSTDTC, "label") <- "Subject Reference Start Date/Time"
   attr(dm$rficdtc, "label") <- "Date/Time of Informed Consent"
+  # A list column holding a key, which can't be rewritten and is flagged.
+  dm$LINKS <- I(as.list(c(deid_keys[1], "x", "y", "z", "w", "v", "u", "t")))
+  # haven-labelled columns (when haven is installed): a key and a user-pattern
+  # term in value labels, and a key as a user-defined missing value. Every exit
+  # must also handle them, JSON included.
+  if (requireNamespace("haven", quietly = TRUE)) {
+    dm$GRP <- haven::labelled(c(1, 2, 2, 2, 2, 2, 2, 2), labels = stats::setNames(c(1, 2), c(deid_keys[1], "Other")))
+    dm$ARMCD <- haven::labelled(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c("DRUGQX arm" = 1, "Placebo" = 2))
+    dm$SITE <- haven::labelled_spss(rep(c("S1", "S1", "S2", "S2"), 2), na_values = deid_keys[5])
+  }
 
   vs_dates <- rep(deid_start, each = 2) + c(0, 7)
   vs <- data.frame(
@@ -127,10 +138,19 @@ deid_fixture <- function() {
   attr(vs$USUBJID, "label") <- "Unique Subject Identifier"
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
   attr(vs, "label") <- "STUDYQX Vital Signs"
+  # Keys in a variable label, a comment, a dataset attribute and a column name.
+  vs$VSPOS <- "SITTING"
+  attr(vs$VSPOS, "label") <- paste("Position for", deid_keys[3])
+  comment(vs$VSPOS) <- deid_keys[4]
+  attr(vs, "note") <- paste("from", deid_keys[2])
+  vs[[deid_keys[3]]] <- 1
 
   ex <- data.frame(EXSTDTC = format(deid_start), EXENDTC = substr(format(deid_start + 20), 1, 7))
   ex$USUBJID <- structure(deid_keys, label = "Unique Subject Identifier")
   ex$EXSTDY <- deid_study_day(deid_start, deid_start)
+  # A real date in a variable label.
+  ex$EXDOSE <- 10
+  attr(ex$EXDOSE, "label") <- paste("Dose from", format(deid_start[1]))
 
   suppdm <- data.frame(
     USUBJID = deid_keys, QNAM = "ENRLDT", QVAL = format(deid_start - 10),
@@ -164,7 +184,55 @@ deid_fixture <- function() {
     stringsAsFactors = FALSE
   )
 
-  list(dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr)
+  # A dataset without the key whose row names are keys, and a dataset named
+  # with a key.
+  ta <- data.frame(ARM = c("A", "B"), row.names = deid_keys[2:3])
+  named <- data.frame(X = 1)
+
+  out <- list(dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta)
+  out[[deid_keys[4]]] <- named
+  out
+}
+
+# Text that describes the data (attributes and names) as the pipelines should
+# leave it: each original key, as a whole word, becomes its subject's
+# pseudonym, and each ISO 8601 full date becomes "[DATE]".
+deid_rewrite_text <- function(x, oracle) {
+  for (k in names(oracle$new_key)) {
+    x <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], x, perl = TRUE)
+  }
+  gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", x)
+}
+
+# A data frame with its attributes and names rewritten as deid_rewrite_text()
+# says: character attributes of the data frame and its columns (except class,
+# levels and time zone), value-label names, and character value labels and
+# user-defined missing values; column names and character row names. Values
+# are untouched.
+deid_rewrite_frame <- function(df, oracle) {
+  rewrite_attributes <- function(x) {
+    for (name in setdiff(names(attributes(x)), c("class", "levels", "names", "row.names", "tzone", "format.sas"))) {
+      value <- attr(x, name, exact = TRUE)
+      if (name == "labels") {
+        names(value) <- deid_rewrite_text(names(value), oracle)
+      }
+      if (is.character(value)) {
+        value[] <- deid_rewrite_text(value, oracle)
+      }
+      attr(x, name) <- value
+    }
+    x
+  }
+  for (j in seq_along(df)) {
+    df[[j]] <- rewrite_attributes(df[[j]])
+  }
+  df <- rewrite_attributes(df)
+  names(df) <- deid_rewrite_text(names(df), oracle)
+  row_names <- attr(df, "row.names")
+  if (is.character(row_names)) {
+    attr(df, "row.names") <- deid_rewrite_text(row_names, oracle)
+  }
+  df
 }
 
 # Hiding places the package doesn't handle yet. Each `plant` adds one to the
@@ -176,100 +244,6 @@ deid_fixture <- function() {
 # exits, its test fails: move the planting into deid_fixture() (with the
 # expected handling) and remove the gap.
 deid_known_gaps <- list(
-  variable_label_key = list(
-    sentinel = "ZQ-7701-0003",
-    plant = function(d) {
-      attr(d$vs$VSDY, "label") <- "Study day for ZQ-7701-0003"
-      d
-    }
-  ),
-  variable_label_date = list(
-    sentinel = "2031-03-06",
-    plant = function(d) {
-      attr(d$ex$EXSTDY, "label") <- "Study day from 2031-03-06"
-      d
-    }
-  ),
-  dataset_attribute_key = list(
-    sentinel = "ZQ-7701-0002",
-    plant = function(d) {
-      attr(d$vs, "note") <- "from ZQ-7701-0002"
-      d
-    }
-  ),
-  comment_attribute_key = list(
-    sentinel = "ZQ-7701-0004",
-    plant = function(d) {
-      comment(d$vs$VSDY) <- "ZQ-7701-0004"
-      d
-    }
-  ),
-  value_labels_key = list(
-    sentinel = "ZQ-7701-0001",
-    errors = c("json_data", "report", "prompt_bundles"),
-    needs = "haven",
-    plant = function(d) {
-      d$dm$GRP <- haven::labelled(c(1, 2, 2, 2, 2, 2, 2, 2), labels = c("ZQ-7701-0001" = 1, "Other" = 2))
-      d
-    }
-  ),
-  value_label_names_pattern = list(
-    sentinel = "DRUGQX arm",
-    pattern_exits_only = TRUE,
-    errors = c("json_data", "report", "prompt_bundles"),
-    needs = "haven",
-    plant = function(d) {
-      d$dm$ARMCD <- haven::labelled(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c("DRUGQX arm" = 1, "Placebo" = 2))
-      d
-    }
-  ),
-  na_values_key = list(
-    sentinel = "ZQ-7701-0005",
-    errors = c("json_data", "report", "prompt_bundles"),
-    needs = "haven",
-    plant = function(d) {
-      d$dm$SITE <- haven::labelled_spss(c("S1", "S1", "S2", "S2", "S1", "S1", "S2", "S2"), na_values = "ZQ-7701-0005")
-      d
-    }
-  ),
-  # Any haven-labelled column, even with harmless labels, makes
-  # as_anon_json() error, so these exits share nothing.
-  labelled_column_breaks_json = list(
-    errors = c("json_data", "report", "prompt_bundles"),
-    needs = "haven",
-    plant = function(d) {
-      d$dm$GRP <- haven::labelled(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c(A = 1, B = 2))
-      d
-    }
-  ),
-  list_column_key = list(
-    sentinel = "ZQ-7701-0001",
-    plant = function(d) {
-      d$dm$LINKS <- I(as.list(c("ZQ-7701-0001", "x", "y", "z", "w", "v", "u", "t")))
-      d
-    }
-  ),
-  column_named_key = list(
-    sentinel = "ZQ-7701-0003",
-    plant = function(d) {
-      d$vs[["ZQ-7701-0003"]] <- 1
-      d
-    }
-  ),
-  row_names_unkeyed = list(
-    sentinel = "ZQ-7701-0002",
-    plant = function(d) {
-      d$ta <- data.frame(ARM = c("A", "B"), row.names = deid_keys[2:3])
-      d
-    }
-  ),
-  dataset_named_key = list(
-    sentinel = "ZQ-7701-0004",
-    plant = function(d) {
-      d[["ZQ-7701-0004"]] <- data.frame(X = 1)
-      d
-    }
-  ),
   subjid_in_text = list(
     sentinel = "ZQ0002",
     plant = function(d) {

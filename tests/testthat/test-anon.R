@@ -157,6 +157,28 @@ test_that("anon() handles names and labels correctly", {
   expect_equal(attr(result3$score, "label"), "sensitive score label")
 })
 
+test_that("anon() redacts haven value labels and missing-value codes with check_labels", {
+  skip_if_not_installed("haven")
+  df <- data.frame(id = 1:2)
+  df$ARMN <- haven::labelled(c(1, 2), labels = c("DRUGQX arm" = 1, Placebo = 2))
+  df$ARM <- haven::labelled(c("A", "B"), labels = c("DRUGQX arm" = "A", Other = "DRUGQX"))
+  df$SITE <- haven::labelled_spss(c("S1", "S2"), na_values = "DRUGQX")
+  # Two replacement values, so that text columns without a match keep their
+  # attributes.
+  patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
+
+  result <- anon(df, pattern_list = patterns)
+  expect_equal(attr(result$ARMN, "labels"), c("[DRUG] arm" = 1, Placebo = 2))
+  expect_equal(attr(result$ARM, "labels"), c("[DRUG] arm" = "A", Other = "[DRUG]"))
+  expect_equal(attr(result$SITE, "na_values"), "[DRUG]")
+  expect_equal(vctrs::vec_data(result$ARMN), c(1, 2))
+
+  kept <- anon(df, pattern_list = patterns, check_labels = FALSE)
+  expect_equal(attr(kept$ARMN, "labels"), attr(df$ARMN, "labels"))
+  expect_equal(attr(kept$ARM, "labels"), attr(df$ARM, "labels"))
+  expect_equal(attr(kept$SITE, "na_values"), "DRUGQX")
+})
+
 test_that("anon() handles empty and edge cases", {
   # Empty character vector
   result <- anon(character(0), pattern_list = c("test"))

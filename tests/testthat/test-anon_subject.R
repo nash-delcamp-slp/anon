@@ -931,3 +931,107 @@ test_that("more date forms in text are flagged, without common dosing text", {
   attr(ad$MO, "format.sas") <- "MONTH2"
   expect_warning(anon_subject_dates(ad, seed = 1), "data.MO")
 })
+
+test_that("anon_subject_ids() replaces keys in attributes and names with pseudonyms", {
+  dm <- data.frame(USUBJID = c("S-01", "S-02"), AGE = c(30, 40), ROWID = 1:2)
+  attr(dm$AGE, "label") <- "Age of S-01 (not S-010)"
+  comment(dm$AGE) <- "S-02"
+  attr(dm$AGE, "note") <- c("first S-01", NA)
+  attr(dm$AGE, "format.sas") <- "S-01"
+  attr(dm, "label") <- "Demographics with S-02"
+  dm[["S-02"]] <- 1
+  ta <- data.frame(ARM = c("A", "B"), row.names = c("S-01", "S-02"))
+  step <- anon_subject_ids(list(dm = dm, ta = ta, "S-01" = data.frame(X = 1)), keep_secrets = TRUE, seed = 3)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data
+
+  expect_named(out, c("dm", "ta", new[["S-01"]]))
+  expect_equal(attr(out$dm$AGE, "label"), paste0("Age of ", new[["S-01"]], " (not S-010)"))
+  expect_equal(comment(out$dm$AGE), new[["S-02"]])
+  expect_equal(attr(out$dm$AGE, "note"), c(paste("first", new[["S-01"]]), NA))
+  # Formats are not text about the data.
+  expect_equal(attr(out$dm$AGE, "format.sas"), "S-01")
+  expect_equal(attr(out$dm, "label"), paste("Demographics with", new[["S-02"]]))
+  expect_named(out$dm, c("USUBJID", "AGE", "ROWID", new[["S-02"]]))
+  expect_equal(rownames(out$ta), unname(new[c("S-01", "S-02")]))
+
+  # The log counts the rewrites by dataset, without the original keys.
+  rows <- step$log[step$log$dataset %in% names(out) & grepl("in attributes and names", step$log$detail), ]
+  expect_equal(rows$dataset, c("dm", "ta", new[["S-01"]]))
+  expect_equal(rows$n_changed, c(5L, 2L, 1L))
+  expect_match(rows$detail[1], "original keys replaced with pseudonyms in attributes and names: 4 attribute value\\(s\\), 1 name\\(s\\)")
+  expect_false(any(grepl("S-0[12]", unlist(step$log[c("dataset", "variable", "detail")]))))
+})
+
+test_that("anon_subject_ids() replaces keys in value labels and missing-value codes of other columns", {
+  skip_if_not_installed("haven")
+  dm <- data.frame(USUBJID = c("S-01", "S-02"))
+  dm$GRP <- haven::labelled(c(1, 2), labels = c("S-01" = 1, Other = 2))
+  dm$ARM <- haven::labelled(c("S-02", "x"), labels = c("Group of S-02" = "S-02"))
+  dm$SITE <- haven::labelled_spss(c("A", "B"), na_values = "S-01")
+  # Values are data: the key left in ARM is flagged, not rewritten.
+  expect_warning(
+    step <- anon_subject_ids(dm, keep_secrets = TRUE, seed = 4),
+    "still contain original `USUBJID` values.*: data.ARM"
+  )
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data[match(new[c("S-01", "S-02")], step$data$USUBJID), ]
+
+  expect_equal(attr(out$GRP, "labels"), stats::setNames(c(1, 2), c(new[["S-01"]], "Other")))
+  expect_equal(attr(out$ARM, "labels"), stats::setNames(new[["S-02"]], paste("Group of", new[["S-02"]])))
+  expect_equal(attr(out$SITE, "na_values"), new[["S-01"]])
+  expect_equal(vctrs::vec_data(out$ARM), c("S-02", "x"))
+})
+
+test_that("keys made only of digits, and numeric keys, are not rewritten in attributes", {
+  digits <- data.frame(USUBJID = c("1001", "1002"), AGE = 1:2)
+  attr(digits$AGE, "label") <- "Dose 1001 mg"
+  expect_equal(attr(anon_subject_ids(digits, seed = 1)$data$AGE, "label"), "Dose 1001 mg")
+  num <- data.frame(USUBJID = c(1001, 1002), AGE = 1:2)
+  attr(num$AGE, "label") <- "Dose 1001 mg"
+  expect_equal(attr(anon_subject_ids(num, seed = 1)$data$AGE, "label"), "Dose 1001 mg")
+})
+
+test_that("keys in list columns are flagged, not rewritten", {
+  dm <- data.frame(USUBJID = c("S-01", "S-02"))
+  dm$LINKS <- I(list(c("x", "S-02"), list(factor("y"))))
+  expect_warning(out <- anon_subject_ids(dm, seed = 1)$data, "still contain original `USUBJID` values.*: data.LINKS")
+  expect_true("S-02" %in% unlist(out$LINKS))
+  dm$LINKS <- I(list("x", list(1)))
+  expect_no_warning(anon_subject_ids(dm, seed = 1))
+})
+
+test_that("anon_subject_dates() replaces dates in attributes and names with [DATE]", {
+  dm <- data.frame(USUBJID = c("a", "b"), RFSTDTC = c("2014-01-02", "2013-07-19"), AGE = c(30, 40))
+  attr(dm$AGE, "label") <- "Age at 2014-01-02, seen 05JAN2014 and 1/5/14"
+  attr(dm, "note") <- "Cut on Jan 5, 2014"
+  dm[["2014-02"]] <- 1
+  dm[["2014-03"]] <- 2
+  dm[["[DATE]"]] <- 3
+  ts <- data.frame(TSVAL = "x", row.names = "2012-07-01")
+  attr(ts$TSVAL, "label") <- "Planned 2012-07-01"
+  step <- anon_subject_dates(list(dm = dm, ts = ts), seed = 5)
+  out <- step$data
+
+  expect_equal(attr(out$dm$AGE, "label"), "Age at [DATE], seen [DATE] and [DATE]")
+  expect_equal(attr(out$dm, "note"), "Cut on [DATE]")
+  # Rewritten names that clash are made unique; the others keep their names.
+  expect_named(out$dm, c("USUBJID", "RFSTDTC", "AGE", "[DATE]_1", "[DATE]_2", "[DATE]"))
+  # Datasets without the key keep their values, but not dates in attributes.
+  expect_equal(rownames(out$ts), "[DATE]")
+  expect_equal(attr(out$ts$TSVAL, "label"), "Planned [DATE]")
+  expect_equal(out$ts$TSVAL, structure("x", label = "Planned [DATE]"))
+
+  rows <- step$log[grepl("in attributes and names", step$log$detail), ]
+  expect_equal(rows$dataset, c("dm", "ts"))
+  expect_equal(rows$n_changed, c(4L, 2L))
+  expect_match(rows$detail, "^dates replaced with \\[DATE\\] in attributes and names")
+})
+
+test_that("a later step renames the datasets and columns named in earlier steps' logs", {
+  data <- list(dm = data.frame(USUBJID = c("S-01", "S-02"), RFSTDTC = c("2014-01-02", "2013-07-19")))
+  data[["S-01"]] <- data.frame(X = 1)
+  step <- anon_subject_ids(anon_subject_dates(data, seed = 1), seed = 2)
+  expect_false(any(grepl("S-01", step$log$dataset)))
+  expect_equal(sum(step$log$detail == "no `USUBJID` column; left unchanged"), 2)
+})

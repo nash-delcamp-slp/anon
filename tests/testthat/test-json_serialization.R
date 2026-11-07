@@ -264,3 +264,16 @@ test_that("serialize_supported_value() errors on functions and environments", {
   expect_error(serialize_supported_value(function() 1), "Unsupported class")
   expect_error(serialize_supported_value(new.env()), "Unsupported class")
 })
+
+test_that("haven-labelled columns serialize as their values, without value labels", {
+  skip_if_not_installed("haven")
+  df <- data.frame(id = 1:2)
+  df$GRP <- haven::labelled(c(1, 2), labels = c("Secret arm" = 1))
+  df$SITE <- haven::labelled_spss(c("S1", "-9"), labels = c("Secret site" = "S1"), na_values = "-9")
+  payload <- as_anon_payload(df)
+  expect_equal(payload$rows[[1]]$GRP, 1)
+  expect_equal(payload$rows[[2]]$SITE, "-9")
+  json <- as_anon_json(list(df = df, x = df$GRP))
+  expect_true(jsonlite::validate(json))
+  expect_false(grepl("Secret", json))
+})

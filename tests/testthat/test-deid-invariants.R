@@ -76,6 +76,19 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   out
 }
 
+# The oracle for text in attributes and names: the step's own, or, for a
+# pipeline without secrets, that of the pipeline it must match.
+deid_text_oracle <- function(pipeline, step) {
+  if (isTRUE(pipeline$keep_secrets)) {
+    return(deid_oracle(step))
+  }
+  if (is.null(pipeline$same_as)) {
+    stop("A pipeline without secrets needs `same_as` to check its attributes and names.")
+  }
+  twin <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
+  deid_oracle(deid_run(twin, deid_fixture())$step)
+}
+
 # Columns of dataset `ds` named in a pipeline's `removed` ("ds.col").
 deid_removed_columns <- function(removed, ds) {
   prefix <- paste0(ds, ".")
@@ -162,11 +175,12 @@ for (pipeline_name in names(deid_pipelines)) {
       flagged_columns <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$column)) paste0(f$dataset, ".", f$column)))
 
       for (ds in setdiff(names(data), pipeline$removed)) {
-        out <- step$data[[ds]]
+        out <- step$data[[deid_rewrite_text(ds, oracle)]]
         original <- data[[ds]]
-        # Documented as left unchanged.
+        # Documented as left unchanged, apart from keys and dates in its
+        # attributes and names.
         if (!key %in% names(original) || ds %in% flagged_datasets) {
-          expect_identical(out, original, info = ds)
+          expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
@@ -189,7 +203,7 @@ for (pipeline_name in names(deid_pipelines)) {
           } else {
             deid_expected_column(original[[col]], col, all_keys, oracle, pipeline$prefix, key)
           }
-          got <- out[[col]]
+          got <- out[[deid_rewrite_text(col, oracle)]]
           if (is.factor(got) || is.character(got)) {
             expect_identical(as.character(got), as.character(expected)[keep][ord], info = id)
           } else {
@@ -215,27 +229,40 @@ for (pipeline_name in names(deid_pipelines)) {
     step <- deid_run(pipeline, data)$step
     out <- step$data
     oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step)
-    expect_named(out, setdiff(names(data), pipeline$removed))
+    # Keys and dates in attributes and names are rewritten.
+    text_oracle <- deid_text_oracle(pipeline, step)
+    rewrite <- function(x) deid_rewrite_text(x, text_oracle)
+    kept <- setdiff(names(data), pipeline$removed)
+    expect_named(out, rewrite(kept))
     # Attributes that change on purpose: row names (reset), factor levels
     # (they hold keys or dates), and haven value labels and missing-value
-    # codes (they describe the original values). Names are checked on their
-    # own.
+    # codes (they describe the original values, and are dropped from replaced
+    # and shifted columns; where kept, they are checked below). Names are
+    # checked on their own.
     changing <- c("row.names", "levels", "labels", "na_values", "na_range")
     keep <- function(x, also = character(0)) {
       a <- attributes(x)
       a[sort(setdiff(names(a), c(changing, also)))]
     }
-    for (ds in names(out)) {
+    for (ds in kept) {
+      got <- out[[rewrite(ds)]]
+      expected <- deid_rewrite_frame(data[[ds]], text_oracle)
       cols <- setdiff(names(data[[ds]]), deid_removed_columns(pipeline$removed, ds))
-      expect_named(out[[ds]], cols)
-      expect_identical(nrow(out[[ds]]), sum(pipeline$keep_rows(ds, data[[ds]], oracle)), info = ds)
-      expect_identical(keep(out[[ds]], "names"), keep(data[[ds]], "names"), info = ds)
+      expect_named(got, rewrite(cols))
+      expect_identical(nrow(got), sum(pipeline$keep_rows(ds, data[[ds]], oracle)), info = ds)
+      expect_identical(keep(got, "names"), keep(expected, "names"), info = ds)
       for (col in cols) {
         id <- paste0(ds, ".", col)
+        x <- got[[rewrite(col)]]
         type <- if (is.null(pipeline$types[[id]])) typeof(data[[ds]][[col]]) else pipeline$types[[id]]
-        expect_identical(typeof(out[[ds]][[col]]), type, info = id)
+        expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
-        expect_identical(keep(out[[ds]][[col]], also), keep(data[[ds]][[col]], also), info = id)
+        expect_identical(keep(x, also), keep(expected[[rewrite(col)]], also), info = id)
+        for (name in setdiff(c("labels", "na_values", "na_range"), also)) {
+          if (!is.null(attr(x, name, exact = TRUE))) {
+            expect_identical(attr(x, name, exact = TRUE), attr(expected[[rewrite(col)]], name, exact = TRUE), info = paste(id, name))
+          }
+        }
       }
     }
   })

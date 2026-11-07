@@ -34,7 +34,10 @@
 #'   This parameter is combined with the global option `getOption("anon.df_classes")`.
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names). Default is `TRUE`.
-#' @param check_labels Logical indicating whether to anonymize labels (attributes).
+#' @param check_labels Logical indicating whether to anonymize labels
+#'   (attributes): variable and data frame labels, and haven value labels (the
+#'   label names, and the label values when they are text) and text
+#'   user-defined missing values (`na_values`).
 #'   Default is `TRUE`.
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
@@ -59,7 +62,7 @@
 #' `anon()` operates recursively on nested structures. For data frames:
 #' - Individual columns are processed based on their content
 #' - Entire columns can be replaced if specified in `df_variable_names` or `df_classes`
-#' - Column names, row names, and labels are redacted when enabled
+#' - Column names, row names, and labels (including haven value labels) are redacted when enabled
 #'
 #' Pattern matching is case-insensitive. When `check_approximate` is enabled,
 #' `anon()` will warn about remaining potential matches that are similar but not exact.
@@ -377,6 +380,12 @@ anon <- function(
             max_distance
           )
         }
+        if (has_value_labels(result[[col_name]])) {
+          result[[col_name]] <- redact_value_labels(
+            result[[col_name]],
+            function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+          )
+        }
       }
 
       # Replace entire column with constant value if specified
@@ -692,6 +701,31 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
 
 # The part of `x` whose text is searched for NLP entities: data frame columns
 # that are replaced wholesale are dropped, recursively through lists.
+has_value_labels <- function(x) {
+  !is.null(attr(x, "labels", exact = TRUE)) || !is.null(attr(x, "na_values", exact = TRUE))
+}
+
+# Apply `redact` to haven value labels (their names, and their values when
+# they are text) and to text user-defined missing values (`na_values`), as the
+# column's values are redacted.
+redact_value_labels <- function(x, redact) {
+  labels <- attr(x, "labels", exact = TRUE)
+  if (!is.null(labels)) {
+    if (!is.null(names(labels))) {
+      names(labels) <- redact(names(labels))
+    }
+    if (is.character(labels)) {
+      labels[] <- redact(unname(labels))
+    }
+    attr(x, "labels") <- labels
+  }
+  na_values <- attr(x, "na_values", exact = TRUE)
+  if (is.character(na_values)) {
+    attr(x, "na_values") <- redact(na_values)
+  }
+  x
+}
+
 nlp_text_source <- function(x, df_variable_names, df_classes) {
   if (inherits(x, "anon_deid_step")) {
     return(nlp_text_source(x$data, df_variable_names, df_classes))

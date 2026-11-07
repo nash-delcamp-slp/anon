@@ -64,16 +64,32 @@ columns listed in \code{key_cols} that hold other subjects' keys (for example
 Pseudonyms are numbered in random order, and rows of each dataset are then
 sorted by the new key (keeping the order of rows within each subject), so
 neither the pseudonyms nor the row order reveal the order of the original
-keys. Column types and attributes such as variable labels are kept:
-character keys get character pseudonyms, numeric keys get numbers, factors
-stay factors. Value labels (haven \code{labels}), which describe the original
+keys. Column types and attributes such as variable labels are kept
+(original keys in their text are rewritten, see below). Character keys get
+character pseudonyms, numeric keys get numbers, factors stay factors. Value labels (haven \code{labels}), which describe the original
 values, are dropped from replaced columns. Missing and blank keys are left
 as they are. Values of \code{also} columns in rows without a key cannot be mapped
 and are removed (set to missing), with a warning. \code{key}, \code{also} and
 \code{key_cols} must not overlap.
 
+Original keys in text that describes the data are replaced with the
+subject's pseudonym, in every dataset (with or without \code{key}), when they
+appear as a whole value or a whole word: in character attributes of columns
+and data frames (such as \code{label}, \code{comment} or a custom note; not \code{class},
+\code{levels}, \code{names}, \code{row.names}, \code{dim}, \code{dimnames}, \code{tzone}, \code{units} or
+formats such as \code{format.sas} and \code{display_width}), in haven value labels of
+columns that are not replaced (the label names, and the label values of
+character columns), in character user-defined missing values (\code{na_values},
+\code{na_range}) of those columns, and in column names, character row names and
+dataset names. A rewritten name that clashes with another gets a numeric
+suffix (\code{"_1"}). Keys made only of digits, and numeric keys, are not
+rewritten, for the same reason they are not searched for below. The log has
+one row per dataset with such rewrites, with counts by kind; earlier steps'
+log rows are renamed to match. Values in the data are not rewritten.
+
 A warning lists any other character or factor column (values or factor
-levels), in any dataset, that still contains original key values as whole
+levels), or list column (its character and factor elements), in any
+dataset, that still contains original key values as whole
 values or as whole words inside text (checked for character keys that are
 not made only of digits, since numbers match many unrelated codes), and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or

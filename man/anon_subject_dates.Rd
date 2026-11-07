@@ -84,6 +84,17 @@ daylight saving gap) moves forward by the gap. Study day variables (\code{--DY})
 changed and stay consistent with the shifted full dates, because each
 subject's dates all move together.
 
+Dates can't be tied to one subject's offset in text that describes the
+data, so there they are replaced with \code{"[DATE]"} (the default date
+replacement of \code{\link[=nlp_default_replacements]{nlp_default_replacements()}}): in every dataset, in the same
+attributes and names that \code{\link[=anon_subject_ids]{anon_subject_ids()}} rewrites keys in (character
+attributes, value labels, user-defined missing values, column, row and
+dataset names). The forms replaced are those found inside text by the
+warning described below: ISO 8601 full and year-and-month dates, and dates
+with a month name or as numbers with separators. The log has one row per
+dataset with such replacements, with counts. Values in the data are not
+changed by this rule.
+
 Year-and-month dates are shifted from the middle of the month, and year-only
 dates by whole years, so the order between a partial date and a full date of
 the same subject can change (for example a start month can end up after an

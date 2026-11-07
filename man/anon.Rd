@@ -64,7 +64,10 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 \item{check_names}{Logical indicating whether to anonymize object names
 (column names, row names, list names). Default is \code{TRUE}.}
 
-\item{check_labels}{Logical indicating whether to anonymize labels (attributes).
+\item{check_labels}{Logical indicating whether to anonymize labels
+(attributes): variable and data frame labels, and haven value labels (the
+label names, and the label values when they are text) and text
+user-defined missing values (\code{na_values}).
 Default is \code{TRUE}.}
 
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
@@ -101,7 +104,7 @@ anonymization based on variable names or classes and warnings about approximate 
 \itemize{
 \item Individual columns are processed based on their content
 \item Entire columns can be replaced if specified in \code{df_variable_names} or \code{df_classes}
-\item Column names, row names, and labels are redacted when enabled
+\item Column names, row names, and labels (including haven value labels) are redacted when enabled
 }
 
 Pattern matching is case-insensitive. When \code{check_approximate} is enabled,
