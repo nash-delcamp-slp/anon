@@ -93,7 +93,10 @@ replacement of \code{\link[=nlp_default_replacements]{nlp_default_replacements()
 attributes and names that \code{\link[=anon_subject_ids]{anon_subject_ids()}} rewrites keys in (character
 attributes at any depth, vector names and dimnames, value labels and
 user-defined missing values under the same rule, column, row and dataset
-names), and in this and earlier steps' logs and settings. The forms
+names), and in this and earlier steps' logs and settings. Date and
+date-time values held in attributes (Date, POSIXct, POSIXlt) become the
+text \code{"[DATE]"}, and a factor held in an attribute whose levels now read
+the same becomes text rather than have its levels merged. The forms
 replaced are those found inside text by the warning described below: ISO
 8601 full and year-and-month dates, SDTM partial dates (\code{"2014-01--T08:00"}
 becomes \code{"[DATE]T08:00"}, and \code{"2014---15"}), and dates with a month name or
@@ -125,15 +128,18 @@ text columns with ISO 8601 dates as whole values, or dates inside text
 (\verb{05JAN2014}, \code{UNK-JAN-2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}, \code{JAN2014}) or as
 numbers with separators (\code{01/05/2014}, \code{1/5/14}, \verb{01.05.2014},
 \code{2014/01/05}), including the values kept in mixed columns such as \code{QVAL},
-and list columns (all the text their elements hold). Other formats, such as
-\code{20140105}, \verb{2014.01.05}, \code{2014-1-5} and \code{Jan-05-2014}, are not detected,
-nor replaced in attributes and names. It also lists any dataset without
-\code{key} that has such columns or a column named like \code{key} in another case.
+list columns (all the text their elements hold) and the columns of packed
+data frame columns. Other formats, such as \code{20140105}, \verb{2014.01.05},
+\code{2014-1-5}, \code{Jan-05-2014}, \code{12/2014} and a month and day without a year
+(\code{--12-15}), are not detected, nor replaced in attributes and names. It also
+lists any dataset without \code{key} that has such columns or a column named
+like \code{key} in another case.
 
-Both steps warn about text that isn't valid UTF-8 (after converting text
-marked with another encoding, such as latin1), which can't be searched:
-they name the columns, or datasets, holding it. Convert it to UTF-8 (for
-example with \code{\link[=iconv]{iconv()}}) and run the step again.
+Both steps warn about text that can't be searched: text that isn't valid
+UTF-8 (after converting text marked with another encoding, such as latin1)
+or is marked as \code{"bytes"}. They name the columns, or datasets (\code{"(list)"}
+for attributes of the list of datasets and dataset names), holding it.
+Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the step again.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

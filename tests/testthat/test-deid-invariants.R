@@ -204,17 +204,22 @@ for (pipeline_name in names(deid_pipelines)) {
             deid_expected_column(original[[col]], col, all_keys, oracle, pipeline$prefix, key)
           }
           got <- out[[deid_rewrite_text(col, oracle)]]
-          if (is.factor(got) || is.character(got)) {
+          if (is.data.frame(got)) {
+            # A packed data frame column: its rows move with the data.
+            expect_identical(got, vctrs::vec_slice(expected, which(keep)[ord]), info = id)
+          } else if (is.factor(got) || is.character(got)) {
             expect_identical(as.character(got), as.character(expected)[keep][ord], info = id)
           } else {
             expect_identical(as.vector(unclass(got)), as.vector(unclass(expected))[keep][ord], info = id)
           }
           # Names of a vector column follow its values, rewritten.
-          want_names <- names(original[[col]])
-          if (!is.null(want_names)) {
-            want_names <- deid_rewrite_text(want_names, oracle)[keep][ord]
+          if (!is.data.frame(got)) {
+            want_names <- names(original[[col]])
+            if (!is.null(want_names)) {
+              want_names <- deid_rewrite_text(want_names, oracle)[keep][ord]
+            }
+            expect_identical(names(got), want_names, info = id)
           }
-          expect_identical(names(got), want_names, info = id)
         }
       }
     })

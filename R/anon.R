@@ -33,12 +33,15 @@
 #'   receives the parsed values.
 #'   This parameter is combined with the global option `getOption("anon.df_classes")`.
 #' @param check_names Logical indicating whether to anonymize object names
-#'   (column names, row names, list names). Default is `TRUE`.
+#'   (column names, row names, list names, and the names and dimnames of
+#'   vectors and columns). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels
 #'   (attributes) of columns and data frames: variable and data frame labels,
 #'   comments and other character attributes that aren't structural, haven
 #'   value labels (the label names, and the label values when they are text)
-#'   and text user-defined missing values (`na_values`). Default is `TRUE`.
+#'   and text user-defined missing values (`na_values`). Label values that
+#'   would become equal to another are left unredacted, with a warning,
+#'   because haven value labels must be unique. Default is `TRUE`.
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
 #'   This argument overrides the global option.
@@ -374,7 +377,8 @@ anon <- function(
       if (isTRUE(check_labels) && has_text_attributes(result[[col_name]])) {
         result[[col_name]] <- redact_text_attributes(
           result[[col_name]],
-          function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance),
+          where = col_name
         )
       }
 
@@ -425,6 +429,15 @@ anon <- function(
         }
 
         result[[col_name]] <- recursive_result
+      }
+
+      # Anonymize the names and dimnames of a column only if check_names is
+      # TRUE
+      if (isTRUE(check_names) && !is.data.frame(result[[col_name]]) && has_names(result[[col_name]])) {
+        result[[col_name]] <- redact_names(
+          result[[col_name]],
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+        )
       }
     }
 
@@ -504,6 +517,14 @@ anon <- function(
     }
   } else {
     result <- x
+  }
+
+  # Anonymize the names and dimnames of a vector only if check_names is TRUE
+  if (isTRUE(check_names) && is.atomic(result) && has_names(result)) {
+    result <- redact_names(
+      result,
+      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+    )
   }
 
   # Handle warnings based on .self parameter
@@ -696,8 +717,11 @@ has_text_attributes <- function(x) {
 # comments and other character attributes that aren't structural (see
 # non_text_attributes), haven value labels (their names, and their values
 # when they are text) and text user-defined missing values (`na_values`), as
-# the column's values are redacted. Names are left to `check_names`.
-redact_text_attributes <- function(x, redact) {
+# the column's values are redacted. Names are left to `check_names`. Label
+# values that would become equal to another are left as they are, with their
+# labels, and the column (`where`) is named in a warning, because haven value
+# labels must be unique.
+redact_text_attributes <- function(x, redact, where = NULL) {
   attrs <- attributes(x)
   for (name in setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "labels", "na_range"))) {
     if (is.character(attrs[[name]])) {
@@ -710,9 +734,42 @@ redact_text_attributes <- function(x, redact) {
       names(labels) <- redact(names(labels))
     }
     if (is.character(labels)) {
-      labels[] <- redact(unname(labels))
+      codes <- unname(labels)
+      redacted <- redact(codes)
+      clash <- redacted != codes & (duplicated(redacted) | duplicated(redacted, fromLast = TRUE))
+      clash[is.na(clash)] <- FALSE
+      redacted[clash] <- codes[clash]
+      names(labels)[clash] <- names(attrs$labels)[clash]
+      labels[] <- redacted
+      if (any(clash)) {
+        warning(
+          "Some value labels of `", where, "` were not redacted, because their values would become ",
+          "equal to another label's: redact or remove them.",
+          call. = FALSE
+        )
+      }
     }
     attr(x, "labels") <- labels
+  }
+  x
+}
+
+has_names <- function(x) {
+  !is.null(attr(x, "names", exact = TRUE)) || !is.null(attr(x, "dimnames", exact = TRUE))
+}
+
+# Apply `redact` to the names and dimnames of a vector or column.
+redact_names <- function(x, redact) {
+  if (!is.null(attr(x, "names", exact = TRUE))) {
+    attr(x, "names") <- redact(attr(x, "names", exact = TRUE))
+  }
+  dimnames <- attr(x, "dimnames", exact = TRUE)
+  if (!is.null(dimnames)) {
+    for (i in seq_along(dimnames)) {
+      if (!is.null(dimnames[[i]])) dimnames[[i]] <- redact(dimnames[[i]])
+    }
+    if (!is.null(names(dimnames))) names(dimnames) <- redact(names(dimnames))
+    attr(x, "dimnames") <- dimnames
   }
   x
 }
@@ -891,9 +948,14 @@ replace_compiled <- function(text, compiled) {
   }
 
   opts <- stringi::stri_opts_regex(case_insensitive = TRUE)
+  # The underlying values: for haven columns, user-defined missing values are
+  # missing to is.na() but are values to redact.
+  original <- text
+  text <- unclass(text)
+  attributes(text) <- NULL
   keys <- unique(text[!is.na(text)])
   if (length(keys) == 0) {
-    return(text)
+    return(original)
   }
 
   if (length(compiled$groups) == 1) {
@@ -905,12 +967,12 @@ replace_compiled <- function(text, compiled) {
       literal,
       opts_regex = opts
     )
-    return(keep_attributes(text, replaced[match(text, keys)]))
+    return(keep_attributes(original, replaced[match(text, keys)]))
   }
 
   hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
   if (!any(hit)) {
-    return(text)
+    return(original)
   }
 
   hit_text <- keys[hit]
@@ -942,14 +1004,15 @@ replace_compiled <- function(text, compiled) {
     to = lapply(locations, function(loc) loc[, "end"]),
     replacement = unname(split(compiled$replacements[group_idx], owner))
   )
-  keep_attributes(text, replaced[match(text, keys)])
+  keep_attributes(original, replaced[match(text, keys)])
 }
 
-# The new values in place of the old ones, keeping the vector's attributes
-# (variable labels, haven classes and value labels, names).
+# The new values with the old vector's attributes (variable labels, haven
+# classes and value labels, names), set directly rather than through `[<-`,
+# which would check the new values against the value labels.
 keep_attributes <- function(old, new) {
-  old[] <- new
-  old
+  attributes(new) <- attributes(old)
+  new
 }
 
 # Helper function for approximate distance matching

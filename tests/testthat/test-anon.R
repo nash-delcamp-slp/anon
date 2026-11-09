@@ -218,6 +218,37 @@ test_that("anon() redacts comments and other text attributes with check_labels",
   expect_equal(attr(kept, "note"), "STUDYQX data")
 })
 
+test_that("anon() keeps value labels unique, and redacts names and dimnames with check_names", {
+  skip_if_not_installed("haven")
+  df <- data.frame(id = 1:2)
+  df$A <- haven::labelled(c("q", "z"), labels = c(a = "DRUGQX", b = "STUDYQX", c = "other DRUGQX"))
+  patterns <- list("[X]" = c("DRUGQX", "STUDYQX"))
+  expect_warning(result <- anon(df, pattern_list = patterns), "Some value labels of `A` were not redacted")
+  expect_equal(attr(result$A, "labels"), c(a = "DRUGQX", b = "STUDYQX", c = "other [X]"))
+
+  tb <- tibble::tibble(id = 1:2, v = c(DRUGQX = 1, b = 2))
+  tb$m <- matrix(1:4, 2, dimnames = list(c("DRUGQX", "x"), c(k = "STUDYQX", "y")))
+  result <- anon(tb, pattern_list = list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX"))
+  expect_equal(names(result$v), c("[DRUG]", "b"))
+  expect_equal(dimnames(result$m), list(c("[DRUG]", "x"), c(k = "[STUDY]", "y")))
+  expect_equal(names(anon(c(DRUGQX = "a"), pattern_list = list("[DRUG]" = "DRUGQX"))), "[DRUG]")
+  expect_equal(names(anon(c(DRUGQX = 1), pattern_list = list("[DRUG]" = "DRUGQX"))), "[DRUG]")
+  kept <- anon(tb, pattern_list = list("[DRUG]" = "DRUGQX"), check_names = FALSE)
+  expect_equal(names(kept$v), c("DRUGQX", "b"))
+})
+
+test_that("anon() redacts SPSS user-defined missing values like other values", {
+  skip_if_not_installed("haven")
+  df <- data.frame(id = 1:3)
+  df$A <- haven::labelled_spss(c("DRUGQX a", "b", "c"), na_range = c("D", "E"))
+  df$B <- haven::labelled_spss(c("DRUGQX", "x", "y"), na_values = "DRUGQX")
+  result <- anon(df, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_equal(vctrs::vec_data(result$A), c("[DRUG] a", "b", "c"))
+  expect_equal(vctrs::vec_data(result$B), c("[DRUG]", "x", "y"))
+  expect_equal(attr(result$B, "na_values"), "[DRUG]")
+  expect_equal(is.na(result$B), c(TRUE, FALSE, FALSE))
+})
+
 test_that("anon() handles empty and edge cases", {
   # Empty character vector
   result <- anon(character(0), pattern_list = c("test"))

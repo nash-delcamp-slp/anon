@@ -55,6 +55,9 @@ deid_flagged <- list(
   list(dataset = "dm", column = "COVAL", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "LINKS", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "REFS", reason = "still contain original `USUBJID` values"),
+  # A packed data frame column is data, like a list column: its key column
+  # is named, and dropping it drops the packed column.
+  list(dataset = "dm", column = "PACK.REF", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
@@ -63,6 +66,11 @@ deid_flagged <- list(
   list(pattern = "^1 value\\(s\\) of `SUBJID` in rows without a `USUBJID` could not be mapped and were removed\\.$"),
   list(pattern = "^7 date value\\(s\\) in rows without a `USUBJID` were removed\\.$")
 )
+if (requireNamespace("haven", quietly = TRUE)) {
+  deid_flagged <- c(deid_flagged, list(
+    list(dataset = "dm", column = "VISIT", reason = "keep value-label or missing-value codes that hold dates")
+  ))
+}
 
 # The regular expression a flagged entry's warning must match: for a
 # `reason`, the column must appear in that reason's own column list.
@@ -117,10 +125,18 @@ deid_fixture <- function() {
   dm$LINKS <- I(as.list(c(deid_keys[1], "x", "y", "z", "w", "v", "u", "t")))
   # A list column whose elements are named with keys, which is flagged too.
   dm$REFS <- I(lapply(c(2:8, 1), function(i) stats::setNames(list(1), deid_keys[i])))
+  # A packed data frame column holding other subjects' keys.
+  dm$PACK <- data.frame(REF = deid_keys[c(3:8, 1:2)], N = 1:8)
   # haven-labelled columns (when haven is installed): a key and a user-pattern
   # term in value labels, and a key as a user-defined missing value. Every exit
   # must also handle them, JSON included.
   if (requireNamespace("haven", quietly = TRUE)) {
+    # Value labels whose codes are real dates: both would become "[DATE]", so
+    # they are kept, and the column is flagged.
+    dm$VISIT <- haven::labelled(
+      rep(c("V1", "V2"), 4),
+      labels = stats::setNames(format(deid_start[5:6]), c("first visit", "second visit"))
+    )
     dm$GRP <- haven::labelled(c(1, 2, 2, 2, 2, 2, 2, 2), labels = stats::setNames(c(1, 2), c(deid_keys[1], "Other")))
     dm$ARMCD <- haven::labelled(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c("DRUGQX arm" = 1, "Placebo" = 2))
     dm$SITE <- haven::labelled_spss(rep(c("S1", "S1", "S2", "S2"), 2), na_values = deid_keys[5])
@@ -151,6 +167,8 @@ deid_fixture <- function() {
   # A key and a real date in an attribute that holds a list, and in an
   # attribute of that list's element.
   attr(vs$VSPOS, "source") <- list(by = structure(paste("entered for", deid_keys[6]), on = paste("on", format(deid_start[2]))))
+  # A data frame held in an attribute, whose values are text about the data.
+  attr(vs$VSPOS, "map") <- data.frame(who = deid_keys[7], when = factor(format(deid_start[4] + 1)))
 
   ex <- data.frame(EXSTDTC = format(deid_start), EXENDTC = substr(format(deid_start + 20), 1, 7))
   ex$USUBJID <- structure(deid_keys, label = "Unique Subject Identifier")
@@ -158,6 +176,9 @@ deid_fixture <- function() {
   # A real date in a variable label.
   ex$EXDOSE <- 10
   attr(ex$EXDOSE, "label") <- paste("Dose from", format(deid_start[1]))
+  # Real dates held in attributes as Date and POSIXct values.
+  attr(ex$EXDOSE, "cut") <- deid_start[3]
+  attr(ex$EXDOSE, "cut_time") <- deid_vs_times("UTC")[5]
 
   suppdm <- data.frame(
     USUBJID = deid_keys, QNAM = "ENRLDT", QVAL = format(deid_start - 10),
@@ -228,12 +249,18 @@ deid_rewrite_text <- function(x, oracle) {
 # A data frame with the text that describes it rewritten as
 # deid_rewrite_text() says, and its values untouched: column names, character
 # row names, and the attributes of the data frame and its columns (see
-# deid_rewrite_attributes()).
-deid_rewrite_frame <- function(df, oracle) {
+# deid_rewrite_attributes()). Packed data frame columns are data and are left
+# as they are. With `values` (a data frame held in an attribute), its text
+# values are rewritten too.
+deid_rewrite_frame <- function(df, oracle, values = FALSE) {
   cls <- oldClass(df)
   x <- unclass(df)
   for (j in seq_along(x)) {
-    x[[j]] <- if (is.data.frame(x[[j]])) deid_rewrite_frame(x[[j]], oracle) else deid_rewrite_attributes(x[[j]], oracle)
+    if (values) {
+      x[[j]] <- deid_rewrite_value(x[[j]], oracle)
+    } else if (!is.data.frame(x[[j]])) {
+      x[[j]] <- deid_rewrite_attributes(x[[j]], oracle)
+    }
   }
   attr(x, "names") <- deid_rewrite_text(names(x), oracle)
   row_names <- attr(x, "row.names")
@@ -248,7 +275,8 @@ deid_rewrite_frame <- function(df, oracle) {
 # Attributes rewritten at any depth, except class, levels, row names, time
 # zone and SAS format (and a data frame's names). Value-label and
 # missing-value codes are rewritten only when no value of the column equals
-# the code or its rewrite.
+# the code or its rewrite, and when the rewrite doesn't equal another code
+# (then the code keeps its label).
 deid_rewrite_attributes <- function(x, oracle, frame = FALSE) {
   values <- if (!frame && !is.list(x)) as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else unclass(x))
   skip <- c("class", "levels", "row.names", "tzone", "format.sas", if (frame) "names")
@@ -261,6 +289,12 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE) {
       if (is.character(value)) {
         new <- deid_rewrite_text(value, oracle)
         free <- !value %in% values & !new %in% values
+        if (name != "na_range") {
+          final <- ifelse(free, new, value)
+          clash <- free & (duplicated(final) | duplicated(final, fromLast = TRUE))
+          free <- free & !clash
+          names(value)[clash] <- names(attr(x, name, exact = TRUE))[clash]
+        }
         value[free] <- new[free]
       }
     } else {
@@ -272,9 +306,16 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE) {
 }
 
 # A value held in an attribute: its text and its attributes, at any depth.
+# Date and date-time values become "[DATE]".
 deid_rewrite_value <- function(v, oracle) {
+  if (inherits(v, c("Date", "POSIXt"))) {
+    return(rep("[DATE]", length(v)))
+  }
   if (is.data.frame(v)) {
-    return(deid_rewrite_frame(v, oracle))
+    return(deid_rewrite_frame(v, oracle, values = TRUE))
+  }
+  if (is.factor(v)) {
+    levels(v) <- deid_rewrite_text(levels(v), oracle)
   }
   if (is.list(v)) {
     for (i in seq_along(v)) {
@@ -295,6 +336,16 @@ deid_rewrite_value <- function(v, oracle) {
 # exits, its test fails: move the planting into deid_fixture() (with the
 # expected handling) and remove the gap.
 deid_known_gaps <- list(
+  # anon() redacts character attributes but not list-valued ones, such as
+  # `variable.labels` (haven/foreign SPSS) or readr's `spec`.
+  list_attribute_pattern = list(
+    sentinel = "DRUGQX",
+    pattern_exits_only = TRUE,
+    plant = function(d) {
+      attr(d$vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
+      d
+    }
+  ),
   subjid_in_text = list(
     sentinel = "ZQ0002",
     plant = function(d) {
@@ -532,8 +583,11 @@ deid_drop_flagged <- function(step, flagged = deid_flagged) {
     }
     if (is.null(f$column)) {
       step$data[[f$dataset]] <- NULL
-    } else {
+    } else if (f$column %in% names(step$data[[f$dataset]])) {
       step$data[[f$dataset]][[f$column]] <- NULL
+    } else {
+      # "packed.column": drop the packed data frame column.
+      step$data[[f$dataset]][[sub("\\..*", "", f$column)]] <- NULL
     }
   }
   step

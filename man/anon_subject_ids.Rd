@@ -78,31 +78,38 @@ Original keys in text that describes the data are replaced with the
 subject's pseudonym, in every dataset (with or without \code{key}), when they
 appear as a whole value or a whole word: in the attributes of columns, data
 frames and the list of datasets (such as \code{label}, \code{comment} or a custom
-note), at any depth (text in list or factor attributes, names of attribute
-vectors, attributes of attributes, attribute names); in the names of vector
-columns and the dimnames of matrix columns; in packed data frame columns, as
-in a data frame; in haven value labels of columns that are not replaced (the
-label names, and the label values of character columns) and in character
-user-defined missing values (\code{na_values}, \code{na_range}) of those columns; and
-in column names, character row names and dataset names. Structural
-attributes are left alone: \code{class}, \code{row.names}, \code{dim}, a column's
-\code{levels}, \code{tzone}, \code{units}, and formats such as \code{format.sas} and
-\code{display_width}. A label value or missing-value code is rewritten only when
-no value of the column equals it or its rewrite (or, for \code{na_range}, falls
-in either range), so the mapping from values to labels and which values
-are missing don't change; a column whose values still hold keys is named
-in the warning below. A rewritten name that clashes with another gets a
-numeric suffix (\code{"_1"}). Keys made only of digits, and numeric keys, are
-not rewritten, for the same reason they are not searched for below. The log
-has one row per dataset with such rewrites (and one for the list of
-datasets), with counts by kind; this and earlier steps' logs and settings
-are renamed and rewritten to match. Values in the data, including the
-elements of list columns, are not rewritten.
+note), at any depth (text in list or factor attributes, the values of data
+frames held in attributes, names of attribute vectors, attributes of
+attributes, attribute names); in the names of vector columns and the
+dimnames of matrix columns; in haven value labels of columns that are not
+replaced (the label names, and the label values of character columns) and
+in character user-defined missing values (\code{na_values}, \code{na_range}) of those
+columns; and in column names, character row names and dataset names.
+Structural attributes are left alone: \code{class}, \code{row.names}, \code{dim}, a
+column's \code{levels}, \code{tzone}, \code{units}, and formats such as \code{format.sas} and
+\code{display_width}; so are environments and functions held in attributes
+(they can refer to themselves, and are shared with whoever else holds
+them). Attributes that refer to columns by name (dplyr \code{groups},
+data.table \code{sorted} and \code{index}) are renamed with the columns. A label
+value or missing-value code is rewritten only when no value of the column
+equals it or its rewrite (or, for \code{na_range}, falls in either range), and
+when its rewrite doesn't equal another code, so the mapping from values to
+labels and which values are missing don't change; a code kept this way is
+named in a warning. A rewritten name that clashes with another gets a
+numeric suffix (\code{"_1"}), and settings and the log name the suffixed column.
+Keys made only of digits, and numeric keys, are not rewritten, for the same
+reason they are not searched for below. The log has one row per dataset
+with such rewrites (and one for the list of datasets), with counts by kind;
+this and earlier steps' logs and settings are renamed and rewritten to
+match. Values in the data are not rewritten, including the elements of list
+columns and packed data frame columns (with everything inside them).
 
 A warning lists any other character or factor column (values or factor
-levels), or list column (all the text its elements hold: values, factor
-levels, names and attributes, at any depth), in any dataset, that still
-contains original key values as whole
+levels), list column (all the text its elements hold: values, factor
+levels, names and attributes, at any depth), or column of a packed data
+frame column (named as \code{dataset.column.subcolumn}, with the text in its
+attributes; the packed column itself is named for its column names and
+attributes), in any dataset, that still contains original key values as whole
 values or as whole words inside text (checked for character keys that are
 not made only of digits, since numbers match many unrelated codes), and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or
