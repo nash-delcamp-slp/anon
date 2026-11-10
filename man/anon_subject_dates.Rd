@@ -69,11 +69,16 @@ custom text attributes, list- and data frame-valued attributes, Date or
 factor values held in attributes, and attributes of attributes.
 \code{"rewrite"} (default) rewrites what it can find in them, at any depth, as
 a best effort. \code{"drop"} removes them, and is the strict choice: nothing
-can hide in an attribute that is gone. Structural attributes (\code{class},
-\code{names}, \code{row.names}, \code{dim}, \code{dimnames}, \code{levels}, \code{tzone}, \code{units},
-formats such as \code{format.sas}, \code{display_width}, a vctrs \code{ptype}, and the
-grouping of a grouped tibble or the key and indices of a data.table) are
-never dropped. The log counts the attributes dropped in each dataset.}
+can hide in an attribute that is gone. Structural attributes are never
+dropped, and are structural only on the classes that use them: \code{class},
+\code{names}, \code{row.names}, \code{dim} and \code{dimnames} on anything; \code{levels} and
+\code{contrasts} on factors; \code{tzone} on date-times; \code{units} on difftime and
+units objects; \code{tsp} on time series; \code{ptype} on vctrs objects (its text
+is still rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
+\code{index} and \code{.internal.selfref} on data.tables; SAS, SPSS and Stata
+formats, and a numeric \code{display_width}, on vectors. Elsewhere an
+attribute with one of these names is text (for example free-text \code{units}
+on a number). The log counts the attributes dropped in each dataset.}
 }
 \value{
 An object of class \code{"anon_deid_step"}, as for \code{\link[=anon_subject_ids]{anon_subject_ids()}}.
@@ -157,9 +162,12 @@ UTF-8 (after converting text marked with another encoding, such as latin1)
 or is marked as \code{"bytes"}. They count distinct texts and name the columns,
 or datasets (\code{"(list)"} for attributes of the list of datasets and dataset
 names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and
-run the step again. Locations in this step's warnings have dates
-rewritten; they can still show original keys held in names inside packed
-columns, which \code{\link[=anon_subject_ids]{anon_subject_ids()}} reports rewritten.
+run the step again. Every location printed in the steps' warnings has
+keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
+step shows original keys as \code{"[KEY]"}. When \code{\link[=anon_subject_ids]{anon_subject_ids()}} ran
+first, this step can't recognise original keys left in names inside packed
+columns (data, which that step doesn't rewrite), so it shows the columns
+inside packed columns by position (\code{dataset.column[2]}).
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

@@ -64,6 +64,10 @@ deid_flagged <- list(
   list(dataset = "dm", column = "PACK[REF]", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = paste0("PACK[", deid_keys[2], "]"), reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
+  # A column inside the packed column, named with a key, that holds dates.
+  # The dates step shows the key as "[KEY]", or, after the IDs step (when it
+  # can't recognise original keys), the column by its position.
+  list(id = "packed_dates", dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
   list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\)\\.$"),
@@ -71,11 +75,34 @@ deid_flagged <- list(
   list(pattern = "^1 value\\(s\\) of `SUBJID` in rows without a `USUBJID` could not be mapped and were removed\\.$"),
   list(pattern = "^7 date value\\(s\\) in rows without a `USUBJID` were removed\\.$")
 )
+# An S4 object held in an attribute of a column named with a key: kept, and
+# named with the key rewritten (or shown as "[KEY]" by the dates step). It is
+# dropped with other_attributes = "drop".
+deid_flagged <- c(deid_flagged, list(list(
+  id = "s4_attribute",
+  pattern = "^These columns or datasets hold S4 objects in attributes, [^:]*: vs\\.(SUBJ-[0-9]+|\\[KEY\\])\\. Use"
+)))
 if (requireNamespace("haven", quietly = TRUE)) {
   deid_flagged <- c(deid_flagged, list(
     list(pattern = "^Value labels of these columns were merged because the rewrite made their codes equal: dm\\.VISIT\\.$")
   ))
 }
+
+# `flagged` with the entries whose `id` is in `drop` removed and those in
+# `replace` (a list of entries by id) replaced.
+deid_flagged_with <- function(drop = character(0), replace = list(), flagged = deid_flagged) {
+  out <- list()
+  for (f in flagged) {
+    if (isTRUE(f$id %in% drop)) next
+    if (!is.null(f$id) && !is.null(replace[[f$id]])) f <- utils::modifyList(f, replace[[f$id]])
+    out <- c(out, list(f))
+  }
+  out
+}
+
+# An S4 class for the fixture, defined in an environment of its own.
+deid_s4_env <- new.env()
+deid_note <- methods::setClass("DeidNote", methods::representation(text = "character"), where = deid_s4_env)
 
 # The regular expression a flagged entry's warning must match: for a
 # `reason`, the column must appear in that reason's own column list.
@@ -143,6 +170,10 @@ deid_fixture <- function() {
   # columns named with a key.
   dm$PACK <- data.frame(REF = deid_keys[c(3:8, 1:2)], N = 1:8)
   dm$PACK[[deid_keys[2]]] <- deid_keys[c(4:8, 1:3)]
+  dm$PACK[[deid_keys[7]]] <- format(deid_start[c(2:8, 1)] + 2)
+  # A factor with contrasts, which are structural.
+  dm$SEXF <- factor(rep(c("F", "M"), 4))
+  stats::contrasts(dm$SEXF) <- stats::contr.sum(2)
   # haven-labelled columns (when haven is installed): a key and a user-pattern
   # term in value labels, and a key as a user-defined missing value. Every exit
   # must also handle them, JSON included.
@@ -177,12 +208,17 @@ deid_fixture <- function() {
   attr(vs$USUBJID, "label") <- "Unique Subject Identifier"
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
   attr(vs, "label") <- "STUDYQX Vital Signs"
+  # Free-text units on a number (as Hmisc writes them) holding a key and a
+  # date: text there, though `units` is structural on a difftime.
+  vs$VSWT <- 70 + seq_len(2 * n)
+  attr(vs$VSWT, "units") <- paste("kg, weighed for", deid_keys[5], "on", format(deid_start[5] + 1))
   # Keys in a variable label, a comment, a dataset attribute and a column name.
   vs$VSPOS <- "SITTING"
   attr(vs$VSPOS, "label") <- paste("Position for", deid_keys[3])
   comment(vs$VSPOS) <- deid_keys[4]
   attr(vs, "note") <- paste("from", deid_keys[8])
   vs[[deid_keys[3]]] <- 1
+  attr(vs[[deid_keys[3]]], "note") <- deid_note(text = "entered by the site")
   # A key and a real date in an attribute that holds a list, and in an
   # attribute of that list's element.
   attr(vs$VSPOS, "source") <- list(by = structure(paste("entered for", deid_keys[6]), on = paste("on", format(deid_start[2]))))
@@ -234,6 +270,11 @@ deid_fixture <- function() {
   # A dataset without the key whose row names are keys, and a dataset named
   # with a key.
   ta <- data.frame(ARM = c("A", "B"), row.names = deid_keys[2:3])
+  # A time series column, whose `tsp` is structural (in a dataset without the
+  # key: sorting rows drops a time series' class).
+  ta$TSV <- stats::ts(c(1, 2))
+  # A rowwise tibble, whose `groups` is structural.
+  tw <- dplyr::rowwise(tibble::tibble(ARM = c("A", "B"), N = 1:2))
   named <- data.frame(X = 1)
   # A grouped tibble with a dataset label, which must keep its label and
   # grouping.
@@ -247,7 +288,7 @@ deid_fixture <- function() {
 
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum
+    vsum = vsum, tw = tw
   )
   out[[deid_keys[4]]] <- named
   out
@@ -269,8 +310,25 @@ deid_rewrite_text <- function(x, oracle) {
 # a grouped tibble) or always rewrite (labels, comments, value labels and
 # missing-value codes). Others are rewritten, or dropped when the oracle's
 # `other` is "drop".
-deid_structural <- c("class", "levels", "row.names", "tzone", "format.sas", "names", "dimnames")
 deid_core <- c("label", "comment", "labels", "na_values", "na_range")
+
+# The attributes of `x` that are structural for its class (kept apart from
+# the package's own table, covering the same cases): elsewhere an attribute
+# with one of these names is text.
+deid_structural <- function(x) {
+  c(
+    "class", "names", "dimnames", "row.names", "dim",
+    if (is.factor(x)) c("levels", "contrasts"),
+    if (inherits(x, "POSIXt")) "tzone",
+    if (inherits(x, c("difftime", "units"))) "units",
+    if (inherits(x, "ts")) "tsp",
+    if (inherits(x, c("vctrs_list_of", "vctrs_vctr"))) "ptype",
+    if (inherits(x, c("grouped_df", "rowwise_df"))) "groups",
+    if (inherits(x, "data.table")) c("sorted", "index", ".internal.selfref"),
+    if (is.atomic(x)) c("format.sas", "informat.sas", "format.spss", "format.stata"),
+    if (is.atomic(x) && is.numeric(attr(x, "display_width", exact = TRUE))) "display_width"
+  )
+}
 
 # A data frame with the text that describes it rewritten as
 # deid_rewrite_text() says, and its values untouched: column names, character
@@ -293,7 +351,7 @@ deid_rewrite_frame <- function(df, oracle, values = FALSE) {
   if (is.character(row_names)) {
     attr(x, "row.names") <- deid_rewrite_text(row_names, oracle)
   }
-  x <- deid_rewrite_attributes(x, oracle, frame = TRUE, grouped = "grouped_df" %in% cls)
+  x <- deid_rewrite_attributes(x, oracle, frame = TRUE, structural = deid_structural(df))
   class(x) <- cls
   x
 }
@@ -305,11 +363,13 @@ deid_rewrite_frame <- function(df, oracle, values = FALSE) {
 # column equals the code or its rewrite; value labels whose codes become equal
 # are merged into one, their labels joined with " / ", and equal missing-value
 # codes into one.
-deid_rewrite_attributes <- function(x, oracle, frame = FALSE, grouped = FALSE) {
+deid_rewrite_attributes <- function(x, oracle, frame = FALSE, structural = deid_structural(x)) {
   values <- if (!frame && !is.list(x)) as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else unclass(x))
-  skip <- c(deid_structural, if (grouped) "groups")
-  for (name in setdiff(names(attributes(x)), skip)) {
+  for (name in setdiff(names(attributes(x)), structural)) {
     value <- attr(x, name, exact = TRUE)
+    if (isS4(value) && !identical(oracle$other, "drop")) {
+      next
+    }
     if (identical(oracle$other, "drop") && !name %in% deid_core) {
       value <- NULL
     } else if (name %in% c("labels", "na_values", "na_range")) {
@@ -317,14 +377,24 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE, grouped = FALSE) {
         names(value) <- deid_rewrite_text(names(value), oracle)
       }
       if (is.character(value)) {
+        original <- attr(x, name, exact = TRUE)
         new <- deid_rewrite_text(value, oracle)
         free <- !value %in% values & !new %in% values
+        # A range whose ends would be in descending order is kept.
+        if (name == "na_range" && length(new) == 2 && !isTRUE(new[[1]] <= new[[2]])) {
+          free[] <- FALSE
+        }
         value[free] <- new[free]
         if (name != "na_range" && anyDuplicated(unname(value))) {
           first <- !duplicated(unname(value))
           if (!is.null(names(value))) {
+            # The original labels are joined, then rewritten once.
             names(value)[first] <- vapply(unname(value)[first], function(code) {
-              deid_rewrite_text(paste(names(value)[unname(value) == code], collapse = " / "), oracle)
+              members <- unname(value) == code
+              if (sum(members) == 1) {
+                return(names(value)[members])
+              }
+              deid_rewrite_text(paste(names(original)[members], collapse = " / "), oracle)
             }, character(1))
           }
           value <- value[first]
@@ -376,15 +446,17 @@ deid_rewrite_value <- function(v, oracle) {
 # leaking or stop breaking its exits, its test fails: move the planting into
 # deid_fixture() (with the expected handling) and remove the gap.
 deid_known_gaps <- list(
-  # anon() redacts character attributes but not list-valued ones, such as
-  # `variable.labels` (haven/foreign SPSS) or readr's `spec`. Pipelines that
-  # drop other attributes remove it.
+  # anon() redacts character attributes but not other ones: list-valued, such
+  # as `variable.labels` (haven/foreign SPSS) or readr's `spec`, or
+  # factor-valued. Pipelines that drop other attributes remove them.
   list_attribute_pattern = list(
     sentinel = "DRUGQX",
     pattern_exits_only = TRUE,
     handled_by = "ids_then_dates_drop",
     plant = function(d) {
       attr(d$vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
+      # A factor held in an attribute, which anon() doesn't redact either.
+      attr(d$vs$VSSTRESN, "assay") <- factor("DRUGQX assay")
       d
     }
   ),
@@ -494,7 +566,8 @@ deid_pipelines <- list(
         keep_secrets = TRUE, seed = deid_seeds[4]
       )
     },
-    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    flagged = deid_flagged_with(replace = list(packed_dates = list(column = "PACK[[KEY]]")))
   ),
   ids_then_dates_no_secrets = list(
     run = function(data) anon_subject_dates(anon_subject_ids(data, seed = deid_seeds[1]), seed = deid_seeds[2]),
@@ -507,7 +580,8 @@ deid_pipelines <- list(
         keep_secrets = TRUE, seed = deid_seeds[2], other_attributes = "drop"
       )
     },
-    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365, other_attributes = "drop"
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365, other_attributes = "drop",
+    flagged = deid_flagged_with(drop = "s4_attribute")
   )
 )
 

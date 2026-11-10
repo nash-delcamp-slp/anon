@@ -51,11 +51,16 @@ custom text attributes, list- and data frame-valued attributes, Date or
 factor values held in attributes, and attributes of attributes.
 \code{"rewrite"} (default) rewrites what it can find in them, at any depth, as
 a best effort. \code{"drop"} removes them, and is the strict choice: nothing
-can hide in an attribute that is gone. Structural attributes (\code{class},
-\code{names}, \code{row.names}, \code{dim}, \code{dimnames}, \code{levels}, \code{tzone}, \code{units},
-formats such as \code{format.sas}, \code{display_width}, a vctrs \code{ptype}, and the
-grouping of a grouped tibble or the key and indices of a data.table) are
-never dropped. The log counts the attributes dropped in each dataset.}
+can hide in an attribute that is gone. Structural attributes are never
+dropped, and are structural only on the classes that use them: \code{class},
+\code{names}, \code{row.names}, \code{dim} and \code{dimnames} on anything; \code{levels} and
+\code{contrasts} on factors; \code{tzone} on date-times; \code{units} on difftime and
+units objects; \code{tsp} on time series; \code{ptype} on vctrs objects (its text
+is still rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
+\code{index} and \code{.internal.selfref} on data.tables; SAS, SPSS and Stata
+formats, and a numeric \code{display_width}, on vectors. Elsewhere an
+attribute with one of these names is text (for example free-text \code{units}
+on a number). The log counts the attributes dropped in each dataset.}
 }
 \value{
 An object of class \code{"anon_deid_step"}: a list with \code{data} (the
@@ -99,24 +104,24 @@ dimnames of matrix columns; in haven value labels of columns that are not
 replaced (the label names, and the label values of character columns) and
 in character user-defined missing values (\code{na_values}, \code{na_range}) of those
 columns; and in column names, character row names and dataset names.
-Structural attributes are left alone: \code{class}, \code{row.names}, \code{dim}, a
-column's \code{levels}, \code{tzone}, \code{units}, and formats such as \code{format.sas} and
-\code{display_width}, a vctrs \code{ptype}; so are environments, functions and S4
+Structural attributes (see \code{other_attributes}) are left alone, except that
+text in a vctrs \code{ptype} is rewritten; so are environments, functions and S4
 objects held in attributes (they can refer to themselves, are shared with
-whoever else holds them, or must keep valid slots). The grouping of a
-grouped tibble (\code{groups}) and the key and indices of a data.table
-(\code{sorted}, \code{index}) are renamed with the columns; on other objects,
-attributes with these names are ordinary attributes. A grouped tibble held
+whoever else holds them, or must keep valid slots; S4 objects are named in
+a warning). The grouping of a grouped or rowwise tibble (\code{groups}) and the
+key and indices of a data.table (\code{sorted}, \code{index}) are renamed with the
+columns. A grouped tibble held
 in an attribute has its grouping values rewritten with its values. With
 \code{other_attributes = "drop"}, attributes beyond the core ones are dropped
 instead of rewritten. A label value or missing-value code is rewritten only
 when no value of the column equals it or its rewrite (or, for \code{na_range},
 falls in either range), so the mapping from values to labels and which
 values are missing don't change; a code kept this way is named in a
-warning. Value labels whose codes the rewrite made equal are merged into
-one entry, their labels joined with \code{" / "} (haven requires distinct codes;
-label text may repeat), and equal missing-value codes into one, with a
-warning. A rewritten name that clashes with another gets a numeric suffix
+warning, as is a missing-value range whose rewritten ends would be in
+descending order. Value labels whose codes the rewrite made equal are
+merged into one entry, their original labels joined with \code{" / "} and then
+rewritten (haven requires distinct codes; label text may repeat), and equal
+missing-value codes are deduplicated; a warning names each. A rewritten name that clashes with another gets a numeric suffix
 (\code{"_1"}), and settings and the log name the suffixed column; a column name
 in the settings that was renamed differently in different datasets is
 rewritten as text instead. Column and dataset names marked as \code{"bytes"}
@@ -126,7 +131,9 @@ reason they are not searched for below. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;
 this and earlier steps' logs and settings are renamed and rewritten to
 match. Values in the data are not rewritten, including the elements of list
-columns and packed data frame columns (with everything inside them).
+columns and packed data frame columns, with everything inside them: a packed
+column's own attributes (even its \code{label}) and names are left as they are,
+and handling nested data is planned.
 
 A warning lists any other character or factor column (values or factor
 levels), list column (all the text its elements hold: values, factor

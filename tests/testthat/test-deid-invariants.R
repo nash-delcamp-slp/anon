@@ -273,6 +273,15 @@ for (pipeline_name in names(deid_pipelines)) {
         expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
         expect_identical(keep(x, c(also, "names")), keep(expected[[rewrite(col)]], c(also, "names")), info = id)
+        # Names of a vector column follow its values (in any row order),
+        # rewritten; a packed data frame column is data and keeps its names.
+        if (is.data.frame(x)) {
+          expect_identical(names(x), names(data[[ds]][[col]]), info = id)
+        } else if (is.null(names(data[[ds]][[col]]))) {
+          expect_null(names(x), info = id)
+        } else {
+          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))), info = id)
+        }
         # Value labels and missing-value codes are kept on columns that are
         # neither replaced nor shifted, and are never anything but the
         # rewritten original.

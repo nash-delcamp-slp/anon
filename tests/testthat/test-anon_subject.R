@@ -763,18 +763,19 @@ test_that("bare years in a vars column are shifted only when the column holds on
   )
   expect_equal(out, dm$BRTHYR)
 
-  # The rule is decided across all datasets with the column.
+  # The rule is decided across all datasets with the column. (Dataset names
+  # that equal a key would be shown as "[KEY]" in the warning.)
   d <- list(
-    a = data.frame(USUBJID = "a", BRTHYR = "1980"),
-    b = data.frame(USUBJID = "b", BRTHYR = c("1975", "UNK"))
+    dm1 = data.frame(USUBJID = "a", BRTHYR = "1980"),
+    dm2 = data.frame(USUBJID = "b", BRTHYR = c("1975", "UNK"))
   )
-  expect_warning(out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data, "a.BRTHYR, b.BRTHYR")
-  expect_equal(out$a$BRTHYR, "1980")
+  expect_warning(out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data, "dm1.BRTHYR, dm2.BRTHYR")
+  expect_equal(out$dm1$BRTHYR, "1980")
 
-  d$b$BRTHYR <- c("1975", NA)
+  d$dm2$BRTHYR <- c("1975", NA)
   out <- anon_subject_dates(d, vars = "BRTHYR", seed = 1)$data
-  expect_false(out$a$BRTHYR == "1980")
-  expect_false(out$b$BRTHYR[1] == "1975")
+  expect_false(out$dm1$BRTHYR == "1980")
+  expect_false(out$dm2$BRTHYR[1] == "1975")
 })
 
 test_that("keys made only of digits are not searched for in text", {
@@ -1185,7 +1186,9 @@ test_that("dates in value labels, missing values and ranges are replaced; struct
                                  na_range = c("2015-01-01", "2015-12-31"))
   d$N <- 1:2
   attr(d$N, "format.sas") <- "2014-01-01"
+  # `units` is text on a number, and structural on a difftime.
   attr(d$N, "units") <- "2014-01-01"
+  d$DT <- as.difftime(c(1, 2), units = "days")
   d$TM <- as.POSIXct(c("2014-01-02 10:00", "2013-07-19 10:00"), tz = "UTC")
   step <- anon_subject_dates(d, seed = 1)
   out <- step$data
@@ -1195,7 +1198,8 @@ test_that("dates in value labels, missing values and ranges are replaced; struct
   # Both ends become "[DATE]", so "S1" and "S2" are still outside the range.
   expect_equal(attr(out$SITE, "na_range"), c("[DATE]", "[DATE]"))
   expect_equal(attr(out$N, "format.sas"), "2014-01-01")
-  expect_equal(attr(out$N, "units"), "2014-01-01")
+  expect_equal(attr(out$N, "units"), "[DATE]")
+  expect_equal(attr(out$DT, "units"), "days")
   expect_equal(attr(out$TM, "tzone"), "UTC")
   expect_match(step$log$detail[step$log$dataset %in% "data" & is.na(step$log$variable)], "5 value label\\(s\\) or missing-value code\\(s\\)")
 })
@@ -1311,7 +1315,10 @@ test_that("value-label codes that the rewrite makes equal are merged, and named 
   expect_equal(attr(out, "labels"), c("same" = "a", "same" = "b"))
   # Missing-value codes made equal are deduplicated.
   d$V <- haven::labelled_spss(c("x", "y"), na_values = c("2014-01-01", "2015-02-02"))
-  expect_warning(out <- anon_subject_dates(d, seed = 1)$data$V, "were merged")
+  expect_warning(
+    out <- anon_subject_dates(d, seed = 1)$data$V,
+    "^User-defined missing values of these columns were deduplicated because the rewrite made them equal: data.V\\.$"
+  )
   expect_equal(attr(out, "na_values"), "[DATE]")
   # A key code kept because a value equals the pseudonym is named too.
   k <- data.frame(USUBJID = c("S-01", "S-02"))
@@ -1431,9 +1438,15 @@ test_that("S4 objects are not entered; S4 columns are named as data that can't b
   s4 <- methods::new("AnonTestLab", "S-01 x", note = "S-02")
   d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2)
   attr(d$V, "obj") <- s4
-  out <- anon_subject_ids(d, seed = 1)$data$V
+  # Kept as they are under "rewrite", and named in a warning.
+  expect_warning(
+    out <- anon_subject_ids(d, seed = 1)$data$V,
+    "^These columns or datasets hold S4 objects in attributes, .* kept as they are: data.V\\. Use `other_attributes = \"drop\"`"
+  )
   expect_identical(attr(out, "obj"), s4)
-  expect_null(attr(anon_subject_ids(d, seed = 1, other_attributes = "drop")$data$V, "obj"))
+  expect_no_warning(out <- anon_subject_ids(d, seed = 1, other_attributes = "drop")$data$V)
+  expect_null(attr(out, "obj"))
+  d$V <- NULL
   d$C <- methods::new("AnonTestLab", c("S-01", "y"), note = "S-02")
   expect_true(isS4(d$C))
   expect_warning(out <- anon_subject_ids(d, seed = 1)$data, "hold S4 objects, which can't be checked for original `USUBJID` values: data.C\\.")
@@ -1507,4 +1520,136 @@ test_that("locations inside packed columns are printed with keys and dates rewri
   w <- step_warnings(anon_subject_dates(d, seed = 1))
   expect_match(w, "not shifted: data.P, data.P\\[\\[DATE\\]\\]\\.", all = FALSE)
   expect_false(any(grepl("2014-03-03", w)))
+})
+
+test_that("attributes are structural only on the classes that use them", {
+  d <- data.frame(USUBJID = c("S-01", "S-02"))
+  d$N <- c(1, 2)
+  attr(d$N, "units") <- "mg for S-01 on 2014-01-05"
+  attr(d$N, "tzone") <- "S-02"
+  attr(d$N, "ptype") <- "S-01"
+  attr(d$N, "display_width") <- "S-02"
+  attr(d$N, "format.sas") <- "BEST12"
+  d$C <- c("a", "b")
+  attr(d$C, "levels") <- c("S-01", "2014-01-05")
+  d$DT <- as.difftime(c(1, 2), units = "days")
+  d$TM <- as.POSIXct(c("2014-01-02 10:00", "2014-01-03 10:00"), tz = "UTC")
+  d$F <- factor(c("x", "y"))
+  stats::contrasts(d$F) <- stats::contr.sum(2)
+  step <- anon_subject_dates(anon_subject_ids(d, keep_secrets = TRUE, seed = 1), seed = 2)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  out <- step$data
+  expect_equal(attr(out$N, "units"), paste("mg for", new[["S-01"]], "on [DATE]"))
+  expect_equal(attr(out$N, "tzone"), new[["S-02"]])
+  expect_equal(attr(out$N, "ptype"), new[["S-01"]])
+  expect_equal(attr(out$N, "display_width"), new[["S-02"]])
+  expect_equal(attr(out$N, "format.sas"), "BEST12")
+  expect_equal(attr(out$C, "levels"), c(new[["S-01"]], "[DATE]"))
+  expect_equal(attr(out$DT, "units"), "days")
+  expect_equal(attr(out$TM, "tzone"), "UTC")
+  expect_equal(attr(out$F, "contrasts"), attr(d$F, "contrasts"))
+  # With "drop", the text attributes go and the structural ones stay, uncounted.
+  step <- anon_subject_ids(d, seed = 1, other_attributes = "drop")
+  out <- step$data
+  for (a in c("units", "tzone", "ptype", "display_width")) expect_null(attr(out$N, a))
+  expect_null(attr(out$C, "levels"))
+  expect_equal(attr(out$N, "format.sas"), "BEST12")
+  expect_equal(attr(out$DT, "units"), "days")
+  expect_equal(attr(out$TM, "tzone"), "UTC")
+  expect_equal(attr(out$F, "contrasts"), attr(d$F, "contrasts"))
+  expect_equal(step$log$detail[grepl("dropped", step$log$detail)], "5 other attribute(s) dropped")
+})
+
+test_that("a vctrs prototype is kept, with text in it rewritten", {
+  d <- tibble::tibble(USUBJID = c("S-01", "S-02"))
+  d$L <- vctrs::list_of(factor("a"), factor("a"), .ptype = factor(levels = c("a", "S-01")))
+  for (other in c("rewrite", "drop")) {
+    # The elements are cast to the prototype, so their levels hold the key
+    # too: they are data, and flagged.
+    expect_warning(
+      step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1, other_attributes = other),
+      "still contain original `USUBJID` values.*: data.L\\."
+    )
+    new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+    expect_equal(levels(attr(step$data$L, "ptype")), c("a", new[["S-01"]]), info = other)
+    expect_s3_class(step$data$L, "vctrs_list_of")
+  }
+})
+
+test_that("time series, rowwise tibbles and data.table internals keep what they need, also with \"drop\"", {
+  rw <- dplyr::rowwise(tibble::tibble(A = c("x", "y"), N = 1:2))
+  dt <- data.frame(A = 1:2)
+  # The attributes data.table uses, built without data.table.
+  attr(dt, ".internal.selfref") <- new("externalptr")
+  class(dt) <- c("data.table", "data.frame")
+  tsd <- data.frame(A = 1:2)
+  tsd$TS <- stats::ts(c(1, 2), start = 2000)
+  data <- list(dm = data.frame(USUBJID = c("S-01", "S-02")), rw = rw, dt = dt, tsd = tsd)
+  for (other in c("rewrite", "drop")) {
+    step <- anon_subject_ids(data, seed = 1, other_attributes = other)
+    out <- step$data
+    expect_identical(out$rw, rw, info = other)
+    expect_true(!is.null(attr(out$dt, ".internal.selfref")), info = other)
+    expect_identical(out$tsd, tsd, info = other)
+    expect_false(any(grepl("dropped", step$log$detail)), info = other)
+  }
+  # A rowwise tibble grouped by a column named with a key keeps its grouping.
+  rk <- dplyr::rowwise(tibble::tibble(A = 1:2, `S-01` = 1:2), `S-01`)
+  out <- anon_subject_ids(list(dm = data.frame(USUBJID = c("S-01", "S-02")), rk = rk), keep_secrets = TRUE,
+                          seed = 1, other_attributes = "drop")
+  expect_equal(dplyr::group_vars(out$data$rk), anon_secrets(out)$subject_ids$pseudonym[1])
+})
+
+test_that("joined labels of merged value labels are rewritten once, from the original labels", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("S-1", "S-2", "S-9"))
+  # Pseudonyms that are themselves keys of other subjects: rewriting twice
+  # would turn the S-1 of a label into the pseudonym of S-2's pseudonym.
+  d$REL <- haven::labelled(c("x", "x", "x"), labels = c("brother of S-1" = "S-9", other = "S-3"))
+  expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 5, prefix = "S-"), "were merged")
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_equal(new[["S-9"]], "S-3")
+  expect_equal(attr(step$data$REL, "labels"), stats::setNames("S-3", paste0("brother of ", new[["S-1"]], " / other")))
+})
+
+test_that("a missing-value range whose rewritten ends would descend is kept and named", {
+  skip_if_not_installed("haven")
+  d <- data.frame(USUBJID = c("a", "b"))
+  d$Z <- haven::labelled_spss(c("B", "C"), na_range = c("1", "2020-01-01"))
+  expect_warning(out <- anon_subject_dates(d, seed = 1)$data$Z, "keep value-label or missing-value codes that hold dates.*data.Z\\.")
+  expect_equal(attr(out, "na_range"), c("1", "2020-01-01"))
+})
+
+test_that("warnings print locations with keys and dates hidden, and text that can't be printed escaped", {
+  d <- tibble::tibble(USUBJID = c("AB-001", "AB-002"), DMDTC = c("2020-01-01", "2020-01-02"))
+  d$PK <- tibble::tibble(x = 1:2)
+  d$PK[["AB-002"]] <- c("2020-02-03", "y")
+  d$PK[["2020-03-04"]] <- c("AB-001", "z")
+  warnings_of <- function(expr) {
+    w <- character(0)
+    withCallingHandlers(expr, warning = function(c) {
+      w <<- c(w, conditionMessage(c))
+      invokeRestart("muffleWarning")
+    })
+    w
+  }
+  dates_first <- warnings_of(step <- anon_subject_dates(d, seed = 1))
+  # The packed column itself is named too: its column names hold a date.
+  expect_match(dates_first, "not shifted: data.PK, data.PK\\[\\[KEY\\]\\]\\.", all = FALSE)
+  ids_after <- warnings_of(anon_subject_ids(step, seed = 2))
+  ids_first <- warnings_of(step <- anon_subject_ids(d, seed = 2))
+  # After the IDs step, columns inside packed columns are shown by position.
+  dates_after <- warnings_of(anon_subject_dates(step, seed = 1))
+  expect_match(dates_after, "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE)
+  all <- c(dates_first, ids_after, ids_first, dates_after)
+  expect_false(any(grepl("AB-00|2020-0[123]", all)))
+  # A sub-column name marked "bytes" that isn't valid UTF-8 is escaped.
+  b <- "caf\xe9 AB-001"
+  Encoding(b) <- "bytes"
+  p <- data.frame(a = 1:2, c = c("AB-001", "x"))
+  attr(p, "names") <- c("a", b)
+  d2 <- data.frame(USUBJID = c("AB-001", "AB-002"))
+  d2$PK <- p
+  w <- warnings_of(anon_subject_ids(d2, seed = 1))
+  expect_match(w, "data.PK\\[caf<e9> SUBJ-[12]\\]", all = FALSE)
 })

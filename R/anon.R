@@ -43,12 +43,17 @@
 #'   value labels (the label names, and the label values when they are text)
 #'   and text user-defined missing values (`na_values`, and the ends of a
 #'   text `na_range`), on vectors and columns wherever `anon()` reaches them
-#'   (in data frames, lists and list columns). Value labels whose codes the
-#'   redaction made equal are merged into one entry, their labels joined with
-#'   `" / "`, and equal missing-value codes into one, with a warning naming
-#'   the column as it is named in the output. A warning also names a column
-#'   whose redaction changed which values are user-defined missing values.
-#'   Default is `TRUE`.
+#'   (in data frames, lists and list columns). Attributes that are structural
+#'   for the object's class (see the `other_attributes` argument of
+#'   [anon_subject_ids()]) are not redacted. Value labels whose codes the
+#'   redaction made equal are merged into one entry, their original labels
+#'   joined with `" / "` and then redacted, with a warning naming the column as
+#'   it is named in the output (or a list element, as `col[2]`); equal
+#'   missing-value codes are deduplicated without a warning, as which values
+#'   are missing doesn't change. A text `na_range` whose redacted ends would be
+#'   in descending order is kept, with a warning. Whatever `check_labels`
+#'   says, a warning names a column whose redaction changed which values are
+#'   user-defined missing values. Default is `TRUE`.
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
 #'   This argument overrides the global option.
@@ -61,6 +66,8 @@
 #' @param .compiled List for internal use only. Pre-compiled pattern groups and the
 #'   combined single-pass regex. Passed down during
 #'   recursive calls to avoid recompiling patterns. Default is `NULL`.
+#' @param .where Character for internal use only. Where `x` is (such as a
+#'   list column's element, `"col[2]"`), for warnings. Default is `NULL`.
 #'
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
@@ -176,7 +183,8 @@ anon <- function(
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
   .pattern_replacements = NULL,
-  .compiled = NULL
+  .compiled = NULL,
+  .where = NULL
 ) {
   # Combine user arguments with global options
   if (!.self) {
@@ -218,6 +226,29 @@ anon <- function(
       }
     }
 
+    result
+  }
+
+  # Redact a vector: its values (text, or a factor's levels), and, as
+  # `check_labels` and `check_names` say, its labels and other text
+  # attributes and its names. `where` names it in warnings.
+  redact_atomic <- function(v, where, redact = NULL) {
+    if (is.null(redact)) {
+      redact <- function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+    }
+    result <- v
+    if (is.factor(v)) {
+      levels(result) <- redact(levels(v))
+    } else if (is.character(v)) {
+      result <- redact(v)
+    }
+    if (isTRUE(check_labels) && has_text_attributes(result)) {
+      result <- redact_text_attributes(result, redact, where = where)
+    }
+    warn_user_missing_changed(user_missing_of(v), result, where)
+    if (isTRUE(check_names) && has_names(result)) {
+      result <- redact_names(result, redact)
+    }
     result
   }
 
@@ -347,25 +378,13 @@ anon <- function(
     if (isTRUE(check_names) && length(result$settings) > 0) {
       names(result$settings) <- apply_patterns(names(result$settings), compiled, FALSE, max_distance)
     }
-  } else if (is.character(x) || is.factor(x)) {
-    if (is.factor(x)) {
-      levels(x) <- apply_patterns(
-        levels(x),
-        compiled,
-        check_approximate,
-        max_distance
-      )
-      result <- x
-    } else {
-      result <- apply_patterns(
-        x,
-        compiled,
-        check_approximate,
-        max_distance
-      )
-    }
+  } else if (is.atomic(x) && !is.null(x)) {
+    result <- redact_atomic(x, .where)
   } else if (is.data.frame(x)) {
-    result <- x
+    # Column names marked "bytes" can't be looked up by name; they are marked
+    # "unknown" while the columns are processed, and "bytes" again after.
+    unmarked <- unmark_bytes_names(list(x))
+    result <- unmarked$data[[1]]
 
     # Process each column
     for (col_name in names(result)) {
@@ -424,6 +443,7 @@ anon <- function(
       } else if (is_container_list(result[[col_name]])) {
         # Only recurse into anon() for list columns (need recursive handling)
         recursive_result <- anon(
+          .where = shown_name,
           result[[col_name]],
           pattern_list = pattern_list,
           default_replacement = default_replacement,
@@ -495,13 +515,35 @@ anon <- function(
         function(text) apply_patterns(text, compiled, check_approximate, max_distance)
       )
     }
+    result <- unmarked$restore(list(result))[[1]]
   } else if (is_container_list(x)) {
-    result <- purrr::map(
+    element_where <- function(i) {
+      if (!is.null(.where)) {
+        paste0(.where, "[", i, "]")
+      } else if (!is.null(names(x)) && !is.na(names(x)[i]) && nzchar(names(x)[i])) {
+        names(x)[i]
+      } else {
+        paste0("[[", i, "]]")
+      }
+    }
+    # The text of the list's vectors is redacted in one pass, then looked up.
+    redact_vectors <- batch_redactor(
       x,
-      ~ {
+      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+    )
+    result <- lapply(seq_along(x), function(i) {
+        element <- x[[i]]
+        # Elements with nothing to redact are returned as they are, and
+        # vectors are redacted here rather than by a call to anon() each.
+        if (nothing_to_redact(element)) {
+          return(element)
+        }
+        if (is.atomic(element) && !is.null(element) && !is_container_list(element)) {
+          return(redact_atomic(element, element_where(i), redact_vectors))
+        }
         # Use .self = TRUE for recursive calls to collect warnings
         recursive_result <- anon(
-          .x,
+          element,
           pattern_list = pattern_list,
           default_replacement = default_replacement,
           check_approximate = check_approximate,
@@ -512,7 +554,8 @@ anon <- function(
           check_labels = check_labels,
           .self = TRUE,
           .pattern_replacements = pattern_replacements,
-          .compiled = compiled
+          .compiled = compiled,
+          .where = element_where(i)
         )
 
         # If recursive call has warnings, collect them
@@ -525,8 +568,8 @@ anon <- function(
         }
 
         recursive_result
-      }
-    )
+      })
+    names(result) <- names(x)
 
     # Anonymize list names only if check_names is TRUE
     if (isTRUE(check_names) && !is.null(names(result))) {
@@ -539,24 +582,6 @@ anon <- function(
     }
   } else {
     result <- x
-  }
-
-  # Anonymize the labels and other text attributes of a vector (at the top
-  # level, in a list or in a list column) only if check_labels is TRUE
-  if (isTRUE(check_labels) && is.atomic(result) && has_text_attributes(result)) {
-    result <- redact_text_attributes(
-      result,
-      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
-    )
-    warn_user_missing_changed(user_missing_of(x), result, NULL)
-  }
-
-  # Anonymize the names and dimnames of a vector only if check_names is TRUE
-  if (isTRUE(check_names) && is.atomic(result) && has_names(result)) {
-    result <- redact_names(
-      result,
-      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
-    )
   }
 
   # Handle warnings based on .self parameter
@@ -741,31 +766,96 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
 # Whether a column has attributes that redact_text_attributes() looks at.
 has_text_attributes <- function(x) {
   attrs <- attributes(x)
-  text <- attrs[setdiff(names(attrs), c(non_text_attributes, "names", "dimnames"))]
+  text <- attrs[!names(attrs) %in% structural_attributes(x)]
   any(vapply(text, is.character, logical(1))) || !is.null(attrs$labels)
 }
 
+# A redactor for the vectors held in list `x`: their distinct texts (values,
+# factor levels, names, dimnames and text attributes, value labels included)
+# are redacted with `redact` in one call, and looked up. Text not found is
+# redacted directly, so the lookup never leaves text unredacted. NULL when
+# the list holds fewer than two vectors.
+batch_redactor <- function(x, redact) {
+  vectors <- Filter(function(e) is.atomic(e) && !is.null(e), x)
+  if (length(vectors) < 2) {
+    return(NULL)
+  }
+  texts <- unlist(lapply(vectors, function(e) {
+    values <- if (is.factor(e)) levels(e) else if (is.character(e)) as.character(unclass(e))
+    attrs <- attributes(e)
+    c(
+      values,
+      unlist(lapply(attrs[vapply(attrs, is.character, logical(1))], unname), use.names = FALSE),
+      names(e), unlist(dimnames(e), use.names = FALSE), names(attrs$labels)
+    )
+  }), use.names = FALSE)
+  texts <- unique(texts[!is.na(texts)])
+  # Looked up by name in a hashed environment, which (unlike match()) is
+  # built once; empty text and text that can't be searched are left to
+  # `redact`.
+  texts <- texts[nzchar(texts) & searchable_text(as_utf8(texts))]
+  table <- list2env(stats::setNames(as.list(redact(texts)), texts), hash = TRUE, parent = emptyenv())
+  function(text) {
+    plain <- unclass(text)
+    attributes(plain) <- NULL
+    out <- plain
+    usable <- !is.na(plain) & nzchar(plain) & searchable_text(as_utf8(plain))
+    found <- rep(FALSE, length(plain))
+    if (any(usable)) {
+      hits <- mget(plain[usable], envir = table, ifnotfound = list(NULL))
+      known <- !vapply(hits, is.null, logical(1))
+      found[which(usable)[known]] <- TRUE
+      out[found] <- unlist(hits[known], use.names = FALSE)
+    }
+    missing <- !found & !is.na(plain)
+    if (any(missing)) {
+      out[missing] <- redact(plain[missing])
+    }
+    keep_attributes(text, out)
+  }
+}
+
+# Whether a list element can be returned as it is: no text values, no names
+# and no attributes beyond structural ones.
+nothing_to_redact <- function(x) {
+  (is.numeric(x) || is.logical(x) || is.null(x)) && !is.object(x) && is.null(attributes(x))
+}
+
 # Apply `redact` to the text attributes of a vector, column or data frame:
-# labels, comments and other character attributes that aren't structural (see
-# non_text_attributes), haven value labels (their names, and their values
-# when they are text) and text user-defined missing values (`na_values`, and
-# the ends of `na_range`), as the values are redacted. Names, and the
-# attributes of a data frame that refer to its columns (see
-# is_column_reference()), are left to `check_names`. Value labels whose codes
-# the redaction made equal are merged (see merge_equal_codes()), with a
-# warning naming the column (`where`, as named in the output).
+# labels, comments and other character attributes that aren't structural for
+# its class (see structural_attributes()), haven value labels (their names,
+# and their values when they are text) and text user-defined missing values
+# (`na_values`, and the ends of `na_range`), as the values are redacted.
+# Names are left to `check_names`. Value labels whose codes the redaction made
+# equal are merged (see merge_equal_codes()), with a warning naming the column
+# (`where`, as named in the output); equal missing-value codes are
+# deduplicated, which doesn't change which values are missing. A text
+# `na_range` whose redacted ends would be in descending order is kept, with a
+# warning.
 redact_text_attributes <- function(x, redact, where = NULL) {
   attrs <- attributes(x)
-  for (name in setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "labels"))) {
-    if (is.data.frame(x) && is_column_reference(x, name)) {
-      next
-    }
+  shown <- if (is.null(where)) "a vector" else paste0("`", where, "`")
+  names_attrs <- names(attrs)
+  for (name in names_attrs[!names_attrs %in% c(structural_attributes(x), "labels", "na_range")]) {
     if (is.character(attrs[[name]])) {
       attr(x, name) <- redact(attrs[[name]])
     }
   }
   if (is.data.frame(x)) {
     return(x)
+  }
+  na_range <- attrs$na_range
+  if (is.character(na_range)) {
+    redacted <- redact(na_range)
+    if (length(redacted) == 2 && !isTRUE(redacted[[1]] <= redacted[[2]])) {
+      warning(
+        "The missing-value range of ", shown, " was not redacted, because its redacted ends would be ",
+        "in descending order: redact or remove it.",
+        call. = FALSE
+      )
+    } else {
+      attr(x, "na_range") <- redacted
+    }
   }
   na_values <- attr(x, "na_values", exact = TRUE)
   if (!is.null(na_values) && !anyDuplicated(attrs$na_values)) {
@@ -780,12 +870,11 @@ redact_text_attributes <- function(x, redact, where = NULL) {
       labels[] <- redact(unname(labels))
     }
     if (!anyDuplicated(unname(attrs$labels))) {
-      merged <- merge_equal_codes(labels, redact)
+      merged <- merge_equal_codes(labels, redact, names(attrs$labels))
       labels <- merged$codes
       if (merged$merged) {
         warning(
-          "Value labels of ", if (is.null(where)) "a vector" else paste0("`", where, "`"),
-          " were merged because redaction made their codes equal.",
+          "Value labels of ", shown, " were merged because redaction made their codes equal.",
           call. = FALSE
         )
       }
@@ -938,6 +1027,8 @@ compile_patterns <- function(pattern_replacements) {
     regex = regex,
     group_names = group_names,
     replacements = names(replacement_groups),
+    # The replacements with \\ and $ escaped, for stri_replace_all_regex().
+    literal = gsub("([\\\\$])", "\\\\\\1", names(replacement_groups)),
     all_patterns = all_patterns
   )
 }
@@ -1038,7 +1129,7 @@ replace_compiled <- function(text, compiled) {
 
   if (length(compiled$groups) == 1) {
     # One replacement value: no need to find out which group matched.
-    literal <- gsub("([\\\\$])", "\\\\\\1", compiled$replacements)
+    literal <- compiled$literal %||% gsub("([\\\\$])", "\\\\\\1", compiled$replacements)
     replaced <- stringi::stri_replace_all_regex(
       keys,
       compiled$regex,
