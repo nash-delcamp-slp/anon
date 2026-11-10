@@ -174,6 +174,13 @@ deid_fixture <- function() {
   # A factor with contrasts, which are structural.
   dm$SEXF <- factor(rep(c("F", "M"), 4))
   stats::contrasts(dm$SEXF) <- stats::contr.sum(2)
+  # A factor whose contrasts matrix is named by a level holding a
+  # user-pattern term, which anon() must redact with the levels.
+  dm$ARMF <- factor(rep(c("DRUGQX", "Placebo"), 4))
+  stats::contrasts(dm$ARMF) <- stats::contr.treatment(2)
+  # SPSS variable labels (as foreign::read.spss writes them), named by
+  # column, one name holding a user-pattern term.
+  attr(dm, "variable.labels") <- c(AGE = "Age", DRUGQX_DOSE = "Dose")
   # haven-labelled columns (when haven is installed): a key and a user-pattern
   # term in value labels, and a key as a user-defined missing value. Every exit
   # must also handle them, JSON included.
@@ -306,18 +313,19 @@ deid_fixture <- function() {
 # pseudonym (longer keys first, as one key starts another), and each ISO 8601
 # full date becomes "[DATE]".
 deid_rewrite_text <- function(x, oracle) {
-  # Text that isn't valid UTF-8 is searched with its invalid bytes written as
-  # "<92>", and that repaired text is kept only where something was rewritten.
-  invalid <- !is.na(x) & !validUTF8(x)
-  repaired <- x
-  repaired[invalid] <- iconv(x[invalid], "UTF-8", "UTF-8", sub = "byte")
+  # Text is searched in UTF-8 (text marked latin1 converted), with the bytes
+  # of text that isn't valid UTF-8 written as "<92>"; that converted text is
+  # kept only where something was rewritten.
+  repaired <- enc2utf8(x)
+  invalid <- !is.na(repaired) & !validUTF8(repaired)
+  repaired[invalid] <- iconv(repaired[invalid], "UTF-8", "UTF-8", sub = "byte")
   new <- repaired
   keys <- names(oracle$new_key)
   for (k in keys[order(-nchar(keys))]) {
     new <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], new, perl = TRUE)
   }
   new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
-  keep <- invalid & new == repaired
+  keep <- !is.na(new) & new == repaired
   new[keep] <- x[keep]
   new
 }

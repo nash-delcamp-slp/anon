@@ -77,10 +77,7 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 \item{check_names}{Logical indicating whether to anonymize object names
 (column names, row names, list names, and the names and dimnames of
 vectors and columns; a data.table's key and indices follow its column
-names). Default is \code{TRUE}. Text that isn't valid UTF-8 is searched
-through a repaired copy with the invalid bytes written as \code{"<92>"}, which
-is written back where a pattern matched; text marked as \code{"bytes"} that
-isn't valid UTF-8 is left as it is, with a warning.}
+names). Default is \code{TRUE}.}
 
 \item{check_labels}{Logical indicating whether to anonymize labels
 (attributes) of columns and data frames: variable and data frame labels,

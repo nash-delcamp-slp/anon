@@ -750,3 +750,44 @@ test_that("anon() returns list elements with nothing to redact as they are, and 
   expect_equal(as.character(out$b), "[D]")
   expect_equal(out$c$x, "[D]")
 })
+
+test_that("anon() leaves unconvertible bytes text alone next to text it changes", {
+  invalid <- "Xanomeline\xff"
+  Encoding(invalid) <- "bytes"
+  out <- suppressWarnings(anon(c(invalid, "Café Xanomeline"), pattern_list = list("[X]" = "Xanomeline")))
+  expect_identical(as.character(out), c(invalid, "Café [X]"))
+  df <- data.frame(id = 1:2)
+  df$NOTE <- c(invalid, "Café Xanomeline")
+  expect_warning(out <- anon(df, pattern_list = list("[X]" = "Xanomeline")), "marked as \"bytes\"")
+  expect_identical(out$NOTE[2], "Café [X]")
+})
+
+test_that("anon() looks for approximate matches in text that isn't valid UTF-8", {
+  # Invalid text is searched repaired, next to a near-match, without an error.
+  expect_warning(
+    out <- anon(c("Xanomelin", "Alz\x92 Xanomeline"), pattern_list = list("[X]" = "Xanomeline"), check_approximate = TRUE),
+    "approximate match: 'Xanomelin'"
+  )
+  expect_identical(as.character(out)[2], "Alz<92> [X]")
+})
+
+test_that("anon() redacts the names of character attributes", {
+  df <- data.frame(Xanomeline = 1:2, b = c("a", "b"))
+  attr(df, "variable.labels") <- c(Xanomeline = "Xanomeline dose", b = "B")
+  attr(df$b, "note") <- c(Xanomeline = "x")
+  out <- anon(df, pattern_list = list("[X]" = "Xanomeline"))
+  expect_equal(attr(out, "variable.labels"), c("[X]" = "[X] dose", b = "B"))
+  expect_equal(attr(out$b, "note"), c("[X]" = "x"))
+  kept <- anon(df, pattern_list = list("[X]" = "Xanomeline"), check_labels = FALSE)
+  expect_equal(attr(kept, "variable.labels"), attr(df, "variable.labels"))
+})
+
+test_that("anon() drops a contrasts matrix when redaction merges levels", {
+  f <- factor(c("DrugA", "DrugB", "Placebo"))
+  stats::contrasts(f) <- stats::contr.treatment(3)
+  out <- anon(f, pattern_list = list("[D]" = c("DrugA", "DrugB")))
+  expect_equal(levels(out), c("[D]", "Placebo"))
+  expect_null(attr(out, "contrasts"))
+  df <- data.frame(f = f)
+  expect_null(attr(anon(df, pattern_list = list("[D]" = c("DrugA", "DrugB")))$f, "contrasts"))
+})

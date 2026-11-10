@@ -35,10 +35,7 @@
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names, and the names and dimnames of
 #'   vectors and columns; a data.table's key and indices follow its column
-#'   names). Default is `TRUE`. Text that isn't valid UTF-8 is searched
-#'   through a repaired copy with the invalid bytes written as `"<92>"`, which
-#'   is written back where a pattern matched; text marked as `"bytes"` that
-#'   isn't valid UTF-8 is left as it is, with a warning.
+#'   names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels
 #'   (attributes) of columns and data frames: variable and data frame labels,
 #'   comments and other character attributes that aren't structural, haven
@@ -83,6 +80,12 @@
 #' - Individual columns are processed based on their content
 #' - Entire columns can be replaced if specified in `df_variable_names` or `df_classes`
 #' - Column names, row names, and labels (including haven value labels) are redacted when enabled
+#'
+#' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
+#' through a repaired copy with the invalid bytes shown as hex (e.g.
+#' `"<92>"`), which is written back where a pattern matched; a pattern that
+#' matches digits can match inside such a marker. Text marked as `"bytes"`
+#' that isn't valid UTF-8 is left as it is, with a warning.
 #'
 #' Pattern matching is case-insensitive. When `check_approximate` is enabled,
 #' `anon()` will warn about remaining potential matches that are similar but not exact.
@@ -216,7 +219,7 @@ anon <- function(
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
-      approximate_text <- unique(result[!is.na(result)])
+      approximate_text <- searchable_copy(unique(result[!is.na(result)]))
 
       batch_results <- compute_approximate_distances_batch(
         approximate_text,
@@ -833,10 +836,14 @@ batch_redactor <- function(x, redact, with_labels = TRUE, with_names = TRUE) {
 }
 
 # A factor's contrasts matrix is named by its levels, which are redacted as
-# values, so its names are redacted too.
+# values, so its names are redacted too; when redaction merged levels, the
+# matrix no longer fits and is dropped.
 redact_contrasts <- function(x, redact) {
   contrasts <- attr(x, "contrasts", exact = TRUE)
-  if (!is.null(dimnames(contrasts))) {
+  if (is.matrix(contrasts) && nrow(contrasts) != nlevels(x)) {
+    # Redaction merged levels: the matrix no longer fits, as in the steps.
+    attr(x, "contrasts") <- NULL
+  } else if (!is.null(dimnames(contrasts))) {
     dimnames(contrasts) <- lapply(dimnames(contrasts), function(d) if (!is.null(d)) redact(d))
     attr(x, "contrasts") <- contrasts
   }
@@ -867,7 +874,13 @@ redact_text_attributes <- function(x, redact, where = NULL) {
   own_terms <- if (is.data.frame(x)) character(0) else c("labels", "na_range")
   for (name in names_attrs[!names_attrs %in% c(structural_attributes(x), own_terms)]) {
     if (is.character(attrs[[name]])) {
-      attr(x, name) <- redact(attrs[[name]])
+      value <- redact(attrs[[name]])
+      # Names of the attribute's values (such as the column names of SPSS
+      # `variable.labels`) are text too.
+      if (!is.null(names(value))) {
+        names(value) <- redact(names(value))
+      }
+      attr(x, name) <- value
     }
   }
   if (is.data.frame(x)) {
@@ -1154,7 +1167,8 @@ replace_compiled <- function(text, compiled) {
   # left as it is; apply_patterns() reports it.
   # These checks run on the distinct values only, which are then matched back.
   values <- unique(text[!is.na(text)])
-  values <- values[!unconvertible_bytes(values)]
+  skipped <- unconvertible_bytes(values)
+  values <- values[!skipped]
   search <- values
   bytes <- Encoding(search) == "bytes"
   if (any(bytes)) {
@@ -1177,7 +1191,7 @@ replace_compiled <- function(text, compiled) {
       literal,
       opts_regex = opts
     )
-    return(keep_attributes(original, replace_matched(text, values, search, keys, replaced)))
+    return(keep_attributes(original, replace_matched(text, values, search, keys, replaced, any(skipped))))
   }
 
   hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
@@ -1214,21 +1228,38 @@ replace_compiled <- function(text, compiled) {
     to = lapply(locations, function(loc) loc[, "end"]),
     replacement = unname(split(compiled$replacements[group_idx], owner))
   )
-  keep_attributes(original, replace_matched(text, values, search, keys, replaced))
+  keep_attributes(original, replace_matched(text, values, search, keys, replaced, any(skipped)))
 }
 
 # `text` with each of the distinct `values` (searched as `search`) replaced
 # where the redaction changed it; other values are kept as they are.
-replace_matched <- function(text, values, search, keys, replaced) {
+replace_matched <- function(text, values, search, keys, replaced, skipped = FALSE) {
   i <- match(search, keys)
   changed <- replaced[i] != keys[i]
   if (!any(changed)) {
     return(text)
   }
-  at <- match(text, values[changed])
+  # Text marked "bytes" that isn't valid UTF-8 can't be matched against
+  # other text, so only the other positions are.
+  ok <- if (skipped) which(!unconvertible_bytes(text)) else seq_along(text)
+  at <- match(text[ok], values[changed])
   hit <- !is.na(at)
-  text[hit] <- replaced[i[changed]][at[hit]]
+  text[ok[hit]] <- replaced[i[changed]][at[hit]]
   text
+}
+
+# Distinct texts as they are searched: text marked "bytes" that isn't valid
+# UTF-8 is left out, other text marked "bytes" is unmarked, and invalid bytes
+# are written as "<92>".
+searchable_copy <- function(text) {
+  text <- text[!unconvertible_bytes(text)]
+  bytes <- Encoding(text) == "bytes"
+  if (any(bytes)) {
+    unmarked <- text[bytes]
+    Encoding(unmarked) <- "unknown"
+    text[bytes] <- unmarked
+  }
+  unique(repair_utf8(enc2utf8(text)))
 }
 
 # Which texts are marked "bytes" and aren't valid UTF-8, so can't be searched.

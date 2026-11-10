@@ -159,12 +159,13 @@ lists any dataset without \code{key} that has such columns or a column named
 like \code{key} in another case.
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
-searched through a repaired copy with the invalid bytes written as
-\code{"<92>"}; where something is rewritten, the repaired text is written back.
-Both steps warn about text marked as \code{"bytes"} in values, which can't be
-searched: they count distinct texts and name the columns, or datasets
-(\code{"(list)"} for attributes of the list of datasets and dataset names),
-holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
+searched through a repaired copy with the invalid
+bytes shown as hex (e.g. \code{"<92>"}); where something is rewritten, the
+repaired text is written back. A pattern that matches digits can match
+inside such a marker. Both steps warn about text marked as \code{"bytes"}, which
+can't be searched, in values, attributes and names: they count distinct
+texts and name the columns, or datasets (\code{"(list)"} for attributes of the
+list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
 step shows original keys as \code{"[KEY]"}. Names inside packed columns are

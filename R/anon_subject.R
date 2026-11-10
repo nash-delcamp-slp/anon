@@ -393,12 +393,13 @@ anon_subject_ids <- function(
 #' like `key` in another case.
 #'
 #' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
-#' searched through a repaired copy with the invalid bytes written as
-#' `"<92>"`; where something is rewritten, the repaired text is written back.
-#' Both steps warn about text marked as `"bytes"` in values, which can't be
-#' searched: they count distinct texts and name the columns, or datasets
-#' (`"(list)"` for attributes of the list of datasets and dataset names),
-#' holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
+#' searched through a repaired copy with the invalid
+#' bytes shown as hex (e.g. `"<92>"`); where something is rewritten, the
+#' repaired text is written back. A pattern that matches digits can match
+#' inside such a marker. Both steps warn about text marked as `"bytes"`, which
+#' can't be searched, in values, attributes and names: they count distinct
+#' texts and name the columns, or datasets (`"(list)"` for attributes of the
+#' list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
 #' step again. Every location printed in the steps' warnings and errors has
 #' keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
 #' step shows original keys as `"[KEY]"`. Names inside packed columns are
@@ -1168,7 +1169,8 @@ key_text_regex <- function(keys) {
 # - always: `class`, `names`, `row.names`, `dim`, `dimnames` (names and
 #   dimnames are rewritten as names, never dropped);
 # - factors: `levels` (a column's values; the levels of a factor held in an
-#   attribute are rewritten as text) and `contrasts`;
+#   attribute are rewritten as text) and `contrasts` when it is a matrix or
+#   names a function (other text is ordinary);
 # - date-times: `tzone`; difftime and units objects: `units`; time series:
 #   `tsp`; survival::Surv: `type` and `states`;
 # - vctrs objects: `ptype` (never dropped, but its content is rewritten);
@@ -1178,7 +1180,7 @@ key_text_regex <- function(keys) {
 #   `display_width` (format names can't hold text about the data).
 structural_attributes <- function(x) {
   out <- c("class", "names", "row.names", "dim", "dimnames")
-  if (is.factor(x)) out <- c(out, "levels", "contrasts")
+  if (is.factor(x)) out <- c(out, "levels", if (is_structural_contrasts(attr(x, "contrasts", exact = TRUE))) "contrasts")
   if (inherits(x, "POSIXt")) out <- c(out, "tzone")
   if (inherits(x, c("difftime", "units"))) out <- c(out, "units")
   if (inherits(x, "ts")) out <- c(out, "tsp")
@@ -1198,6 +1200,13 @@ structural_attributes <- function(x) {
 # user-defined missing values. Names and dimnames are rewritten too, and are
 # never dropped.
 core_attributes <- c("label", "comment", "labels", "na_values", "na_range")
+
+# Whether a factor's `contrasts` is structural: a matrix, or the name of a
+# contrasts function such as "contr.sum".
+is_structural_contrasts <- function(contrasts) {
+  !is.character(contrasts) ||
+    (length(contrasts) == 1 && !is.na(contrasts) && exists(contrasts, mode = "function"))
+}
 
 # Whether attribute `name` of data frame `x` refers to its columns by name:
 # the grouping of a grouped or rowwise tibble (dplyr), or the key and indices
@@ -1814,8 +1823,9 @@ warn_merged_codes <- function(merged, deduplicated = character(0), locate = iden
   }
 }
 
-# Warn about text, anywhere in the data, that can't be searched (not valid
-# UTF-8, or marked as "bytes"), counting distinct texts by location: values
+# Warn about text, anywhere in the data, that can't be searched (marked as
+# "bytes"; other text that isn't valid UTF-8 is searched repaired), counting
+# distinct texts by location: values
 # by column (see column_leaves()), and texts found while rewriting attributes
 # and names (`invalid`, a list of texts by location). `locate` rewrites the
 # printed locations, which can hold names inside packed columns.
@@ -1832,8 +1842,8 @@ warn_invalid_utf8 <- function(data, invalid = list(), locate = identity) {
   }
   if (length(texts) > 0) {
     warning(
-      length(unique(unlist(texts, use.names = FALSE))), " distinct text(s) can't be searched (not valid UTF-8, or marked as ",
-      "\"bytes\"): ", paste(sort(locate(names(texts))), collapse = ", "),
+      length(unique(unlist(texts, use.names = FALSE))), " distinct text(s) marked as \"bytes\" can't be searched: ",
+      paste(sort(locate(names(texts))), collapse = ", "),
       ". Convert them to UTF-8 (for example with iconv()) and run the step again.",
       call. = FALSE
     )
@@ -1945,6 +1955,9 @@ column_leaves <- function(df, prefix, inside, top = NULL) {
       as.character(x)
     } else if (is.list(x)) {
       list_text(x)
+    } else if (inherits(x, "Surv")) {
+      # A multi-state Surv's states are its values' labels, like factor levels.
+      attr(x, "states", exact = TRUE)
     }
     if (inside) {
       text <- c(text, list_text(list(attributes(x)[setdiff(names(attributes(x)), c("class", "levels"))])))

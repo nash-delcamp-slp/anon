@@ -1341,7 +1341,7 @@ test_that("text in list-level attributes or dataset names, or marked as bytes, t
   note <- "caf\u00e9"
   Encoding(note) <- "bytes"
   attr(d, "note") <- note
-  expect_warning(anon_subject_ids(d, seed = 1), "^1 distinct text\\(s\\) can't be searched .*: \\(list\\)\\.")
+  expect_warning(anon_subject_ids(d, seed = 1), "^1 distinct text\\(s\\) marked as \"bytes\" can't be searched: \\(list\\)\\.")
   b <- "S-01 caf\u00e9"
   Encoding(b) <- "bytes"
   d <- data.frame(USUBJID = c("S-01", "S-02"), T = c(b, "x"), V = 1:2, RFSTDTC = "2014-01-01")
@@ -1718,4 +1718,25 @@ test_that("errors name datasets with keys and dates hidden", {
   d <- list(dm = data.frame(USUBJID = "AB-1001", X = 1))
   names(d) <- "AB-1001 2014-05-06"
   expect_error(anon_subject_dates(d, vars = "X"), "`X` in `\\[KEY\\] \\[DATE\\]` is not a date column")
+})
+
+test_that("a character contrasts is structural only when it names a function", {
+  d <- data.frame(USUBJID = c("AB-1001", "AB-1002"))
+  d$ARM <- factor(c("x", "y"))
+  attr(d$ARM, "contrasts") <- "AB-1002 note"
+  d$TRT <- factor(c("x", "y"))
+  attr(d$TRT, "contrasts") <- "contr.sum"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_equal(attr(step$data$ARM, "contrasts"), paste(new[["AB-1002"]], "note"))
+  expect_equal(attr(step$data$TRT, "contrasts"), "contr.sum")
+  dropped <- anon_subject_ids(d, seed = 1, other_attributes = "drop")$data
+  expect_null(attr(dropped$ARM, "contrasts"))
+  expect_equal(attr(dropped$TRT, "contrasts"), "contr.sum")
+})
+
+test_that("the states of a multi-state Surv column are searched for keys, like factor levels", {
+  d <- data.frame(USUBJID = c("AB-1001", "AB-1002"))
+  d$S <- structure(matrix(c(1, 2, 1, 0), 2), type = "mright", states = c("a", "AB-1001"), class = "Surv")
+  expect_warning(anon_subject_ids(d, seed = 1), "still contain original `USUBJID` values.*: data.S\\.")
 })
