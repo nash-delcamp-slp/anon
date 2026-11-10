@@ -589,8 +589,9 @@ test_that("anon() on a step applies its patterns to the log and settings", {
 
 test_that("duplicate column names are rejected", {
   d <- data.frame(USUBJID = "a", AESTDTC = "2020-01-01", AESTDTC = "2020-02-01", check.names = FALSE)
-  expect_error(anon_subject_dates(d), "`AESTDTC` repeats")
-  expect_error(anon_subject_ids(list(ae = d)), "Column names in `ae` must be unique")
+  # Names can hold keys, so the error gives positions.
+  expect_error(anon_subject_dates(d), "Column names in dataset 1 of `data` must be unique; column 3 repeats")
+  expect_error(anon_subject_ids(list(x = d[1], ae = d)), "dataset 2 of `data` must be unique")
   expect_error(anon_risk(d, quasi = "USUBJID", key = "AESTDTC"), "must be unique")
 })
 
@@ -1109,16 +1110,20 @@ test_that("keys and dates inside list-column elements are flagged, not rewritten
   expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.D\\.")
 })
 
-test_that("text that isn't valid UTF-8 is named in a warning; latin1 text is searched", {
+test_that("text that isn't valid UTF-8 is searched through a repaired copy; latin1 text is searched", {
   bad <- "Caf\xe9 S-01"
-  d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2, T = c(bad, "ok"))
+  d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2, T = c(bad, "ok"), RFSTDTC = "2014-01-01")
   attr(d$V, "label") <- bad
   expect_warning(
-    out <- anon_subject_ids(list(dm = d), seed = 1)$data$dm,
-    "^1 distinct text\\(s\\) can't be searched \\(not valid UTF-8, or marked as \"bytes\"\\): dm.T, dm.V\\."
+    step <- anon_subject_ids(list(dm = d), keep_secrets = TRUE, seed = 1),
+    "^These columns still contain original `USUBJID` values, possibly inside text: dm.T\\."
   )
-  expect_equal(attr(out$V, "label"), bad)
-  expect_warning(anon_subject_dates(list(dm = d), seed = 1), "can't be searched .*: dm.T, dm.V\\.")
+  # The rewritten label is the repaired text.
+  expect_identical(attr(step$data$dm$V, "label"), paste0("Caf<e9> ", anon_secrets(step)$subject_ids$pseudonym[1]))
+  # Text with nothing to rewrite keeps its bytes.
+  attr(d$V, "label") <- "Caf\xe9"
+  expect_identical(attr(suppressWarnings(anon_subject_ids(d, seed = 1))$data$V, "label"), "Caf\xe9")
+  expect_no_warning(anon_subject_dates(data.frame(USUBJID = "a", RFSTDTC = "2014-01-01", T = "Caf\xe9"), seed = 1))
   latin <- "Caf\xe9 S-01"
   Encoding(latin) <- "latin1"
   d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1:2)
@@ -1237,7 +1242,8 @@ test_that("packed data frame columns are data: searched and flagged, not rewritt
   )
   expect_identical(out$P, d$P[match(out$USUBJID, c("SUBJ-1", "SUBJ-2")), ])
   expect_named(out$H, "S-01")
-  expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.P\\[SEEN\\], data.P\\[IN\\]\\[Z\\]\\.")
+  # The dates step names columns inside packed columns by position.
+  expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.P\\[2\\], data.P\\[4\\]\\[1\\]\\.")
 })
 
 test_that("dates held in attributes as Date or date-time values become [DATE]", {
@@ -1332,7 +1338,9 @@ test_that("value-label codes that the rewrite makes equal are merged, and named 
 
 test_that("text in list-level attributes or dataset names, or marked as bytes, that can't be searched is named", {
   d <- list(dm = data.frame(USUBJID = c("S-01", "S-02")))
-  attr(d, "note") <- "caf\xe9"
+  note <- "caf\u00e9"
+  Encoding(note) <- "bytes"
+  attr(d, "note") <- note
   expect_warning(anon_subject_ids(d, seed = 1), "^1 distinct text\\(s\\) can't be searched .*: \\(list\\)\\.")
   b <- "S-01 caf\u00e9"
   Encoding(b) <- "bytes"
@@ -1478,20 +1486,25 @@ test_that("data.table index names whose columns hold \"__\" are renamed through 
 })
 
 test_that("column and dataset names marked as bytes don't stop the steps", {
-  # Not valid UTF-8: reported as text that can't be searched, and kept.
+  # Not valid UTF-8: searched through a repaired copy, so a key in it is
+  # rewritten (the name becomes the repaired text); without a key it is kept.
   b <- "S-01 caf\xe9"
   Encoding(b) <- "bytes"
   d <- data.frame(USUBJID = c("S-01", "S-02"), V = 1, RFSTDTC = "2014-01-01")
   names(d)[2] <- b
-  expect_warning(out <- anon_subject_ids(list(dm = d), seed = 1), "^1 distinct text\\(s\\) can't be searched .*: dm\\.")
-  expect_identical(names(out$data$dm)[2], b)
+  out <- anon_subject_ids(list(dm = d), seed = 1)
+  expect_identical(names(out$data$dm)[2], "SUBJ-1 caf<e9>")
+  plain <- "caf\xe9"
+  Encoding(plain) <- "bytes"
+  names(d)[2] <- plain
+  out <- anon_subject_dates(list(dm = d), seed = 1)
+  expect_identical(names(out$data$dm)[2], plain)
   expect_identical(Encoding(names(out$data$dm)[2]), "bytes")
-  expect_warning(out <- anon_subject_dates(list(dm = d), seed = 1), "can't be searched .*: dm\\.")
   expect_false(any(.subset2(out$data$dm, 3) == "2014-01-01"))
   data <- list(dm = data.frame(USUBJID = "S-01"), x = data.frame(Y = 1))
   names(data)[2] <- b
-  expect_warning(out <- anon_subject_ids(data, seed = 1), "can't be searched .*: \\(list\\)\\.")
-  expect_identical(names(out$data)[2], b)
+  out <- anon_subject_ids(data, seed = 1)
+  expect_identical(names(out$data)[2], "SUBJ-1 caf<e9>")
   # Valid UTF-8 marked as bytes is searched, and stays marked as bytes.
   v <- "S-01 caf\u00e9"
   Encoding(v) <- "bytes"
@@ -1518,7 +1531,7 @@ test_that("locations inside packed columns are printed with keys and dates rewri
   expect_match(w, paste0("data.P, data.P\\[", s2, "\\]\\. Add text or factor columns"), all = FALSE)
   expect_false(any(grepl("S-0", w)))
   w <- step_warnings(anon_subject_dates(d, seed = 1))
-  expect_match(w, "not shifted: data.P, data.P\\[\\[DATE\\]\\]\\.", all = FALSE)
+  expect_match(w, "not shifted: data.P, data.P\\[2\\]\\.", all = FALSE)
   expect_false(any(grepl("2014-03-03", w)))
 })
 
@@ -1634,8 +1647,14 @@ test_that("warnings print locations with keys and dates hidden, and text that ca
     w
   }
   dates_first <- warnings_of(step <- anon_subject_dates(d, seed = 1))
-  # The packed column itself is named too: its column names hold a date.
-  expect_match(dates_first, "not shifted: data.PK, data.PK\\[\\[KEY\\]\\]\\.", all = FALSE)
+  # The packed column itself is named too: its column names hold a date. The
+  # dates step names columns inside packed columns by position, also when
+  # given the data of an IDs step rather than the step.
+  expect_match(dates_first, "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE)
+  expect_match(
+    warnings_of(anon_subject_dates(anon_subject_ids(d, seed = 2)$data, seed = 1)),
+    "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE
+  )
   ids_after <- warnings_of(anon_subject_ids(step, seed = 2))
   ids_first <- warnings_of(step <- anon_subject_ids(d, seed = 2))
   # After the IDs step, columns inside packed columns are shown by position.
@@ -1652,4 +1671,51 @@ test_that("warnings print locations with keys and dates hidden, and text that ca
   d2$PK <- p
   w <- warnings_of(anon_subject_ids(d2, seed = 1))
   expect_match(w, "data.PK\\[caf<e9> SUBJ-[12]\\]", all = FALSE)
+})
+
+test_that("factors whose values are replaced or shifted drop a contrasts matrix; others keep it, renamed", {
+  d <- data.frame(USUBJID = factor(c("S-01", "S-02")), DTC = factor(c("2014-01-02", "2014-02-03")))
+  stats::contrasts(d$USUBJID) <- stats::contr.sum(2)
+  stats::contrasts(d$DTC) <- stats::contr.treatment(2)
+  # Contrasts named by levels that hold a key and a date.
+  d$KEPT <- factor(c("S-01 group", "2014-01-02 group"))
+  stats::contrasts(d$KEPT) <- stats::contr.sum(2)
+  d$NAMED <- factor(c("x", "y"))
+  attr(d$NAMED, "contrasts") <- "contr.sum"
+  # KEPT's levels are values, and flagged.
+  step <- suppressWarnings(anon_subject_dates(anon_subject_ids(d, keep_secrets = TRUE, seed = 1), seed = 2))
+  out <- step$data
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_null(attr(out$USUBJID, "contrasts"))
+  expect_null(attr(out$DTC, "contrasts"))
+  expect_equal(rownames(attr(out$KEPT, "contrasts")), c("[DATE] group", paste(new[["S-01"]], "group")))
+  expect_equal(attr(out$NAMED, "contrasts"), "contr.sum")
+  # A contrasts function's name on a replaced factor stays too.
+  k <- data.frame(USUBJID = factor(c("S-01", "S-02")))
+  attr(k$USUBJID, "contrasts") <- "contr.sum"
+  expect_equal(attr(anon_subject_ids(k, seed = 1)$data$USUBJID, "contrasts"), "contr.sum")
+})
+
+test_that("a survival::Surv column keeps its type and states, also with \"drop\"", {
+  # A Surv object as survival::Surv() builds it (survival isn't a suggested
+  # package).
+  surv <- structure(
+    matrix(c(5, 8, 3, 1, 0, 1), ncol = 2, dimnames = list(NULL, c("time", "status"))),
+    type = "right", states = c("event"), class = "Surv"
+  )
+  d <- data.frame(USUBJID = c("S-01", "S-02", "S-03"))
+  d$S <- surv
+  attr(d$S, "inputAttributes") <- list(time = list(note = "x"))
+  out <- anon_subject_ids(d, seed = 1, other_attributes = "drop")$data$S
+  expect_equal(attr(out, "type"), "right")
+  expect_equal(attr(out, "states"), "event")
+  expect_null(attr(out, "inputAttributes"))
+  expect_s3_class(out, "Surv")
+  expect_equal(nrow(unclass(out)), 3)
+})
+
+test_that("errors name datasets with keys and dates hidden", {
+  d <- list(dm = data.frame(USUBJID = "AB-1001", X = 1))
+  names(d) <- "AB-1001 2014-05-06"
+  expect_error(anon_subject_dates(d, vars = "X"), "`X` in `\\[KEY\\] \\[DATE\\]` is not a date column")
 })

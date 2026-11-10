@@ -39,8 +39,9 @@
 #'   dropped, and are structural only on the classes that use them: `class`,
 #'   `names`, `row.names`, `dim` and `dimnames` on anything; `levels` and
 #'   `contrasts` on factors; `tzone` on date-times; `units` on difftime and
-#'   units objects; `tsp` on time series; `ptype` on vctrs objects (its text
-#'   is still rewritten); `groups` on grouped and rowwise tibbles; `sorted`,
+#'   units objects; `tsp` on time series; `type` and `states` on
+#'   `survival::Surv` objects; `ptype` on vctrs objects (its text is still
+#'   rewritten); `groups` on grouped and rowwise tibbles; `sorted`,
 #'   `index` and `.internal.selfref` on data.tables; SAS, SPSS and Stata
 #'   formats, and a numeric `display_width`, on vectors. Elsewhere an
 #'   attribute with one of these names is text (for example free-text `units`
@@ -71,7 +72,11 @@
 #' in character user-defined missing values (`na_values`, `na_range`) of those
 #' columns; and in column names, character row names and dataset names.
 #' Structural attributes (see `other_attributes`) are left alone, except that
-#' text in a vctrs `ptype` is rewritten; so are environments, functions and S4
+#' text in a vctrs `ptype`, and the names of a factor's contrasts matrix, are
+#' rewritten; a factor whose values are replaced or shifted drops a contrasts
+#' matrix (named by its old levels, it no longer fits the new ones), and keeps
+#' a contrasts function's name such as `"contr.sum"`. So are environments,
+#' functions and S4
 #' objects held in attributes (they can refer to themselves, are shared with
 #' whoever else holds them, or must keep valid slots; S4 objects are named in
 #' a warning). The grouping of a grouped or rowwise tibble (`groups`) and the
@@ -87,11 +92,16 @@
 #' descending order. Value labels whose codes the rewrite made equal are
 #' merged into one entry, their original labels joined with `" / "` and then
 #' rewritten (haven requires distinct codes; label text may repeat), and equal
-#' missing-value codes are deduplicated; a warning names each. A rewritten name that clashes with another gets a numeric suffix
-#' (`"_1"`), and settings and the log name the suffixed column; a column name
+#' missing-value codes are deduplicated; a warning names each. Ranges are
+#' compared as R compares text in the session's collation, as haven does. A
+#' rewritten name that clashes with another gets a numeric suffix (`"_1"`),
+#' and settings and the log name the suffixed column; a column name
 #' in the settings that was renamed differently in different datasets is
 #' rewritten as text instead. Column and dataset names marked as `"bytes"`
-#' are handled like other names and stay marked as `"bytes"`.
+#' are handled like other names and stay marked as `"bytes"` unless
+#' rewritten. A dataset with nothing to rewrite is returned as the same
+#' object, so `:=` on a data.table changes the input too; once a later step
+#' changes it, its `.internal.selfref` is stale (call `data.table::setDT()`).
 #' Keys made only of digits, and numeric keys, are not rewritten, for the same
 #' reason they are not searched for below. The log has one row per dataset
 #' with such rewrites (and one for the list of datasets), with counts by kind;
@@ -382,17 +392,19 @@ anon_subject_ids <- function(
 #' lists any dataset without `key` that has such columns or a column named
 #' like `key` in another case.
 #'
-#' Both steps warn about text that can't be searched: text that isn't valid
-#' UTF-8 (after converting text marked with another encoding, such as latin1)
-#' or is marked as `"bytes"`. They count distinct texts and name the columns,
-#' or datasets (`"(list)"` for attributes of the list of datasets and dataset
-#' names), holding it. Convert it to UTF-8 (for example with [iconv()]) and
-#' run the step again. Every location printed in the steps' warnings has
+#' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
+#' searched through a repaired copy with the invalid bytes written as
+#' `"<92>"`; where something is rewritten, the repaired text is written back.
+#' Both steps warn about text marked as `"bytes"` in values, which can't be
+#' searched: they count distinct texts and name the columns, or datasets
+#' (`"(list)"` for attributes of the list of datasets and dataset names),
+#' holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
+#' step again. Every location printed in the steps' warnings and errors has
 #' keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-#' step shows original keys as `"[KEY]"`. When [anon_subject_ids()] ran
-#' first, this step can't recognise original keys left in names inside packed
-#' columns (data, which that step doesn't rewrite), so it shows the columns
-#' inside packed columns by position (`dataset.column[2]`).
+#' step shows original keys as `"[KEY]"`. Names inside packed columns are
+#' data, which [anon_subject_ids()] doesn't rewrite, and this step can't
+#' recognise original keys in them once that step has run, so it always names
+#' the columns inside packed columns by position (`dataset.column[2]`).
 #'
 #' Random numbers come from R's random number generator; see
 #' [anon_subject_ids()]. Run this before or after [anon_subject_ids()]; each
@@ -428,11 +440,11 @@ anon_subject_dates <- function(
 
   input <- as_dataset_list(data)
   data <- input$data
-  # When the IDs step ran first, the keys here are pseudonyms, and original
-  # keys left in names inside packed columns (data, which that step doesn't
-  # rewrite) can't be recognised: such columns are named by position.
+  # Original keys left in names inside packed columns (data, which the IDs
+  # step doesn't rewrite) can't be recognised when the IDs step ran first, so
+  # this step always names such columns by position.
   ids_done <- !is.null(input$previous) && any(startsWith(names(input$previous$settings), "subject_ids"))
-  local_text_cache(positional = ids_done)
+  local_text_cache(positional = TRUE)
   keyed <- keyed_datasets(data, key)
   for (ds in keyed) {
     for (col in intersect(c(key, vars), names(data[[ds]]))) {
@@ -440,8 +452,13 @@ anon_subject_dates <- function(
     }
   }
   keys <- subject_keys(data[keyed], key)
+  # Warnings and errors print locations, whose names can hold dates and,
+  # unless the IDs step already ran, original keys: these are shown as
+  # "[KEY]".
+  mask_keys <- if (ids_done) identity else key_rewriter(keys, rep("[KEY]", length(keys)))
+  locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
-  date_vars <- lapply(keyed, function(ds) dataset_date_vars(data[[ds]], vars, key, ds))
+  date_vars <- lapply(keyed, function(ds) dataset_date_vars(data[[ds]], vars, key, ds, locate))
   names(date_vars) <- keyed
   if (!is.null(vars) && length(unlist(date_vars)) == 0) {
     stop("None of `vars` were found in a dataset with `", key, "`.", call. = FALSE)
@@ -519,10 +536,6 @@ anon_subject_dates <- function(
   keyed <- rewritten$rename(keyed)
   input$previous <- rewrite_previous_step(input$previous, rewritten)
   log <- deid_log_unkeyed(log, data, keyed, key)
-  # Warnings print locations, whose names can hold dates and, unless the IDs
-  # step already ran, original keys: these are shown as "[KEY]".
-  mask_keys <- if (ids_done) identity else key_rewriter(keys, rep("[KEY]", length(keys)))
-  locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
   if (totals[["no_key"]] > 0) {
     warning(totals[["no_key"]], " date value(s) in rows without a `", key, "` were removed.", call. = FALSE)
@@ -729,11 +742,16 @@ unmark_bytes_names <- function(data) {
 
 # Columns are processed by name, so a repeated name would leave all but the
 # first copy untouched.
+# The names can hold keys, which aren't known yet, so the dataset and column
+# are given by position.
 check_unique_columns <- function(data) {
-  for (ds in names(data)) {
-    dup <- names(data[[ds]])[duplicated(names(data[[ds]]))]
+  for (i in seq_along(data)) {
+    dup <- which(duplicated(names(data[[i]])))
     if (length(dup) > 0) {
-      stop("Column names in `", ds, "` must be unique; `", dup[1], "` repeats.", call. = FALSE)
+      stop(
+        "Column names in dataset ", i, " of `data` must be unique; column ", dup[1], " repeats an earlier name.",
+        call. = FALSE
+      )
     }
   }
 }
@@ -805,7 +823,13 @@ drop_value_labels <- function(x) {
 
 # Rebuild attributes (labels, formats, extra classes) on a new factor.
 with_attributes_of <- function(new, old) {
-  extra <- attributes(old)[setdiff(names(attributes(old)), c("levels", "class", "names", "labels", "na_values", "na_range"))]
+  drop <- c("levels", "class", "names", "labels", "na_values", "na_range")
+  # A contrasts matrix is named by the old levels (original keys or dates)
+  # and no longer fits the new ones; a contrasts function's name is kept.
+  if (!is.character(attr(old, "contrasts", exact = TRUE))) {
+    drop <- c(drop, "contrasts")
+  }
+  extra <- attributes(old)[setdiff(names(attributes(old)), drop)]
   attributes(new) <- c(attributes(new), extra)
   new
 }
@@ -842,7 +866,7 @@ validate_offset_range <- function(max_days, min_days) {
   }
 }
 
-dataset_date_vars <- function(df, vars, key, dataset) {
+dataset_date_vars <- function(df, vars, key, dataset, locate = identity) {
   if (!is.null(vars)) {
     selected <- setdiff(intersect(vars, names(df)), key)
     for (col in selected) {
@@ -856,7 +880,7 @@ dataset_date_vars <- function(df, vars, key, dataset) {
         TRUE
       }
       if (not_dates) {
-        stop("`", col, "` in `", dataset, "` is not a date column (Date, POSIXct, or ISO 8601 text).", call. = FALSE)
+        stop("`", col, "` in `", locate(dataset), "` is not a date column (Date, POSIXct, or ISO 8601 text).", call. = FALSE)
       }
     }
     return(selected)
@@ -1146,7 +1170,7 @@ key_text_regex <- function(keys) {
 # - factors: `levels` (a column's values; the levels of a factor held in an
 #   attribute are rewritten as text) and `contrasts`;
 # - date-times: `tzone`; difftime and units objects: `units`; time series:
-#   `tsp`;
+#   `tsp`; survival::Surv: `type` and `states`;
 # - vctrs objects: `ptype` (never dropped, but its content is rewritten);
 # - grouped and rowwise tibbles: `groups`; data.tables: `sorted`, `index`
 #   (column references, renamed with the columns) and `.internal.selfref`;
@@ -1158,6 +1182,7 @@ structural_attributes <- function(x) {
   if (inherits(x, "POSIXt")) out <- c(out, "tzone")
   if (inherits(x, c("difftime", "units"))) out <- c(out, "units")
   if (inherits(x, "ts")) out <- c(out, "tsp")
+  if (inherits(x, "Surv")) out <- c(out, "type", "states")
   if (inherits(x, c("vctrs_list_of", "vctrs_vctr"))) out <- c(out, "ptype")
   if (inherits(x, c("grouped_df", "rowwise_df"))) out <- c(out, "groups")
   if (inherits(x, "data.table")) out <- c(out, "sorted", "index", ".internal.selfref")
@@ -1289,7 +1314,7 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
   }
   rename_detail <- function(x) {
     for (old in names(setting_map)) {
-      x <- gsub(paste0("\"", old, "\""), paste0("\"", setting_map[[old]], "\""), x, fixed = TRUE)
+      x <- gsub(paste0("\"", old, "\""), paste0("\"", setting_map[[old]], "\""), x, fixed = TRUE, useBytes = TRUE)
     }
     rewrite(x)
   }
@@ -1478,12 +1503,20 @@ rewrite_attributes <- function(ctx, x, frame = FALSE, columns = NULL, values = F
     } else if (frame && is_column_reference(x, name)) {
       refs <- if (is.null(columns)) value else rename_column_references(name, value, columns)
       if (values && name == "groups") rewrite_group_values(ctx, refs) else refs
+    } else if (name == "contrasts" && name %in% structural && !is.null(dimnames(value))) {
+      # A contrasts matrix is named by the factor's levels: kept, with its
+      # names rewritten as names.
+      renamed <- value
+      dimnames(renamed) <- rewrite_dimnames(ctx, dimnames(value))
+      renamed
     } else if (name == "ptype" && name %in% structural) {
       # A vctrs prototype is kept, but text in it (such as factor levels) is
       # rewritten like any value held in an attribute.
       rewrite_value(ctx, value)
     } else if (name %in% structural) {
       value
+    } else if (name %in% codes && !frame && inherits(value, c("Date", "POSIXt"))) {
+      rewrite_value(ctx, value)
     } else if (name %in% codes && !frame) {
       if (is.null(column_values)) column_values <- underlying_text(x)
       rewrite_codes(ctx, name, value, column_values)
@@ -1849,6 +1882,7 @@ format_locations <- function(x, rewrite = identity) {
     Encoding(unmarked) <- "unknown"
     x[bytes] <- unmarked
   }
+  x <- enc2utf8(x)
   bad <- !is.na(x) & !validUTF8(x)
   x[bad] <- iconv(x[bad], "UTF-8", "UTF-8", sub = "byte")
   rewrite(x)
@@ -1987,10 +2021,21 @@ as_utf8 <- function(x) {
   x <- as.character(x)
   bytes <- Encoding(x) == "bytes"
   if (any(bytes)) {
-    x[!bytes] <- enc2utf8(x[!bytes])
+    x[!bytes] <- repair_utf8(enc2utf8(x[!bytes]))
     return(x)
   }
-  enc2utf8(x)
+  repair_utf8(enc2utf8(x))
+}
+
+# Text that isn't valid UTF-8 (such as a stray Windows-1252 byte), with the
+# invalid bytes written as "<92>", so that it can be searched; a rewrite
+# writes back the repaired text.
+repair_utf8 <- function(x) {
+  bad <- !is.na(x) & !validUTF8(x)
+  if (any(bad)) {
+    x[bad] <- iconv(x[bad], "UTF-8", "UTF-8", sub = "byte")
+  }
+  x
 }
 
 # Whether each text (already passed through as_utf8()) can be searched: not

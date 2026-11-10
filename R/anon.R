@@ -35,8 +35,10 @@
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names, and the names and dimnames of
 #'   vectors and columns; a data.table's key and indices follow its column
-#'   names). Default is `TRUE`. Text that can't be searched (not valid UTF-8,
-#'   or marked as `"bytes"`) is left as it is, with a warning.
+#'   names). Default is `TRUE`. Text that isn't valid UTF-8 is searched
+#'   through a repaired copy with the invalid bytes written as `"<92>"`, which
+#'   is written back where a pattern matched; text marked as `"bytes"` that
+#'   isn't valid UTF-8 is left as it is, with a warning.
 #' @param check_labels Logical indicating whether to anonymize labels
 #'   (attributes) of columns and data frames: variable and data frame labels,
 #'   comments and other character attributes that aren't structural, haven
@@ -45,7 +47,8 @@
 #'   text `na_range`), on vectors and columns wherever `anon()` reaches them
 #'   (in data frames, lists and list columns). Attributes that are structural
 #'   for the object's class (see the `other_attributes` argument of
-#'   [anon_subject_ids()]) are not redacted. Value labels whose codes the
+#'   [anon_subject_ids()]) are not redacted, except the names of a factor's
+#'   contrasts matrix, which follow its levels. Value labels whose codes the
 #'   redaction made equal are merged into one entry, their original labels
 #'   joined with `" / "` and then redacted, with a warning naming the column as
 #'   it is named in the output (or a list element, as `col[2]`); equal
@@ -207,7 +210,7 @@ anon <- function(
     if (length(compiled$groups) == 0) return(text)
 
     result <- replace_compiled(text, compiled)
-    if (is.character(text) && length(unsearchable_texts(text)) > 0) {
+    if (is.character(text) && any(unconvertible_bytes(unique(text)))) {
       approximate_warnings <<- c(approximate_warnings, unsearchable_warning)
     }
 
@@ -239,6 +242,7 @@ anon <- function(
     result <- v
     if (is.factor(v)) {
       levels(result) <- redact(levels(v))
+      result <- redact_contrasts(result, redact)
     } else if (is.character(v)) {
       result <- redact(v)
     }
@@ -440,6 +444,10 @@ anon <- function(
           check_approximate,
           max_distance
         )
+        result[[col_name]] <- redact_contrasts(
+          result[[col_name]],
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+        )
       } else if (is_container_list(result[[col_name]])) {
         # Only recurse into anon() for list columns (need recursive handling)
         recursive_result <- anon(
@@ -521,7 +529,8 @@ anon <- function(
       if (!is.null(.where)) {
         paste0(.where, "[", i, "]")
       } else if (!is.null(names(x)) && !is.na(names(x)[i]) && nzchar(names(x)[i])) {
-        names(x)[i]
+        # As named in the output.
+        if (isTRUE(check_names)) apply_patterns(names(x)[i], compiled, FALSE, max_distance) else names(x)[i]
       } else {
         paste0("[[", i, "]]")
       }
@@ -529,7 +538,8 @@ anon <- function(
     # The text of the list's vectors is redacted in one pass, then looked up.
     redact_vectors <- batch_redactor(
       x,
-      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+      function(text) apply_patterns(text, compiled, check_approximate, max_distance),
+      with_labels = isTRUE(check_labels), with_names = isTRUE(check_names)
     )
     result <- lapply(seq_along(x), function(i) {
         element <- x[[i]]
@@ -775,31 +785,38 @@ has_text_attributes <- function(x) {
 # are redacted with `redact` in one call, and looked up. Text not found is
 # redacted directly, so the lookup never leaves text unredacted. NULL when
 # the list holds fewer than two vectors.
-batch_redactor <- function(x, redact) {
+batch_redactor <- function(x, redact, with_labels = TRUE, with_names = TRUE) {
   vectors <- Filter(function(e) is.atomic(e) && !is.null(e), x)
   if (length(vectors) < 2) {
     return(NULL)
   }
+  # Only the texts that will be redacted, so that approximate-match warnings
+  # stay as they would be element by element.
   texts <- unlist(lapply(vectors, function(e) {
     values <- if (is.factor(e)) levels(e) else if (is.character(e)) as.character(unclass(e))
     attrs <- attributes(e)
+    text_attrs <- attrs[!names(attrs) %in% structural_attributes(e)]
     c(
       values,
-      unlist(lapply(attrs[vapply(attrs, is.character, logical(1))], unname), use.names = FALSE),
-      names(e), unlist(dimnames(e), use.names = FALSE), names(attrs$labels)
+      if (with_labels) unlist(lapply(text_attrs[vapply(text_attrs, is.character, logical(1))], unname), use.names = FALSE),
+      if (with_labels) names(attrs$labels),
+      if (with_names) c(names(e), unlist(dimnames(e), use.names = FALSE))
     )
   }), use.names = FALSE)
-  texts <- unique(texts[!is.na(texts)])
+  texts <- as.character(texts)
   # Looked up by name in a hashed environment, which (unlike match()) is
-  # built once; empty text and text that can't be searched are left to
-  # `redact`.
-  texts <- texts[nzchar(texts) & searchable_text(as_utf8(texts))]
+  # built once. Text that can't be a name there (empty, not valid UTF-8,
+  # marked "bytes", or 10,000 bytes or longer) is left to `redact`.
+  in_table <- function(t) {
+    !is.na(t) & nzchar(t) & Encoding(t) != "bytes" & validUTF8(t) & nchar(t, type = "bytes") < 10000
+  }
+  texts <- unique(texts[in_table(texts)])
   table <- list2env(stats::setNames(as.list(redact(texts)), texts), hash = TRUE, parent = emptyenv())
   function(text) {
     plain <- unclass(text)
     attributes(plain) <- NULL
     out <- plain
-    usable <- !is.na(plain) & nzchar(plain) & searchable_text(as_utf8(plain))
+    usable <- in_table(plain)
     found <- rep(FALSE, length(plain))
     if (any(usable)) {
       hits <- mget(plain[usable], envir = table, ifnotfound = list(NULL))
@@ -813,6 +830,17 @@ batch_redactor <- function(x, redact) {
     }
     keep_attributes(text, out)
   }
+}
+
+# A factor's contrasts matrix is named by its levels, which are redacted as
+# values, so its names are redacted too.
+redact_contrasts <- function(x, redact) {
+  contrasts <- attr(x, "contrasts", exact = TRUE)
+  if (!is.null(dimnames(contrasts))) {
+    dimnames(contrasts) <- lapply(dimnames(contrasts), function(d) if (!is.null(d)) redact(d))
+    attr(x, "contrasts") <- contrasts
+  }
+  x
 }
 
 # Whether a list element can be returned as it is: no text values, no names
@@ -836,7 +864,8 @@ redact_text_attributes <- function(x, redact, where = NULL) {
   attrs <- attributes(x)
   shown <- if (is.null(where)) "a vector" else paste0("`", where, "`")
   names_attrs <- names(attrs)
-  for (name in names_attrs[!names_attrs %in% c(structural_attributes(x), "labels", "na_range")]) {
+  own_terms <- if (is.data.frame(x)) character(0) else c("labels", "na_range")
+  for (name in names_attrs[!names_attrs %in% c(structural_attributes(x), own_terms)]) {
     if (is.character(attrs[[name]])) {
       attr(x, name) <- redact(attrs[[name]])
     }
@@ -1119,10 +1148,22 @@ replace_compiled <- function(text, compiled) {
   original <- text
   text <- unclass(text)
   attributes(text) <- NULL
-  # Text that can't be searched (not valid UTF-8, or marked "bytes") is left
-  # as it is; apply_patterns() reports it.
-  keys <- unique(text[!is.na(text)])
-  keys <- keys[searchable_text(as_utf8(keys))]
+  # Text is searched as valid UTF-8: text marked "bytes" is unmarked, and
+  # invalid bytes are written as "<92>" (the repaired text is written back
+  # where a pattern matched). Text marked "bytes" that isn't valid UTF-8 is
+  # left as it is; apply_patterns() reports it.
+  # These checks run on the distinct values only, which are then matched back.
+  values <- unique(text[!is.na(text)])
+  values <- values[!unconvertible_bytes(values)]
+  search <- values
+  bytes <- Encoding(search) == "bytes"
+  if (any(bytes)) {
+    unmarked <- search[bytes]
+    Encoding(unmarked) <- "unknown"
+    search[bytes] <- unmarked
+  }
+  search <- repair_utf8(enc2utf8(search))
+  keys <- unique(search)
   if (length(keys) == 0) {
     return(original)
   }
@@ -1136,7 +1177,7 @@ replace_compiled <- function(text, compiled) {
       literal,
       opts_regex = opts
     )
-    return(keep_attributes(original, replace_matched(text, keys, replaced)))
+    return(keep_attributes(original, replace_matched(text, values, search, keys, replaced)))
   }
 
   hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
@@ -1173,20 +1214,36 @@ replace_compiled <- function(text, compiled) {
     to = lapply(locations, function(loc) loc[, "end"]),
     replacement = unname(split(compiled$replacements[group_idx], owner))
   )
-  keep_attributes(original, replace_matched(text, keys, replaced))
+  keep_attributes(original, replace_matched(text, values, search, keys, replaced))
 }
 
-# `text` with each value found in `keys` replaced by its counterpart in
-# `replaced`; other values (missing, or not searchable) are kept.
-replace_matched <- function(text, keys, replaced) {
-  i <- match(text, keys)
-  hit <- !is.na(i)
-  text[hit] <- replaced[i[hit]]
+# `text` with each of the distinct `values` (searched as `search`) replaced
+# where the redaction changed it; other values are kept as they are.
+replace_matched <- function(text, values, search, keys, replaced) {
+  i <- match(search, keys)
+  changed <- replaced[i] != keys[i]
+  if (!any(changed)) {
+    return(text)
+  }
+  at <- match(text, values[changed])
+  hit <- !is.na(at)
+  text[hit] <- replaced[i[changed]][at[hit]]
   text
 }
 
+# Which texts are marked "bytes" and aren't valid UTF-8, so can't be searched.
+unconvertible_bytes <- function(text) {
+  out <- !is.na(text) & Encoding(text) == "bytes"
+  if (any(out)) {
+    unmarked <- text[out]
+    Encoding(unmarked) <- "unknown"
+    out[out] <- !validUTF8(unmarked)
+  }
+  out
+}
+
 unsearchable_warning <- paste0(
-  "Some text can't be searched (not valid UTF-8, or marked as \"bytes\") and was left as it is: ",
+  "Some text is marked as \"bytes\" and isn't valid UTF-8, so it can't be searched and was left as it is: ",
   "convert it to UTF-8 (for example with iconv()) and run anon() again."
 )
 

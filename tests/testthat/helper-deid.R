@@ -65,9 +65,9 @@ deid_flagged <- list(
   list(dataset = "dm", column = paste0("PACK[", deid_keys[2], "]"), reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
   # A column inside the packed column, named with a key, that holds dates.
-  # The dates step shows the key as "[KEY]", or, after the IDs step (when it
-  # can't recognise original keys), the column by its position.
-  list(id = "packed_dates", dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
+  # The dates step names columns inside packed columns by position (it can't
+  # recognise original keys there once the IDs step has run).
+  list(dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
   list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\)\\.$"),
@@ -206,7 +206,14 @@ deid_fixture <- function() {
     stringsAsFactors = FALSE
   )
   attr(vs$USUBJID, "label") <- "Unique Subject Identifier"
+  # A contrasts matrix on the key, named by the keys: dropped when the keys
+  # are replaced.
+  stats::contrasts(vs$USUBJID) <- stats::contr.treatment(levels(vs$USUBJID))
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
+  # Text that isn't valid UTF-8 (a stray Windows-1252 apostrophe) holding a
+  # user-pattern term, in values and a label: anon() must still redact it.
+  vs$VSCOM <- rep(c("DRUGQX\x92s note", "none"), n)
+  attr(vs$VSCOM, "label") <- "DRUGQX\x92s comment"
   attr(vs, "label") <- "STUDYQX Vital Signs"
   # Free-text units on a number (as Hmisc writes them) holding a key and a
   # date: text there, though `units` is structural on a difftime.
@@ -299,11 +306,20 @@ deid_fixture <- function() {
 # pseudonym (longer keys first, as one key starts another), and each ISO 8601
 # full date becomes "[DATE]".
 deid_rewrite_text <- function(x, oracle) {
+  # Text that isn't valid UTF-8 is searched with its invalid bytes written as
+  # "<92>", and that repaired text is kept only where something was rewritten.
+  invalid <- !is.na(x) & !validUTF8(x)
+  repaired <- x
+  repaired[invalid] <- iconv(x[invalid], "UTF-8", "UTF-8", sub = "byte")
+  new <- repaired
   keys <- names(oracle$new_key)
   for (k in keys[order(-nchar(keys))]) {
-    x <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], x, perl = TRUE)
+    new <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], new, perl = TRUE)
   }
-  gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", x)
+  new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
+  keep <- invalid & new == repaired
+  new[keep] <- x[keep]
+  new
 }
 
 # Attributes the pipelines always keep (structural ones, and the grouping of
@@ -322,6 +338,7 @@ deid_structural <- function(x) {
     if (inherits(x, "POSIXt")) "tzone",
     if (inherits(x, c("difftime", "units"))) "units",
     if (inherits(x, "ts")) "tsp",
+    if (inherits(x, "Surv")) c("type", "states"),
     if (inherits(x, c("vctrs_list_of", "vctrs_vctr"))) "ptype",
     if (inherits(x, c("grouped_df", "rowwise_df"))) "groups",
     if (inherits(x, "data.table")) c("sorted", "index", ".internal.selfref"),
@@ -491,6 +508,15 @@ deid_known_gaps <- list(
       d
     }
   ),
+  # Keys glued to digits in names (as unlist(split(V, USUBJID)) makes them,
+  # "<key>1"), which the whole-word search doesn't find (Q2 PR).
+  key_glued_to_digits = list(
+    sentinel = deid_keys[1],
+    plant = function(d) {
+      d$vsx <- tibble::tibble(V = unlist(split(d$vs$VSSTRESN, as.character(d$vs$USUBJID))))
+      d
+    }
+  ),
   subjid_in_text = list(
     sentinel = "ZQ0002",
     plant = function(d) {
@@ -566,8 +592,7 @@ deid_pipelines <- list(
         keep_secrets = TRUE, seed = deid_seeds[4]
       )
     },
-    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
-    flagged = deid_flagged_with(replace = list(packed_dates = list(column = "PACK[[KEY]]")))
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365
   ),
   ids_then_dates_no_secrets = list(
     run = function(data) anon_subject_dates(anon_subject_ids(data, seed = deid_seeds[1]), seed = deid_seeds[2]),

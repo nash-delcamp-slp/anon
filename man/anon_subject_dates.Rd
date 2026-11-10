@@ -73,8 +73,9 @@ can hide in an attribute that is gone. Structural attributes are never
 dropped, and are structural only on the classes that use them: \code{class},
 \code{names}, \code{row.names}, \code{dim} and \code{dimnames} on anything; \code{levels} and
 \code{contrasts} on factors; \code{tzone} on date-times; \code{units} on difftime and
-units objects; \code{tsp} on time series; \code{ptype} on vctrs objects (its text
-is still rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
+units objects; \code{tsp} on time series; \code{type} and \code{states} on
+\code{survival::Surv} objects; \code{ptype} on vctrs objects (its text is still
+rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
 \code{index} and \code{.internal.selfref} on data.tables; SAS, SPSS and Stata
 formats, and a numeric \code{display_width}, on vectors. Elsewhere an
 attribute with one of these names is text (for example free-text \code{units}
@@ -157,17 +158,19 @@ data frame columns. Other formats, such as \code{20140105}, \verb{2014.01.05},
 lists any dataset without \code{key} that has such columns or a column named
 like \code{key} in another case.
 
-Both steps warn about text that can't be searched: text that isn't valid
-UTF-8 (after converting text marked with another encoding, such as latin1)
-or is marked as \code{"bytes"}. They count distinct texts and name the columns,
-or datasets (\code{"(list)"} for attributes of the list of datasets and dataset
-names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and
-run the step again. Every location printed in the steps' warnings has
+Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
+searched through a repaired copy with the invalid bytes written as
+\code{"<92>"}; where something is rewritten, the repaired text is written back.
+Both steps warn about text marked as \code{"bytes"} in values, which can't be
+searched: they count distinct texts and name the columns, or datasets
+(\code{"(list)"} for attributes of the list of datasets and dataset names),
+holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
+step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
-step shows original keys as \code{"[KEY]"}. When \code{\link[=anon_subject_ids]{anon_subject_ids()}} ran
-first, this step can't recognise original keys left in names inside packed
-columns (data, which that step doesn't rewrite), so it shows the columns
-inside packed columns by position (\code{dataset.column[2]}).
+step shows original keys as \code{"[KEY]"}. Names inside packed columns are
+data, which \code{\link[=anon_subject_ids]{anon_subject_ids()}} doesn't rewrite, and this step can't
+recognise original keys in them once that step has run, so it always names
+the columns inside packed columns by position (\code{dataset.column[2]}).
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

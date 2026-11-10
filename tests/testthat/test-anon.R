@@ -292,11 +292,68 @@ test_that("anon() redacts value labels and labels of vectors outside data frames
   expect_equal(attr(kept, "labels"), c("DRUGQX arm" = 1))
 })
 
-test_that("anon() leaves text that can't be searched as it is, with a warning", {
-  b <- "DRUGQX caf\u00e9"
-  Encoding(b) <- "bytes"
-  expect_warning(out <- anon(c(b, "DRUGQX"), pattern_list = list("[DRUG]" = "DRUGQX")), "can't be searched")
-  expect_identical(as.character(out), c(b, "[DRUG]"))
+test_that("anon() redacts text that isn't valid UTF-8, and skips only bytes it can't convert", {
+  patterns <- list("[DRUG]" = "DRUGQX")
+  # A stray Windows-1252 byte: searched through a repaired copy, which is
+  # written back where a pattern matched.
+  out <- anon(c("DRUGQX\x92s note", "x\x92y", "\u00e9 DRUGQX"), pattern_list = patterns)
+  expect_identical(as.character(out), c("[DRUG]<92>s note", "x\x92y", "\u00e9 [DRUG]"))
+  v <- structure("a", label = "DRUGQX\x92s label")
+  expect_identical(attr(anon(v, pattern_list = patterns), "label"), "[DRUG]<92>s label")
+  # Marked "bytes": searched if valid UTF-8, otherwise left with a warning,
+  # also next to non-ASCII UTF-8 text.
+  valid <- "DRUGQX caf\u00e9"
+  Encoding(valid) <- "bytes"
+  invalid <- "DRUGQX caf\xe9"
+  Encoding(invalid) <- "bytes"
+  expect_warning(
+    out <- anon(c(valid, invalid, "\u00e9 DRUGQX", "DRUGQX"), pattern_list = patterns),
+    "marked as \"bytes\" and isn't valid UTF-8"
+  )
+  expect_identical(as.character(out)[c(1, 3, 4)], c("[DRUG] caf\u00e9", "\u00e9 [DRUG]", "[DRUG]"))
+  expect_identical(as.character(out)[2], invalid)
+})
+
+test_that("anon() handles text of 10,000 bytes or more in lists", {
+  long <- paste(c("DRUGQX", rep("x", 6000)), collapse = " ")
+  out <- anon(list(a = long, b = "DRUGQX", c = c(long, "y")), pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_true(startsWith(out$a, "[DRUG] x"))
+  expect_equal(out$b, "[DRUG]")
+  expect_equal(out$c[2], "y")
+})
+
+test_that("anon() names list elements by their redacted names, and redacts a data frame's own labels", {
+  skip_if_not_installed("haven")
+  patterns <- list("[X]" = c("DRUGQX", "STUDYQX"))
+  l <- list(DRUGQX_vals = haven::labelled(c("a", "b"), labels = c(a = "DRUGQX", b = "STUDYQX")), z = 1)
+  expect_warning(out <- anon(l, pattern_list = patterns), "Value labels of `\\[X\\]_vals` were merged")
+  expect_named(out, c("[X]_vals", "z"))
+  expect_warning(anon(l, pattern_list = patterns, check_names = FALSE), "Value labels of `DRUGQX_vals` were merged")
+  df <- data.frame(A = 1:2)
+  attr(df, "labels") <- c(a = "DRUGQX study")
+  attr(df, "na_range") <- "DRUGQX"
+  out <- anon(df, pattern_list = patterns)
+  expect_equal(attr(out, "labels"), c(a = "[X] study"))
+  expect_equal(attr(out, "na_range"), "[X]")
+})
+
+test_that("anon() redacts the names of a factor's contrasts with its levels", {
+  f <- data.frame(ARM = factor(c("DRUGQX", "Placebo")))
+  stats::contrasts(f$ARM) <- stats::contr.treatment
+  out <- anon(f, pattern_list = list("[D]" = "DRUGQX"))
+  expect_equal(levels(out$ARM), c("[D]", "Placebo"))
+  expect_equal(rownames(attr(out$ARM, "contrasts")), c("[D]", "Placebo"))
+  out <- anon(f$ARM, pattern_list = list("[D]" = "DRUGQX"))
+  expect_equal(rownames(attr(out, "contrasts")), c("[D]", "Placebo"))
+})
+
+test_that("anon() batch redaction warns about approximate matches only in what it redacts", {
+  a <- structure(c("ok", "fine"), label = "label")
+  b <- c(x = "fine", DRUGQY = "ok")
+  l <- list(a = a, b = b)
+  patterns <- list("[D]" = "DRUGQX")
+  expect_warning(anon(l, pattern_list = patterns, check_approximate = TRUE), "DRUGQY")
+  expect_no_warning(anon(l, pattern_list = patterns, check_approximate = TRUE, check_names = FALSE))
 })
 
 test_that("anon() renames a data.table's key and indices with its columns, only with check_names", {

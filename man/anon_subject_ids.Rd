@@ -55,8 +55,9 @@ can hide in an attribute that is gone. Structural attributes are never
 dropped, and are structural only on the classes that use them: \code{class},
 \code{names}, \code{row.names}, \code{dim} and \code{dimnames} on anything; \code{levels} and
 \code{contrasts} on factors; \code{tzone} on date-times; \code{units} on difftime and
-units objects; \code{tsp} on time series; \code{ptype} on vctrs objects (its text
-is still rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
+units objects; \code{tsp} on time series; \code{type} and \code{states} on
+\code{survival::Surv} objects; \code{ptype} on vctrs objects (its text is still
+rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
 \code{index} and \code{.internal.selfref} on data.tables; SAS, SPSS and Stata
 formats, and a numeric \code{display_width}, on vectors. Elsewhere an
 attribute with one of these names is text (for example free-text \code{units}
@@ -105,7 +106,11 @@ replaced (the label names, and the label values of character columns) and
 in character user-defined missing values (\code{na_values}, \code{na_range}) of those
 columns; and in column names, character row names and dataset names.
 Structural attributes (see \code{other_attributes}) are left alone, except that
-text in a vctrs \code{ptype} is rewritten; so are environments, functions and S4
+text in a vctrs \code{ptype}, and the names of a factor's contrasts matrix, are
+rewritten; a factor whose values are replaced or shifted drops a contrasts
+matrix (named by its old levels, it no longer fits the new ones), and keeps
+a contrasts function's name such as \code{"contr.sum"}. So are environments,
+functions and S4
 objects held in attributes (they can refer to themselves, are shared with
 whoever else holds them, or must keep valid slots; S4 objects are named in
 a warning). The grouping of a grouped or rowwise tibble (\code{groups}) and the
@@ -121,11 +126,16 @@ warning, as is a missing-value range whose rewritten ends would be in
 descending order. Value labels whose codes the rewrite made equal are
 merged into one entry, their original labels joined with \code{" / "} and then
 rewritten (haven requires distinct codes; label text may repeat), and equal
-missing-value codes are deduplicated; a warning names each. A rewritten name that clashes with another gets a numeric suffix
-(\code{"_1"}), and settings and the log name the suffixed column; a column name
+missing-value codes are deduplicated; a warning names each. Ranges are
+compared as R compares text in the session's collation, as haven does. A
+rewritten name that clashes with another gets a numeric suffix (\code{"_1"}),
+and settings and the log name the suffixed column; a column name
 in the settings that was renamed differently in different datasets is
 rewritten as text instead. Column and dataset names marked as \code{"bytes"}
-are handled like other names and stay marked as \code{"bytes"}.
+are handled like other names and stay marked as \code{"bytes"} unless
+rewritten. A dataset with nothing to rewrite is returned as the same
+object, so \verb{:=} on a data.table changes the input too; once a later step
+changes it, its \code{.internal.selfref} is stale (call \code{data.table::setDT()}).
 Keys made only of digits, and numeric keys, are not rewritten, for the same
 reason they are not searched for below. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;

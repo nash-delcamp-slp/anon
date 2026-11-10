@@ -272,7 +272,14 @@ for (pipeline_name in names(deid_pipelines)) {
         type <- if (is.null(pipeline$types[[id]])) typeof(data[[ds]][[col]]) else pipeline$types[[id]]
         expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
-        expect_identical(keep(x, c(also, "names")), keep(expected[[rewrite(col)]], c(also, "names")), info = id)
+        want <- expected[[rewrite(col)]]
+        # Replaced and shifted factors lose a contrasts matrix named by the old
+        # levels (a contrasts function's name would stay).
+        if (col %in% replaced_cols && is.matrix(attr(want, "contrasts", exact = TRUE))) {
+          attr(want, "contrasts") <- NULL
+          expect_null(attr(x, "contrasts", exact = TRUE), info = id)
+        }
+        expect_identical(keep(x, c(also, "names")), keep(want, c(also, "names")), info = id)
         # Names of a vector column follow its values (in any row order),
         # rewritten; a packed data frame column is data and keeps its names.
         if (is.data.frame(x)) {
