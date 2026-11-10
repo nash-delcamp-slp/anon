@@ -75,10 +75,28 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 }}
 
 \item{check_names}{Logical indicating whether to anonymize object names
-(column names, row names, list names). Default is \code{TRUE}.}
+(column names, row names, list names, and the names and dimnames of
+vectors and columns; a data.table's key and indices follow its column
+names). Default is \code{TRUE}.}
 
-\item{check_labels}{Logical indicating whether to anonymize labels (attributes).
-Default is \code{TRUE}.}
+\item{check_labels}{Logical indicating whether to anonymize labels
+(attributes) of columns and data frames: variable and data frame labels,
+comments and other character attributes that aren't structural, haven
+value labels (the label names, and the label values when they are text)
+and text user-defined missing values (\code{na_values}, and the ends of a
+text \code{na_range}), on vectors and columns wherever \code{anon()} reaches them
+(in data frames, lists and list columns). Attributes that are structural
+for the object's class (see the \code{other_attributes} argument of
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}) are not redacted, except the names of a factor's
+contrasts matrix, which follow its levels. Value labels whose codes the
+redaction made equal are merged into one entry, their original labels
+joined with \code{" / "} and then redacted, with a warning naming the column as
+it is named in the output (or a list element, as \code{col[2]}); equal
+missing-value codes are deduplicated without a warning, as which values
+are missing doesn't change. A text \code{na_range} whose redacted ends would be
+in descending order is kept, with a warning. Whatever \code{check_labels}
+says, a warning names a column whose redaction changed which values are
+user-defined missing values. Default is \code{TRUE}.}
 
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.

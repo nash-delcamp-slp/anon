@@ -17,7 +17,8 @@ anon(
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
   .pattern_replacements = NULL,
-  .compiled = NULL
+  .compiled = NULL,
+  .where = NULL
 )
 }
 \arguments{
@@ -62,10 +63,28 @@ This parameter is combined with the global option \code{getOption("anon.df_class
 }}
 
 \item{check_names}{Logical indicating whether to anonymize object names
-(column names, row names, list names). Default is \code{TRUE}.}
+(column names, row names, list names, and the names and dimnames of
+vectors and columns; a data.table's key and indices follow its column
+names). Default is \code{TRUE}.}
 
-\item{check_labels}{Logical indicating whether to anonymize labels (attributes).
-Default is \code{TRUE}.}
+\item{check_labels}{Logical indicating whether to anonymize labels
+(attributes) of columns and data frames: variable and data frame labels,
+comments and other character attributes that aren't structural, haven
+value labels (the label names, and the label values when they are text)
+and text user-defined missing values (\code{na_values}, and the ends of a
+text \code{na_range}), on vectors and columns wherever \code{anon()} reaches them
+(in data frames, lists and list columns). Attributes that are structural
+for the object's class (see the \code{other_attributes} argument of
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}) are not redacted, except the names of a factor's
+contrasts matrix, which follow its levels. Value labels whose codes the
+redaction made equal are merged into one entry, their original labels
+joined with \code{" / "} and then redacted, with a warning naming the column as
+it is named in the output (or a list element, as \code{col[2]}); equal
+missing-value codes are deduplicated without a warning, as which values
+are missing doesn't change. A text \code{na_range} whose redacted ends would be
+in descending order is kept, with a warning. Whatever \code{check_labels}
+says, a warning names a column whose redaction changed which values are
+user-defined missing values. Default is \code{TRUE}.}
 
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
@@ -82,6 +101,9 @@ list element. Default is \code{NULL}, which triggers normal computation.}
 \item{.compiled}{List for internal use only. Pre-compiled pattern groups and the
 combined single-pass regex. Passed down during
 recursive calls to avoid recompiling patterns. Default is \code{NULL}.}
+
+\item{.where}{Character for internal use only. Where \code{x} is (such as a
+list column's element, \code{"col[2]"}), for warnings. Default is \code{NULL}.}
 }
 \value{
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive
@@ -101,8 +123,14 @@ anonymization based on variable names or classes and warnings about approximate 
 \itemize{
 \item Individual columns are processed based on their content
 \item Entire columns can be replaced if specified in \code{df_variable_names} or \code{df_classes}
-\item Column names, row names, and labels are redacted when enabled
+\item Column names, row names, and labels (including haven value labels) are redacted when enabled
 }
+
+Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
+through a repaired copy with the invalid bytes shown as hex (e.g.
+\code{"<92>"}), which is written back where a pattern matched; a pattern that
+matches digits can match inside such a marker. Text marked as \code{"bytes"}
+that isn't valid UTF-8 is left as it is, with a warning.
 
 Pattern matching is case-insensitive. When \code{check_approximate} is enabled,
 \code{anon()} will warn about remaining potential matches that are similar but not exact.
