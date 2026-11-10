@@ -80,13 +80,13 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
 # pipeline without secrets, that of the pipeline it must match.
 deid_text_oracle <- function(pipeline, step) {
   if (isTRUE(pipeline$keep_secrets)) {
-    return(deid_oracle(step))
+    return(deid_oracle(step, pipeline$other_attributes))
   }
   if (is.null(pipeline$same_as)) {
     stop("A pipeline without secrets needs `same_as` to check its attributes and names.")
   }
   twin <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
-  deid_oracle(deid_run(twin, deid_fixture())$step)
+  deid_oracle(deid_run(twin, deid_fixture())$step, pipeline$other_attributes)
 }
 
 # Columns of dataset `ds` named in a pipeline's `removed` ("ds.col").
@@ -106,13 +106,16 @@ for (pipeline_name in names(deid_pipelines)) {
 
   test_that(paste0(pipeline_name, ": what can't be de-identified is named in a warning, with no other column"), {
     run <- deid_run(pipeline, deid_fixture())
-    for (f in pipeline$flagged) {
+    # Warnings print locations with keys and dates rewritten.
+    text_oracle <- deid_text_oracle(pipeline, run$step)
+    flagged <- lapply(pipeline$flagged, deid_rewrite_flag, oracle = text_oracle)
+    for (f in flagged) {
       pattern <- deid_flag_pattern(f)
       expect_true(any(grepl(pattern, run$warnings)), info = pattern)
     }
-    reasons <- Filter(Negate(is.null), lapply(pipeline$flagged, `[[`, "reason"))
+    reasons <- Filter(Negate(is.null), lapply(flagged, `[[`, "reason"))
     for (reason in unique(unlist(reasons))) {
-      expected <- unlist(lapply(pipeline$flagged, function(f) {
+      expected <- unlist(lapply(flagged, function(f) {
         if (identical(f$reason, reason)) paste0(f$dataset, ".", f$column)
       }))
       for (w in grep(reason, run$warnings, fixed = TRUE, value = TRUE)) {
@@ -147,7 +150,7 @@ for (pipeline_name in names(deid_pipelines)) {
 
     test_that(paste0(pipeline_name, ": offsets and pseudonyms don't follow a pattern"), {
       step <- deid_run(pipeline, deid_fixture())$step
-      oracle <- deid_oracle(step)
+      oracle <- deid_oracle(step, pipeline$other_attributes)
       n <- length(deid_keys)
       expect_setequal(names(oracle$new_key), deid_keys)
       expect_setequal(names(oracle$offset), deid_keys)
@@ -170,7 +173,7 @@ for (pipeline_name in names(deid_pipelines)) {
     test_that(paste0(pipeline_name, ": every value matches its subject's pseudonym and offset, and the rest is unchanged"), {
       data <- deid_fixture()
       step <- deid_run(pipeline, data)$step
-      oracle <- deid_oracle(step)
+      oracle <- deid_oracle(step, pipeline$other_attributes)
       flagged_datasets <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$dataset) && is.null(f$column)) f$dataset))
       flagged_columns <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$column)) paste0(f$dataset, ".", f$column)))
 
@@ -239,7 +242,7 @@ for (pipeline_name in names(deid_pipelines)) {
     data <- deid_fixture()
     step <- deid_run(pipeline, data)$step
     out <- step$data
-    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step)
+    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step, pipeline$other_attributes)
     # Keys and dates in attributes and names are rewritten.
     text_oracle <- deid_text_oracle(pipeline, step)
     rewrite <- function(x) deid_rewrite_text(x, text_oracle)
@@ -341,10 +344,15 @@ for (pipeline_name in names(deid_pipelines)) {
           results <- results[vapply(results, function(r) r$patterns, logical(1))]
         }
         results$pipeline <- list(text = c(run$warnings, run$messages), patterns = FALSE)
-        expect(
-          length(deid_leaks(results, sentinels = gap$sentinel)) > 0,
-          paste0("gap '", gap_name, "' no longer leaks: move it into deid_fixture() and remove it from deid_known_gaps")
-        )
+        leaks <- deid_leaks(results, sentinels = gap$sentinel)
+        if (pipeline_name %in% gap$handled_by) {
+          expect(length(leaks) == 0, paste0("gap '", gap_name, "' leaks in a pipeline that handles it: ", paste(leaks, collapse = "; ")))
+        } else {
+          expect(
+            length(leaks) > 0,
+            paste0("gap '", gap_name, "' no longer leaks: move it into deid_fixture() and remove it from deid_known_gaps")
+          )
+        }
       }
     })
   }

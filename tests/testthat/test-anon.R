@@ -218,13 +218,30 @@ test_that("anon() redacts comments and other text attributes with check_labels",
   expect_equal(attr(kept, "note"), "STUDYQX data")
 })
 
-test_that("anon() keeps value labels unique, and redacts names and dimnames with check_names", {
+test_that("anon() merges value labels whose codes redaction made equal, and redacts names and dimnames", {
   skip_if_not_installed("haven")
   df <- data.frame(id = 1:2)
-  df$A <- haven::labelled(c("q", "z"), labels = c(a = "DRUGQX", b = "STUDYQX", c = "other DRUGQX"))
+  df$DRUGQX <- haven::labelled(c("q", "z"), labels = c(Study = "STUDYQX", Drug = "DRUGQX", c = "other DRUGQX"))
   patterns <- list("[X]" = c("DRUGQX", "STUDYQX"))
-  expect_warning(result <- anon(df, pattern_list = patterns), "Some value labels of `A` were not redacted")
-  expect_equal(attr(result$A, "labels"), c(a = "DRUGQX", b = "STUDYQX", c = "other [X]"))
+  # The warning names the column as it is named in the output.
+  expect_warning(
+    result <- anon(df, pattern_list = patterns),
+    "^Value labels of `\\[X\\]` were merged because redaction made their codes equal\\.$"
+  )
+  expect_equal(attr(result[["[X]"]], "labels"), c("Study / Drug" = "[X]", c = "other [X]"))
+  # The joined label is redacted, and duplicate label text is allowed.
+  df <- data.frame(id = 1:2)
+  df$A <- haven::labelled(c("q", "z"), labels = c("DRUGQX arm" = "DRUGQX", "DRUGQX arm" = "STUDYQX"))
+  expect_warning(result <- anon(df, pattern_list = patterns), "Value labels of `A` were merged")
+  expect_equal(attr(result$A, "labels"), c("[X] arm / [X] arm" = "[X]"))
+  df$A <- haven::labelled(c("q", "z"), labels = c("DRUGQX arm" = "a", "STUDYQX arm" = "b"))
+  expect_no_warning(result <- anon(df, pattern_list = patterns))
+  expect_equal(attr(result$A, "labels"), c("[X] arm" = "a", "[X] arm" = "b"))
+  # Outside a data frame, and missing-value codes made equal are deduplicated.
+  v <- haven::labelled_spss(c("q", "z"), labels = c(a = "DRUGQX", b = "STUDYQX"), na_values = c("DRUGQX", "STUDYQX"))
+  expect_warning(result <- anon(v, pattern_list = patterns), "Value labels of a vector were merged")
+  expect_equal(attr(result, "labels"), c("a / b" = "[X]"))
+  expect_equal(attr(result, "na_values"), "[X]")
 
   tb <- tibble::tibble(id = 1:2, v = c(DRUGQX = 1, b = 2))
   tb$m <- matrix(1:4, 2, dimnames = list(c("DRUGQX", "x"), c(k = "STUDYQX", "y")))
@@ -242,11 +259,58 @@ test_that("anon() redacts SPSS user-defined missing values like other values", {
   df <- data.frame(id = 1:3)
   df$A <- haven::labelled_spss(c("DRUGQX a", "b", "c"), na_range = c("D", "E"))
   df$B <- haven::labelled_spss(c("DRUGQX", "x", "y"), na_values = "DRUGQX")
-  result <- anon(df, pattern_list = list("[DRUG]" = "DRUGQX"))
+  # "DRUGQX a" was in the range D to E; "[DRUG] a" is not.
+  expect_warning(
+    result <- anon(df, pattern_list = list("[DRUG]" = "DRUGQX")),
+    "^Redaction changed which values of `A` are user-defined missing values"
+  )
   expect_equal(vctrs::vec_data(result$A), c("[DRUG] a", "b", "c"))
   expect_equal(vctrs::vec_data(result$B), c("[DRUG]", "x", "y"))
   expect_equal(attr(result$B, "na_values"), "[DRUG]")
   expect_equal(is.na(result$B), c(TRUE, FALSE, FALSE))
+  # The ends of a text range are redacted too.
+  df <- data.frame(id = 1:3)
+  df$R <- haven::labelled_spss(c("DRUGQX a", "b", "c"), na_range = c("DRUGQX", "DRUGQXz"))
+  expect_no_warning(result <- anon(df, pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_equal(attr(result$R, "na_range"), c("[DRUG]", "[DRUG]z"))
+  expect_equal(is.na(result$R), c(TRUE, FALSE, FALSE))
+})
+
+test_that("anon() redacts value labels and labels of vectors outside data frames", {
+  skip_if_not_installed("haven")
+  v <- haven::labelled(c(1, 2), labels = c("DRUGQX arm" = 1), label = "DRUGQX lab")
+  patterns <- list("[DRUG]" = "DRUGQX")
+  for (out in list(anon(v, pattern_list = patterns), anon(list(a = v), pattern_list = patterns)$a)) {
+    expect_equal(attr(out, "labels"), c("[DRUG] arm" = 1))
+    expect_equal(attr(out, "label"), "[DRUG] lab")
+  }
+  d <- data.frame(id = 1:2)
+  d$L <- I(list(v, v))
+  out <- anon(d, pattern_list = patterns)$L[[2]]
+  expect_equal(attr(out, "labels"), c("[DRUG] arm" = 1))
+  kept <- anon(v, pattern_list = patterns, check_labels = FALSE)
+  expect_equal(attr(kept, "labels"), c("DRUGQX arm" = 1))
+})
+
+test_that("anon() leaves text that can't be searched as it is, with a warning", {
+  b <- "DRUGQX caf\u00e9"
+  Encoding(b) <- "bytes"
+  expect_warning(out <- anon(c(b, "DRUGQX"), pattern_list = list("[DRUG]" = "DRUGQX")), "can't be searched")
+  expect_identical(as.character(out), c(b, "[DRUG]"))
+})
+
+test_that("anon() renames a data.table's key and indices with its columns, only with check_names", {
+  dt <- data.frame(DRUGQX = 1:2, b = 2:1)
+  attr(dt, "sorted") <- "DRUGQX"
+  attr(dt, "index") <- structure(integer(0), "__b__DRUGQX" = 2:1)
+  class(dt) <- c("data.table", "data.frame")
+  out <- anon(dt, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_equal(attr(out, "sorted"), "[DRUG]")
+  expect_equal(names(attributes(attr(out, "index"))), "__b__[DRUG]")
+  kept <- anon(dt, pattern_list = list("[DRUG]" = "DRUGQX"), check_names = FALSE)
+  expect_named(kept, c("DRUGQX", "b"))
+  expect_equal(attr(kept, "sorted"), "DRUGQX")
+  expect_equal(names(attributes(attr(kept, "index"))), "__b__DRUGQX")
 })
 
 test_that("anon() handles empty and edge cases", {

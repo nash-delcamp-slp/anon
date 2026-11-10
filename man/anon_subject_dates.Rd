@@ -12,7 +12,8 @@ anon_subject_dates(
   min_days = 30,
   partial = c("shift", "remove"),
   keep_secrets = FALSE,
-  seed = NULL
+  seed = NULL,
+  other_attributes = c("rewrite", "drop")
 )
 }
 \arguments{
@@ -60,6 +61,19 @@ with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}.}
 Anyone with the seed and the original data can rebuild the mapping, so do
 not set it for data you share. The global random number state is restored
 afterwards.}
+
+\item{other_attributes}{What to do with attributes beyond the core ones
+(variable and dataset labels, comments, haven value labels and
+user-defined missing values, and names, which are always rewritten):
+custom text attributes, list- and data frame-valued attributes, Date or
+factor values held in attributes, and attributes of attributes.
+\code{"rewrite"} (default) rewrites what it can find in them, at any depth, as
+a best effort. \code{"drop"} removes them, and is the strict choice: nothing
+can hide in an attribute that is gone. Structural attributes (\code{class},
+\code{names}, \code{row.names}, \code{dim}, \code{dimnames}, \code{levels}, \code{tzone}, \code{units},
+formats such as \code{format.sas}, \code{display_width}, a vctrs \code{ptype}, and the
+grouping of a grouped tibble or the key and indices of a data.table) are
+never dropped. The log counts the attributes dropped in each dataset.}
 }
 \value{
 An object of class \code{"anon_deid_step"}, as for \code{\link[=anon_subject_ids]{anon_subject_ids()}}.
@@ -93,10 +107,13 @@ replacement of \code{\link[=nlp_default_replacements]{nlp_default_replacements()
 attributes and names that \code{\link[=anon_subject_ids]{anon_subject_ids()}} rewrites keys in (character
 attributes at any depth, vector names and dimnames, value labels and
 user-defined missing values under the same rule, column, row and dataset
-names), and in this and earlier steps' logs and settings. Date and
-date-time values held in attributes (Date, POSIXct, POSIXlt) become the
-text \code{"[DATE]"}, and a factor held in an attribute whose levels now read
-the same becomes text rather than have its levels merged. The forms
+names), and in this and earlier steps' logs and settings, with
+\code{other_attributes} as described there. Date and date-time values held in
+attributes (Date, POSIXct, POSIXlt) become the text \code{"[DATE]"} (zero-length
+ones, such as a vctrs prototype, hold no date and are left alone), and a
+factor held in an attribute whose levels now read the same becomes text
+rather than have its levels merged. Value labels whose codes become equal
+are merged as described there. The forms
 replaced are those found inside text by the warning described below: ISO
 8601 full and year-and-month dates, SDTM partial dates (\code{"2014-01--T08:00"}
 becomes \code{"[DATE]T08:00"}, and \code{"2014---15"}), and dates with a month name or
@@ -137,9 +154,12 @@ like \code{key} in another case.
 
 Both steps warn about text that can't be searched: text that isn't valid
 UTF-8 (after converting text marked with another encoding, such as latin1)
-or is marked as \code{"bytes"}. They name the columns, or datasets (\code{"(list)"}
-for attributes of the list of datasets and dataset names), holding it.
-Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the step again.
+or is marked as \code{"bytes"}. They count distinct texts and name the columns,
+or datasets (\code{"(list)"} for attributes of the list of datasets and dataset
+names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and
+run the step again. Locations in this step's warnings have dates
+rewritten; they can still show original keys held in names inside packed
+columns, which \code{\link[=anon_subject_ids]{anon_subject_ids()}} reports rewritten.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

@@ -45,8 +45,10 @@ deid_patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
 
 # What the pipelines can't de-identify, each of which must be named in a
 # warning. An entry has either `reason` (text of the warning that lists
-# columns as "ds.col, ds.col") with `dataset` and `column`, or a regular
-# expression `pattern` for the whole warning. Entries with a `dataset` (and
+# columns as "ds.col, ds.col", or "ds.col[sub]" inside a packed column) with
+# `dataset` and `column`, or a regular expression `pattern` for the whole
+# warning. A `column` may hold original keys or dates, as the warning prints
+# them rewritten. Entries with a `dataset` (and
 # `column`, unless the whole dataset is meant) are left unchanged by the
 # pipelines; the invariants then drop them, as a user acting on the warnings
 # would, before checking that nothing else leaks. Entries without a `dataset`
@@ -55,9 +57,12 @@ deid_flagged <- list(
   list(dataset = "dm", column = "COVAL", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "LINKS", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "REFS", reason = "still contain original `USUBJID` values"),
-  # A packed data frame column is data, like a list column: its key column
-  # is named, and dropping it drops the packed column.
-  list(dataset = "dm", column = "PACK.REF", reason = "still contain original `USUBJID` values"),
+  # A packed data frame column is data, like a list column: the packed column
+  # (one of its columns is named with a key) and its columns holding keys are
+  # named; dropping any of them drops the packed column.
+  list(dataset = "dm", column = "PACK", reason = "still contain original `USUBJID` values"),
+  list(dataset = "dm", column = "PACK[REF]", reason = "still contain original `USUBJID` values"),
+  list(dataset = "dm", column = paste0("PACK[", deid_keys[2], "]"), reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
@@ -68,7 +73,7 @@ deid_flagged <- list(
 )
 if (requireNamespace("haven", quietly = TRUE)) {
   deid_flagged <- c(deid_flagged, list(
-    list(dataset = "dm", column = "VISIT", reason = "keep value-label or missing-value codes that hold dates")
+    list(pattern = "^Value labels of these columns were merged because the rewrite made their codes equal: dm\\.VISIT\\.$")
   ))
 }
 
@@ -78,8 +83,17 @@ deid_flag_pattern <- function(f) {
   if (!is.null(f$pattern)) {
     return(f$pattern)
   }
-  column <- gsub(".", "\\.", paste0(f$dataset, ".", f$column), fixed = TRUE)
+  column <- gsub("([][.\\\\(){}^$*+?|])", "\\\\\\1", paste0(f$dataset, ".", f$column), perl = TRUE)
   paste0(f$reason, "[^.]*: ([^ ,;]+, )*", column, "([,.;]|$)")
+}
+
+# A flagged entry with its column as the warnings print it: rewritten as the
+# pipeline rewrites text (see deid_rewrite_text()).
+deid_rewrite_flag <- function(f, oracle) {
+  if (!is.null(f$column)) {
+    f$column <- deid_rewrite_text(f$column, oracle)
+  }
+  f
 }
 
 # The columns listed in a warning of the form "...: ds.col, ds.col. ...".
@@ -125,14 +139,16 @@ deid_fixture <- function() {
   dm$LINKS <- I(as.list(c(deid_keys[1], "x", "y", "z", "w", "v", "u", "t")))
   # A list column whose elements are named with keys, which is flagged too.
   dm$REFS <- I(lapply(c(2:8, 1), function(i) stats::setNames(list(1), deid_keys[i])))
-  # A packed data frame column holding other subjects' keys.
+  # A packed data frame column holding other subjects' keys, one of its
+  # columns named with a key.
   dm$PACK <- data.frame(REF = deid_keys[c(3:8, 1:2)], N = 1:8)
+  dm$PACK[[deid_keys[2]]] <- deid_keys[c(4:8, 1:3)]
   # haven-labelled columns (when haven is installed): a key and a user-pattern
   # term in value labels, and a key as a user-defined missing value. Every exit
   # must also handle them, JSON included.
   if (requireNamespace("haven", quietly = TRUE)) {
-    # Value labels whose codes are real dates: both would become "[DATE]", so
-    # they are kept, and the column is flagged.
+    # Value labels whose codes are real dates: both become "[DATE]", so they
+    # are merged, with a warning.
     dm$VISIT <- haven::labelled(
       rep(c("V1", "V2"), 4),
       labels = stats::setNames(format(deid_start[5:6]), c("first visit", "second visit"))
@@ -140,6 +156,9 @@ deid_fixture <- function() {
     dm$GRP <- haven::labelled(c(1, 2, 2, 2, 2, 2, 2, 2), labels = stats::setNames(c(1, 2), c(deid_keys[1], "Other")))
     dm$ARMCD <- haven::labelled(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c("DRUGQX arm" = 1, "Placebo" = 2))
     dm$SITE <- haven::labelled_spss(rep(c("S1", "S1", "S2", "S2"), 2), na_values = deid_keys[5])
+    # A list column of labelled vectors whose value labels hold a user-pattern
+    # term, which anon() must redact there too.
+    dm$ARMS <- I(lapply(1:8, function(i) haven::labelled(i, labels = c("DRUGQX dose" = 1))))
   }
 
   vs_dates <- rep(deid_start, each = 2) + c(0, 7)
@@ -246,6 +265,13 @@ deid_rewrite_text <- function(x, oracle) {
   gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", x)
 }
 
+# Attributes the pipelines always keep (structural ones, and the grouping of
+# a grouped tibble) or always rewrite (labels, comments, value labels and
+# missing-value codes). Others are rewritten, or dropped when the oracle's
+# `other` is "drop".
+deid_structural <- c("class", "levels", "row.names", "tzone", "format.sas", "names", "dimnames")
+deid_core <- c("label", "comment", "labels", "na_values", "na_range")
+
 # A data frame with the text that describes it rewritten as
 # deid_rewrite_text() says, and its values untouched: column names, character
 # row names, and the attributes of the data frame and its columns (see
@@ -267,40 +293,53 @@ deid_rewrite_frame <- function(df, oracle, values = FALSE) {
   if (is.character(row_names)) {
     attr(x, "row.names") <- deid_rewrite_text(row_names, oracle)
   }
-  x <- deid_rewrite_attributes(x, oracle, frame = TRUE)
+  x <- deid_rewrite_attributes(x, oracle, frame = TRUE, grouped = "grouped_df" %in% cls)
   class(x) <- cls
   x
 }
 
-# Attributes rewritten at any depth, except class, levels, row names, time
-# zone and SAS format (and a data frame's names). Value-label and
-# missing-value codes are rewritten only when no value of the column equals
-# the code or its rewrite, and when the rewrite doesn't equal another code
-# (then the code keeps its label).
-deid_rewrite_attributes <- function(x, oracle, frame = FALSE) {
+# Attributes rewritten at any depth, except the structural ones (and a data
+# frame's names, and a grouped tibble's grouping); with `oracle$other`
+# "drop", the attributes that are neither structural nor core are dropped.
+# Value-label and missing-value codes are rewritten only when no value of the
+# column equals the code or its rewrite; value labels whose codes become equal
+# are merged into one, their labels joined with " / ", and equal missing-value
+# codes into one.
+deid_rewrite_attributes <- function(x, oracle, frame = FALSE, grouped = FALSE) {
   values <- if (!frame && !is.list(x)) as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else unclass(x))
-  skip <- c("class", "levels", "row.names", "tzone", "format.sas", if (frame) "names")
+  skip <- c(deid_structural, if (grouped) "groups")
   for (name in setdiff(names(attributes(x)), skip)) {
     value <- attr(x, name, exact = TRUE)
-    if (name %in% c("labels", "na_values", "na_range")) {
+    if (identical(oracle$other, "drop") && !name %in% deid_core) {
+      value <- NULL
+    } else if (name %in% c("labels", "na_values", "na_range")) {
       if (!is.null(names(value))) {
         names(value) <- deid_rewrite_text(names(value), oracle)
       }
       if (is.character(value)) {
         new <- deid_rewrite_text(value, oracle)
         free <- !value %in% values & !new %in% values
-        if (name != "na_range") {
-          final <- ifelse(free, new, value)
-          clash <- free & (duplicated(final) | duplicated(final, fromLast = TRUE))
-          free <- free & !clash
-          names(value)[clash] <- names(attr(x, name, exact = TRUE))[clash]
-        }
         value[free] <- new[free]
+        if (name != "na_range" && anyDuplicated(unname(value))) {
+          first <- !duplicated(unname(value))
+          if (!is.null(names(value))) {
+            names(value)[first] <- vapply(unname(value)[first], function(code) {
+              deid_rewrite_text(paste(names(value)[unname(value) == code], collapse = " / "), oracle)
+            }, character(1))
+          }
+          value <- value[first]
+        }
       }
     } else {
       value <- deid_rewrite_value(value, oracle)
     }
     attr(x, name) <- value
+  }
+  if (!frame && !is.null(names(x))) {
+    names(x) <- deid_rewrite_text(names(x), oracle)
+  }
+  if (!is.null(dimnames(x))) {
+    dimnames(x) <- lapply(dimnames(x), function(d) if (!is.null(d)) deid_rewrite_text(d, oracle))
   }
   x
 }
@@ -332,17 +371,51 @@ deid_rewrite_value <- function(v, oracle) {
 # that apply `deid_patterns` when `pattern_exits_only` is TRUE). A gap with
 # `errors` must make those exits error, besides the exits expected to error
 # without it. `needs` names suggested packages the gap uses; it is skipped
-# without them. When a fix makes a gap stop leaking or stop breaking its
-# exits, its test fails: move the planting into deid_fixture() (with the
-# expected handling) and remove the gap.
+# without them. `handled_by` names pipelines in which the gap must not leak
+# (for example because they drop the attribute). When a fix makes a gap stop
+# leaking or stop breaking its exits, its test fails: move the planting into
+# deid_fixture() (with the expected handling) and remove the gap.
 deid_known_gaps <- list(
   # anon() redacts character attributes but not list-valued ones, such as
-  # `variable.labels` (haven/foreign SPSS) or readr's `spec`.
+  # `variable.labels` (haven/foreign SPSS) or readr's `spec`. Pipelines that
+  # drop other attributes remove it.
   list_attribute_pattern = list(
     sentinel = "DRUGQX",
     pattern_exits_only = TRUE,
+    handled_by = "ids_then_dates_drop",
     plant = function(d) {
       attr(d$vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
+      d
+    }
+  ),
+  # Nested data (its own PR): dates in nested tibbles, in list columns and in
+  # attributes of list-column elements are not shifted or flagged, and keys in
+  # a nested tibble with its own key column are not replaced.
+  nested_tibble_date = list(
+    sentinel = as.character(as.numeric(deid_start[3])),
+    plant = function(d) {
+      d$dm$NEST <- I(lapply(seq_along(deid_start), function(i) tibble::tibble(DT = deid_start[i])))
+      d
+    }
+  ),
+  list_column_dates = list(
+    sentinel = as.character(as.numeric(deid_start[4])),
+    plant = function(d) {
+      d$dm$WHEN <- I(as.list(deid_start))
+      d
+    }
+  ),
+  list_element_date_attribute = list(
+    sentinel = as.character(as.numeric(deid_start[5])),
+    plant = function(d) {
+      d$dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
+      d
+    }
+  ),
+  nested_keyed_tibble = list(
+    sentinel = deid_keys[6],
+    plant = function(d) {
+      d$dm$SUB <- I(lapply(deid_keys, function(k) tibble::tibble(USUBJID = k, X = 1)))
       d
     }
   ),
@@ -401,7 +474,9 @@ deid_sentinels <- function(patterns = FALSE) {
 #   the input rows expected to remain (`oracle` is NULL for pipelines without
 #   secrets);
 # - `removed`: `"ds.col"` or `"ds"` names of columns and datasets expected to
-#   be removed.
+#   be removed;
+# - `other_attributes`: what the pipeline does with attributes beyond the
+#   core ones ("rewrite" or "drop"), which the expected attributes follow.
 deid_pipelines <- list(
   ids_then_dates = list(
     run = function(data) {
@@ -424,6 +499,15 @@ deid_pipelines <- list(
   ids_then_dates_no_secrets = list(
     run = function(data) anon_subject_dates(anon_subject_ids(data, seed = deid_seeds[1]), seed = deid_seeds[2]),
     keep_secrets = FALSE, prefix = "SUBJ-", min_days = 30, max_days = 365, same_as = "ids_then_dates"
+  ),
+  ids_then_dates_drop = list(
+    run = function(data) {
+      anon_subject_dates(
+        anon_subject_ids(data, keep_secrets = TRUE, seed = deid_seeds[1], other_attributes = "drop"),
+        keep_secrets = TRUE, seed = deid_seeds[2], other_attributes = "drop"
+      )
+    },
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365, other_attributes = "drop"
   )
 )
 
@@ -435,7 +519,8 @@ deid_pipeline_defaults <- list(
   types = list(),
   attributes = list(),
   keep_rows = function(ds, original, oracle) rep(TRUE, nrow(original)),
-  removed = character(0)
+  removed = character(0),
+  other_attributes = "rewrite"
 )
 
 # A pipeline record with the optional fields filled in.
@@ -583,11 +668,9 @@ deid_drop_flagged <- function(step, flagged = deid_flagged) {
     }
     if (is.null(f$column)) {
       step$data[[f$dataset]] <- NULL
-    } else if (f$column %in% names(step$data[[f$dataset]])) {
-      step$data[[f$dataset]][[f$column]] <- NULL
     } else {
-      # "packed.column": drop the packed data frame column.
-      step$data[[f$dataset]][[sub("\\..*", "", f$column)]] <- NULL
+      # "packed[column]": drop the packed data frame column.
+      step$data[[f$dataset]][[sub("\\[.*", "", f$column)]] <- NULL
     }
   }
   step
@@ -666,8 +749,8 @@ deid_leaks <- function(results, sentinels = NULL) {
 }
 
 # From a step's secrets: per original key, the new key and the date offset in
-# days.
-deid_oracle <- function(step) {
+# days; and what the pipeline does with other attributes (`other`).
+deid_oracle <- function(step, other = "rewrite") {
   secrets <- anon_secrets(step)
   ids <- secrets$subject_ids
   offsets <- secrets$date_offsets
@@ -679,5 +762,5 @@ deid_oracle <- function(step) {
   if (match("subject_ids", steps) < match("subject_dates", steps)) {
     offset_key <- names(new_key)[match(offset_key, new_key)]
   }
-  list(new_key = new_key, offset = stats::setNames(offsets$offset_days, offset_key))
+  list(new_key = new_key, offset = stats::setNames(offsets$offset_days, offset_key), other = other)
 }

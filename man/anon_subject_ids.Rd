@@ -11,7 +11,8 @@ anon_subject_ids(
   key_cols = "RSUBJID",
   prefix = "SUBJ-",
   keep_secrets = FALSE,
-  seed = NULL
+  seed = NULL,
+  other_attributes = c("rewrite", "drop")
 )
 }
 \arguments{
@@ -42,6 +43,19 @@ not kept anywhere.}
 Anyone with the seed and the original data can rebuild the mapping, so do
 not set it for data you share. The global random number state is restored
 afterwards.}
+
+\item{other_attributes}{What to do with attributes beyond the core ones
+(variable and dataset labels, comments, haven value labels and
+user-defined missing values, and names, which are always rewritten):
+custom text attributes, list- and data frame-valued attributes, Date or
+factor values held in attributes, and attributes of attributes.
+\code{"rewrite"} (default) rewrites what it can find in them, at any depth, as
+a best effort. \code{"drop"} removes them, and is the strict choice: nothing
+can hide in an attribute that is gone. Structural attributes (\code{class},
+\code{names}, \code{row.names}, \code{dim}, \code{dimnames}, \code{levels}, \code{tzone}, \code{units},
+formats such as \code{format.sas}, \code{display_width}, a vctrs \code{ptype}, and the
+grouping of a grouped tibble or the key and indices of a data.table) are
+never dropped. The log counts the attributes dropped in each dataset.}
 }
 \value{
 An object of class \code{"anon_deid_step"}: a list with \code{data} (the
@@ -87,16 +101,26 @@ in character user-defined missing values (\code{na_values}, \code{na_range}) of 
 columns; and in column names, character row names and dataset names.
 Structural attributes are left alone: \code{class}, \code{row.names}, \code{dim}, a
 column's \code{levels}, \code{tzone}, \code{units}, and formats such as \code{format.sas} and
-\code{display_width}; so are environments and functions held in attributes
-(they can refer to themselves, and are shared with whoever else holds
-them). Attributes that refer to columns by name (dplyr \code{groups},
-data.table \code{sorted} and \code{index}) are renamed with the columns. A label
-value or missing-value code is rewritten only when no value of the column
-equals it or its rewrite (or, for \code{na_range}, falls in either range), and
-when its rewrite doesn't equal another code, so the mapping from values to
-labels and which values are missing don't change; a code kept this way is
-named in a warning. A rewritten name that clashes with another gets a
-numeric suffix (\code{"_1"}), and settings and the log name the suffixed column.
+\code{display_width}, a vctrs \code{ptype}; so are environments, functions and S4
+objects held in attributes (they can refer to themselves, are shared with
+whoever else holds them, or must keep valid slots). The grouping of a
+grouped tibble (\code{groups}) and the key and indices of a data.table
+(\code{sorted}, \code{index}) are renamed with the columns; on other objects,
+attributes with these names are ordinary attributes. A grouped tibble held
+in an attribute has its grouping values rewritten with its values. With
+\code{other_attributes = "drop"}, attributes beyond the core ones are dropped
+instead of rewritten. A label value or missing-value code is rewritten only
+when no value of the column equals it or its rewrite (or, for \code{na_range},
+falls in either range), so the mapping from values to labels and which
+values are missing don't change; a code kept this way is named in a
+warning. Value labels whose codes the rewrite made equal are merged into
+one entry, their labels joined with \code{" / "} (haven requires distinct codes;
+label text may repeat), and equal missing-value codes into one, with a
+warning. A rewritten name that clashes with another gets a numeric suffix
+(\code{"_1"}), and settings and the log name the suffixed column; a column name
+in the settings that was renamed differently in different datasets is
+rewritten as text instead. Column and dataset names marked as \code{"bytes"}
+are handled like other names and stay marked as \code{"bytes"}.
 Keys made only of digits, and numeric keys, are not rewritten, for the same
 reason they are not searched for below. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;
@@ -107,15 +131,20 @@ columns and packed data frame columns (with everything inside them).
 A warning lists any other character or factor column (values or factor
 levels), list column (all the text its elements hold: values, factor
 levels, names and attributes, at any depth), or column of a packed data
-frame column (named as \code{dataset.column.subcolumn}, with the text in its
-attributes; the packed column itself is named for its column names and
-attributes), in any dataset, that still contains original key values as whole
+frame column (named as \code{dataset.column[subcolumn]}, and deeper as
+\code{dataset.column[sub][subsub]}, with the text in its attributes; the packed
+column itself is named for its column names and attributes), in any
+dataset, that still contains original key values as whole
 values or as whole words inside text (checked for character keys that are
 not made only of digits, since numbers match many unrelated codes), and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or
 \code{key_cols} in any case. In datasets with \code{key}, a column named like one of
 them in another case (such as \code{usubjid} beside \code{USUBJID}) is not replaced
-and is named in a warning.
+and is named in a warning. Only text or factor columns can be given in
+\code{key_cols}; the others must be redacted or removed. Locations printed in
+warnings have keys rewritten, as names inside packed columns can hold them.
+Columns of S4 objects are not searched or changed, and are named in a
+warning as data that can't be checked.
 Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not
 checked, because short numbers match many unrelated values. Missing values in
 \code{also} columns stay missing. In \code{key}, \code{also} and \code{key_cols} columns, haven

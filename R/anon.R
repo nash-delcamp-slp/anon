@@ -34,14 +34,21 @@
 #'   This parameter is combined with the global option `getOption("anon.df_classes")`.
 #' @param check_names Logical indicating whether to anonymize object names
 #'   (column names, row names, list names, and the names and dimnames of
-#'   vectors and columns). Default is `TRUE`.
+#'   vectors and columns; a data.table's key and indices follow its column
+#'   names). Default is `TRUE`. Text that can't be searched (not valid UTF-8,
+#'   or marked as `"bytes"`) is left as it is, with a warning.
 #' @param check_labels Logical indicating whether to anonymize labels
 #'   (attributes) of columns and data frames: variable and data frame labels,
 #'   comments and other character attributes that aren't structural, haven
 #'   value labels (the label names, and the label values when they are text)
-#'   and text user-defined missing values (`na_values`). Label values that
-#'   would become equal to another are left unredacted, with a warning,
-#'   because haven value labels must be unique. Default is `TRUE`.
+#'   and text user-defined missing values (`na_values`, and the ends of a
+#'   text `na_range`), on vectors and columns wherever `anon()` reaches them
+#'   (in data frames, lists and list columns). Value labels whose codes the
+#'   redaction made equal are merged into one entry, their labels joined with
+#'   `" / "`, and equal missing-value codes into one, with a warning naming
+#'   the column as it is named in the output. A warning also names a column
+#'   whose redaction changed which values are user-defined missing values.
+#'   Default is `TRUE`.
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
 #'   This argument overrides the global option.
@@ -192,6 +199,9 @@ anon <- function(
     if (length(compiled$groups) == 0) return(text)
 
     result <- replace_compiled(text, compiled)
+    if (is.character(text) && length(unsearchable_texts(text)) > 0) {
+      approximate_warnings <<- c(approximate_warnings, unsearchable_warning)
+    }
 
     # Check for approximate matches if enabled
     if (isTRUE(check_approximate)) {
@@ -372,13 +382,21 @@ anon <- function(
         default_replacement
       )
 
+      # The column as named in the redacted output, for warnings.
+      shown_name <- if (isTRUE(check_names)) {
+        apply_patterns(col_name, compiled, FALSE, max_distance)
+      } else {
+        col_name
+      }
+      user_missing <- user_missing_of(result[[col_name]])
+
       # Anonymize column-level labels and other text attributes only if
       # check_labels is TRUE
       if (isTRUE(check_labels) && has_text_attributes(result[[col_name]])) {
         result[[col_name]] <- redact_text_attributes(
           result[[col_name]],
           function(text) apply_patterns(text, compiled, check_approximate, max_distance),
-          where = col_name
+          where = shown_name
         )
       }
 
@@ -439,16 +457,20 @@ anon <- function(
           function(text) apply_patterns(text, compiled, check_approximate, max_distance)
         )
       }
+      warn_user_missing_changed(user_missing, result[[col_name]], shown_name)
     }
 
-    # Anonymize column names only if check_names is TRUE
+    # Anonymize column names only if check_names is TRUE, renaming the
+    # columns in a data.table's key and indices too
     if (isTRUE(check_names) && !is.null(names(result))) {
+      old_names <- names(result)
       names(result) <- apply_patterns(
         names(result),
         compiled,
         check_approximate,
         max_distance
       )
+      result <- rename_table_references(result, stats::setNames(names(result), old_names))
     }
 
     # Anonymize row names only if check_names is TRUE
@@ -517,6 +539,16 @@ anon <- function(
     }
   } else {
     result <- x
+  }
+
+  # Anonymize the labels and other text attributes of a vector (at the top
+  # level, in a list or in a list column) only if check_labels is TRUE
+  if (isTRUE(check_labels) && is.atomic(result) && has_text_attributes(result)) {
+    result <- redact_text_attributes(
+      result,
+      function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+    )
+    warn_user_missing_changed(user_missing_of(x), result, NULL)
   }
 
   # Anonymize the names and dimnames of a vector only if check_names is TRUE
@@ -709,47 +741,90 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
 # Whether a column has attributes that redact_text_attributes() looks at.
 has_text_attributes <- function(x) {
   attrs <- attributes(x)
-  text <- attrs[setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "na_range"))]
+  text <- attrs[setdiff(names(attrs), c(non_text_attributes, "names", "dimnames"))]
   any(vapply(text, is.character, logical(1))) || !is.null(attrs$labels)
 }
 
-# Apply `redact` to the text attributes of a column or data frame: labels,
-# comments and other character attributes that aren't structural (see
+# Apply `redact` to the text attributes of a vector, column or data frame:
+# labels, comments and other character attributes that aren't structural (see
 # non_text_attributes), haven value labels (their names, and their values
-# when they are text) and text user-defined missing values (`na_values`), as
-# the column's values are redacted. Names are left to `check_names`. Label
-# values that would become equal to another are left as they are, with their
-# labels, and the column (`where`) is named in a warning, because haven value
-# labels must be unique.
+# when they are text) and text user-defined missing values (`na_values`, and
+# the ends of `na_range`), as the values are redacted. Names, and the
+# attributes of a data frame that refer to its columns (see
+# is_column_reference()), are left to `check_names`. Value labels whose codes
+# the redaction made equal are merged (see merge_equal_codes()), with a
+# warning naming the column (`where`, as named in the output).
 redact_text_attributes <- function(x, redact, where = NULL) {
   attrs <- attributes(x)
-  for (name in setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "labels", "na_range"))) {
+  for (name in setdiff(names(attrs), c(non_text_attributes, "names", "dimnames", "labels"))) {
+    if (is.data.frame(x) && is_column_reference(x, name)) {
+      next
+    }
     if (is.character(attrs[[name]])) {
       attr(x, name) <- redact(attrs[[name]])
     }
   }
+  if (is.data.frame(x)) {
+    return(x)
+  }
+  na_values <- attr(x, "na_values", exact = TRUE)
+  if (!is.null(na_values) && !anyDuplicated(attrs$na_values)) {
+    attr(x, "na_values") <- merge_equal_codes(na_values)$codes
+  }
   labels <- attrs$labels
-  if (!is.null(labels) && !is.data.frame(x)) {
+  if (!is.null(labels)) {
     if (!is.null(names(labels))) {
       names(labels) <- redact(names(labels))
     }
     if (is.character(labels)) {
-      codes <- unname(labels)
-      redacted <- redact(codes)
-      clash <- redacted != codes & (duplicated(redacted) | duplicated(redacted, fromLast = TRUE))
-      clash[is.na(clash)] <- FALSE
-      redacted[clash] <- codes[clash]
-      names(labels)[clash] <- names(attrs$labels)[clash]
-      labels[] <- redacted
-      if (any(clash)) {
+      labels[] <- redact(unname(labels))
+    }
+    if (!anyDuplicated(unname(attrs$labels))) {
+      merged <- merge_equal_codes(labels, redact)
+      labels <- merged$codes
+      if (merged$merged) {
         warning(
-          "Some value labels of `", where, "` were not redacted, because their values would become ",
-          "equal to another label's: redact or remove them.",
+          "Value labels of ", if (is.null(where)) "a vector" else paste0("`", where, "`"),
+          " were merged because redaction made their codes equal.",
           call. = FALSE
         )
       }
     }
     attr(x, "labels") <- labels
+  }
+  x
+}
+
+# Which values of a haven column with user-defined missing values are
+# missing; NULL for other columns.
+user_missing_of <- function(x) {
+  if (inherits(x, "haven_labelled_spss")) is.na(x)
+}
+
+# Warn when redaction changed which values of a column (`where`, as named in
+# the output) are user-defined missing values: a value or a code in
+# `na_values` or `na_range` was redacted and no longer matches the other.
+warn_user_missing_changed <- function(before, x, where) {
+  if (!is.null(before) && inherits(x, "haven_labelled_spss") && !identical(before, is.na(x))) {
+    warning(
+      "Redaction changed which values of ", if (is.null(where)) "a vector" else paste0("`", where, "`"),
+      " are user-defined missing values (`na_values` or `na_range`): check them.",
+      call. = FALSE
+    )
+  }
+}
+
+# A data.table's key and indices, renamed with its columns (`columns` maps old
+# names to new ones).
+rename_table_references <- function(x, columns) {
+  if (!inherits(x, "data.table")) {
+    return(x)
+  }
+  for (name in c("sorted", "index")) {
+    value <- attr(x, name, exact = TRUE)
+    if (!is.null(value)) {
+      attr(x, name) <- rename_column_references(name, value, columns)
+    }
   }
   x
 }
@@ -953,7 +1028,10 @@ replace_compiled <- function(text, compiled) {
   original <- text
   text <- unclass(text)
   attributes(text) <- NULL
+  # Text that can't be searched (not valid UTF-8, or marked "bytes") is left
+  # as it is; apply_patterns() reports it.
   keys <- unique(text[!is.na(text)])
+  keys <- keys[searchable_text(as_utf8(keys))]
   if (length(keys) == 0) {
     return(original)
   }
@@ -967,7 +1045,7 @@ replace_compiled <- function(text, compiled) {
       literal,
       opts_regex = opts
     )
-    return(keep_attributes(original, replaced[match(text, keys)]))
+    return(keep_attributes(original, replace_matched(text, keys, replaced)))
   }
 
   hit <- stringi::stri_detect_regex(keys, compiled$regex, opts_regex = opts)
@@ -1004,8 +1082,22 @@ replace_compiled <- function(text, compiled) {
     to = lapply(locations, function(loc) loc[, "end"]),
     replacement = unname(split(compiled$replacements[group_idx], owner))
   )
-  keep_attributes(original, replaced[match(text, keys)])
+  keep_attributes(original, replace_matched(text, keys, replaced))
 }
+
+# `text` with each value found in `keys` replaced by its counterpart in
+# `replaced`; other values (missing, or not searchable) are kept.
+replace_matched <- function(text, keys, replaced) {
+  i <- match(text, keys)
+  hit <- !is.na(i)
+  text[hit] <- replaced[i[hit]]
+  text
+}
+
+unsearchable_warning <- paste0(
+  "Some text can't be searched (not valid UTF-8, or marked as \"bytes\") and was left as it is: ",
+  "convert it to UTF-8 (for example with iconv()) and run anon() again."
+)
 
 # The new values with the old vector's attributes (variable labels, haven
 # classes and value labels, names), set directly rather than through `[<-`,
