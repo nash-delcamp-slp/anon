@@ -332,7 +332,8 @@ nested_tables <- function(df, key, positional = FALSE, dataset = NULL) {
 }
 
 # Who owns the rows of each table. A table owns its rows (`owns`, with
-# `owners`, each row's normalized key) when it has the key column; when one
+# `owners`, each row's normalized key, missing for haven missing-value codes)
+# when it has the key column; when one
 # of its packed columns does (each packed row belongs to its outer row, so the
 # outer row has that subject); or, when its rows don't already belong to rows
 # of a parent table with subjects, when the data frames in one of its list
@@ -354,7 +355,9 @@ resolve_owners <- function(tables, key) {
     tb <- tables[[t]]
     children <- child_of[[t]]
     if (tb$has_key) {
-      owners[[t]] <- normalize_keys(tb$df[[key]])
+      # A key's haven missing-value codes are no key (the steps make them
+      # missing), even when one equals another subject's key.
+      owners[[t]] <- normalize_keys(zap_user_missing(tb$df[[key]]))
       source[t] <- "own"
       next
     }

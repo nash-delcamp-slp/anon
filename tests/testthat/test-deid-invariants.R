@@ -51,8 +51,12 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   }
   off <- unname(oracle$offset[keys])
   if (col %in% c(key, "RSUBJID")) {
+    # A key's haven missing-value codes become missing; numeric keys get
+    # numbers.
+    x <- deid_zap_codes(x)
     k <- as.character(x)
-    return(ifelse(is.na(k) | k == "", k, unname(oracle$new_key[k])))
+    new <- ifelse(is.na(k) | k == "", k, unname(oracle$new_key[k]))
+    return(if (is.numeric(x)) as.numeric(new) else new)
   }
   if (col == "SUBJID") {
     out <- sub(prefix, "", unname(oracle$new_key[keys]), fixed = TRUE)
@@ -206,7 +210,7 @@ deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
 # the keys (NA: none) and where they came from, or NULL.
 deid_frame_owners <- function(df, key) {
   if (key %in% names(df)) {
-    k <- as.character(df[[key]])
+    k <- as.character(deid_zap_codes(df[[key]]))
     # Blank keys, also of spaces only, are no key.
     k[!is.na(k) & trimws(k) == ""] <- NA
     return(list(keys = k, from = "own"))
@@ -319,7 +323,7 @@ deid_text_oracle <- function(pipeline, step) {
     stop("A pipeline without secrets needs `same_as` to check its attributes and names.")
   }
   twin <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
-  deid_oracle(deid_run(twin, deid_fixture())$step, pipeline$other_attributes)
+  deid_oracle(deid_run(twin, twin$fixture())$step, pipeline$other_attributes)
 }
 
 # Columns of dataset `ds` named in a pipeline's `removed` ("ds.col").
@@ -338,7 +342,7 @@ for (pipeline_name in names(deid_pipelines)) {
   })
 
   test_that(paste0(pipeline_name, ": what can't be de-identified is named in a warning, with no other column"), {
-    run <- deid_run(pipeline, deid_fixture())
+    run <- deid_run(pipeline, pipeline$fixture())
     # Warnings print locations with keys and dates rewritten.
     text_oracle <- deid_text_oracle(pipeline, run$step)
     flagged <- lapply(pipeline$flagged, deid_rewrite_flag, oracle = text_oracle)
@@ -358,7 +362,7 @@ for (pipeline_name in names(deid_pipelines)) {
   })
 
   test_that(paste0(pipeline_name, ": every exit runs, and no original ID, real date or user term leaves the package"), {
-    run <- deid_run(pipeline, deid_fixture())
+    run <- deid_run(pipeline, pipeline$fixture())
     expect_identical(!is.null(run$step$secrets), pipeline$keep_secrets)
     step <- deid_drop_flagged(run$step, pipeline$flagged)
     results <- deid_run_exits(step)
@@ -376,17 +380,17 @@ for (pipeline_name in names(deid_pipelines)) {
 
   if (isTRUE(pipeline$keep_secrets)) {
     test_that(paste0(pipeline_name, ": redacted copies made with anon() carry no secrets"), {
-      step <- deid_run(pipeline, deid_fixture())$step
+      step <- deid_run(pipeline, pipeline$fixture())$step
       expect_null(anon(step)$secrets)
       expect_null(anon(list(a = list(step = step)))$a$step$secrets)
     })
 
     test_that(paste0(pipeline_name, ": offsets and pseudonyms don't follow a pattern"), {
-      step <- deid_run(pipeline, deid_fixture())$step
+      step <- deid_run(pipeline, pipeline$fixture())$step
       oracle <- deid_oracle(step, pipeline$other_attributes)
       n <- length(deid_keys)
-      expect_setequal(names(oracle$new_key), deid_all_keys)
-      expect_setequal(names(oracle$offset), deid_all_keys)
+      expect_setequal(names(oracle$new_key), pipeline$keys)
+      expect_setequal(names(oracle$offset), pipeline$keys)
 
       off <- oracle$offset
       expect_true(all(abs(off) >= pipeline$min_days))
@@ -397,21 +401,21 @@ for (pipeline_name in names(deid_pipelines)) {
 
       # Pseudonyms are not numbered in the original key order, in reverse, or
       # in a rotation of it.
-      numbers <- as.integer(sub(pipeline$prefix, "", oracle$new_key[deid_keys], fixed = TRUE))
+      numbers <- as.integer(sub(pipeline$prefix, "", oracle$new_key[pipeline$keys[seq_len(n)]], fixed = TRUE))
       s <- seq_len(n)
       patterned <- c(lapply(s - 1L, function(k) c(utils::tail(s, n - k), utils::head(s, k))), list(rev(s)))
       expect_false(any(vapply(patterned, identical, logical(1), numbers)))
     })
 
     test_that(paste0(pipeline_name, ": every value matches its subject's pseudonym and offset, and the rest is unchanged"), {
-      data <- deid_fixture()
+      data <- pipeline$fixture()
       step <- deid_run(pipeline, data)$step
       oracle <- deid_oracle(step, pipeline$other_attributes)
       flagged_datasets <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$dataset) && is.null(f$column)) f$dataset))
       flagged_columns <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$column)) paste0(f$dataset, ".", f$column)))
 
       for (ds in setdiff(names(data), pipeline$removed)) {
-        out <- step$data[[deid_rewrite_text(ds, oracle)]]
+        out <- step$data[[deid_rewrite_text(ds, oracle, names = TRUE)]]
         original <- data[[ds]]
         # A flagged dataset is documented as left unchanged, apart from keys
         # and dates in its attributes and names. A dataset without the key
@@ -429,7 +433,7 @@ for (pipeline_name in names(deid_pipelines)) {
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
-        all_keys <- as.character(original[[key]])
+        all_keys <- as.character(deid_zap_codes(original[[key]]))
         keys <- all_keys[keep]
         # Rows are sorted by the new key, keeping their order within a
         # subject; rows without a key come last.
@@ -448,7 +452,7 @@ for (pipeline_name in names(deid_pipelines)) {
           } else {
             deid_expected_column(original[[col]], col, all_keys, oracle, pipeline$prefix, key)
           }
-          got <- out[[deid_rewrite_text(col, oracle)]]
+          got <- out[[deid_rewrite_text(col, oracle, names = TRUE)]]
           if (is.data.frame(got)) {
             # A packed data frame column: its rows move with the data, which
             # is sorted, so its row names are reset.
@@ -471,7 +475,7 @@ for (pipeline_name in names(deid_pipelines)) {
           if (!is.data.frame(got)) {
             want_names <- names(original[[col]])
             if (!is.null(want_names)) {
-              want_names <- deid_rewrite_text(want_names, oracle)[keep][ord]
+              want_names <- deid_rewrite_text(want_names, oracle, names = TRUE)[keep][ord]
             }
             expect_identical(names(got), want_names, info = id)
           }
@@ -482,8 +486,9 @@ for (pipeline_name in names(deid_pipelines)) {
 
   if (!is.null(pipeline$same_as)) {
     test_that(paste0(pipeline_name, ": gives the same data as ", pipeline$same_as, ", and holds nothing to link back"), {
-      step <- deid_run(pipeline, deid_fixture())$step
-      twin <- deid_run(deid_complete_pipeline(deid_pipelines[[pipeline$same_as]]), deid_fixture())$step
+      step <- deid_run(pipeline, pipeline$fixture())$step
+      twin_pipeline <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
+      twin <- deid_run(twin_pipeline, twin_pipeline$fixture())$step
       expect_identical(step$data, twin$data)
       saved <- list(serialize = list(raw = serialize(deid_drop_flagged(step, pipeline$flagged), NULL), patterns = FALSE))
       expect_equal(deid_leaks(saved), character(0))
@@ -491,13 +496,13 @@ for (pipeline_name in names(deid_pipelines)) {
   }
 
   test_that(paste0(pipeline_name, ": the shape of the data and its attributes are kept"), {
-    data <- deid_fixture()
+    data <- pipeline$fixture()
     step <- deid_run(pipeline, data)$step
     out <- step$data
     oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step, pipeline$other_attributes)
     # Keys and dates in attributes and names are rewritten.
     text_oracle <- deid_text_oracle(pipeline, step)
-    rewrite <- function(x) deid_rewrite_text(x, text_oracle)
+    rewrite <- function(x) deid_rewrite_text(x, text_oracle, names = TRUE)
     kept <- setdiff(names(data), pipeline$removed)
     expect_named(out, rewrite(kept))
     replaced_cols <- c(key, "SUBJID", "RSUBJID", deid_date_cols)
@@ -562,7 +567,7 @@ for (pipeline_name in names(deid_pipelines)) {
   })
 
   test_that(paste0(pipeline_name, ": datasets still join and study days stay consistent"), {
-    out <- deid_run(pipeline, deid_fixture())$step$data
+    out <- deid_run(pipeline, pipeline$fixture())$step$data
     keys <- as.character(out$dm[[key]])
     expect_false(anyDuplicated(keys) > 0)
     for (ds in setdiff(names(out), "dm")) {
@@ -600,12 +605,14 @@ for (pipeline_name in names(deid_pipelines)) {
     expect_s3_class(vsn$data, "vctrs_list_of")
     for (rows in out$lbn$data) {
       k <- as.character(rows[[key]])
-      present <- k != "" & !is.na(rows$LBDTC) & rows$LBDTC != ""
-      expect_false(is.unsorted(k[k != ""]))
+      # A blank key is missing in the numeric fixture.
+      blank <- is.na(k) | k == ""
+      present <- !blank & !is.na(rows$LBDTC) & rows$LBDTC != ""
+      expect_false(is.unsorted(k[!blank]))
       day <- as.Date(substr(rows$LBDTC[present], 1, 10))
       expect_identical(deid_study_day(day, as.Date(out$dm$RFSTDTC[match(k[present], keys)])), rows$LBDY[present])
       expect_identical(do.call(c, lapply(rows$REPS[present], `[[`, "RPDT")), day + 1)
-      expect_true(all(is.na(rows$LBDTC[k == ""])))
+      expect_true(all(is.na(rows$LBDTC[blank])))
     }
   })
 
@@ -613,7 +620,7 @@ for (pipeline_name in names(deid_pipelines)) {
     gap <- deid_known_gaps[[gap_name]]
     test_that(paste0(pipeline_name, ": known gap '", gap_name, "' still leaks or breaks its exits"), {
       for (pkg in gap$needs) skip_if_not_installed(pkg)
-      run <- tryCatch(deid_run(pipeline, gap$plant(deid_fixture())), error = function(e) e)
+      run <- tryCatch(deid_run(pipeline, gap$plant(pipeline$fixture())), error = function(e) e)
       if (inherits(run, "error")) {
         fail(paste0("gap '", gap_name, "' breaks the pipeline: ", conditionMessage(run)))
         return()

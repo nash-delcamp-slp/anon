@@ -1170,8 +1170,9 @@ test_that("value-label codes and missing values equal to a value are not rewritt
   d$REF <- haven::labelled_spss(c("AB-1", "X", "AB-2"), labels = c("first subj" = "AB-1", other = "X"), na_values = "AB-2")
   d$RNG <- haven::labelled_spss(c("AB-15", "B", "C"), na_range = c("AB-1", "AB-3"))
   d$FREE <- haven::labelled_spss(c("Z", "Z", "Z"), labels = c(z = "AB-3"), na_range = c("AB-1", "AB-2"))
+  # "AB-15" is key "AB-1" followed by digits at the end of a value.
   expect_warning(
-    expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "still contain .*: data.REF\\."),
+    expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "still contain .*: data.REF, data.RNG\\."),
     "keep value-label or missing-value codes .*: data.REF, data.RNG\\."
   )
   new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
@@ -1762,4 +1763,118 @@ test_that("the states of a multi-state Surv column are searched for keys, like f
   d <- data.frame(USUBJID = c("AB-1001", "AB-1002"))
   d$S <- structure(matrix(c(1, 2, 1, 0), 2), type = "mright", states = c("a", "AB-1001"), class = "Surv")
   expect_warning(anon_subject_ids(d, seed = 1), "still contain original `USUBJID` values.*: data.S\\.")
+})
+
+test_that("keys made only of digits and related IDs are searched for and rewritten from 5 characters", {
+  d <- list(
+    dm = data.frame(USUBJID = c("12345", "12346"), SUBJID = c("S0001", "S0002"), NOTE = c("x", "y")),
+    short = data.frame(USUBJID = c("1234", "1235"), SUBJID = c("S001", "S002"), NOTE = c("x", "y"))
+  )
+  attr(d$dm$NOTE, "label") <- "12345 and S0002, not 123456, 12345.5 or 1.12345"
+  attr(d$short$NOTE, "label") <- "1234 and S002"
+  step <- anon_subject_ids(d$dm, keep_secrets = TRUE, seed = 1)
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(ids$pseudonym, ids$key)
+  number <- sub("SUBJ-", "", new[["12346"]])
+  expect_equal(
+    attr(step$data$NOTE, "label"),
+    paste0(new[["12345"]], " and ", number, ", not 123456, 12345.5 or 1.12345")
+  )
+  expect_equal(attr(anon_subject_ids(d$short, seed = 1)$data$NOTE, "label"), "1234 and S002")
+
+  d$dm$NOTE <- c("see 12346", "S0001")
+  d$short$NOTE <- c("see 1235", "S001")
+  expect_warning(
+    expect_warning(anon_subject_ids(d$dm, seed = 1), "still contain original `USUBJID` values, possibly inside text: data.NOTE\\."),
+    "still contain original `SUBJID` values \\(related identifiers\\), possibly inside text: data.NOTE\\. Redact"
+  )
+  expect_no_warning(anon_subject_ids(d$short, seed = 1))
+})
+
+test_that("numeric keys are searched for and rewritten to their numbers as whole numbers", {
+  d <- data.frame(USUBJID = c(77010001, 770100012), NOTE = c("see 77010001", "770100015"))
+  attr(d$NOTE, "label") <- "77010001, not 770100015 or 77010001.5"
+  names(d)[2] <- "N77010001"
+  d$`770100012` <- 1:2
+  expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "inside text: data.N77010001\\.")
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(as.character(ids$pseudonym), ids$key)
+  expect_equal(attr(step$data$N77010001, "label"), paste0(new[["77010001"]], ", not 770100015 or 77010001.5"))
+  expect_true(new[["770100012"]] %in% names(step$data))
+  # Followed by digits, a numeric key can't be told from a longer number.
+  v <- stats::setNames(1:2, c("770100011", "770100013"))
+  d2 <- list(dm = data.frame(USUBJID = c(77010001, 77010002)), x = tibble::tibble(V = v))
+  expect_equal(names(anon_subject_ids(d2, seed = 1)$data$x$V), names(v))
+})
+
+test_that("keys followed by digits are rewritten in names and found at the end of values", {
+  keys <- c("AB-1001", "AB-1002", "AB-10011")
+  vs <- data.frame(USUBJID = rep(keys[1:2], each = 2), V = 1:4)
+  d <- list(
+    dm = data.frame(USUBJID = keys, NOTE = c("x", "AB-10022", "AB-1002 3")),
+    x = tibble::tibble(V = unlist(split(vs$V, vs$USUBJID)))
+  )
+  names(d$x$V)[1] <- "AB-10011"
+  d$x[["AB-10023"]] <- 1:4
+  rownames(d$dm) <- c("AB-10021", "r2", "r3")
+  expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "inside text: dm.NOTE\\.")
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(ids$pseudonym, ids$key)
+  # A name that is itself a key is that key, not another followed by digits.
+  expect_equal(names(step$data$x$V), c(new[["AB-10011"]], paste0(new[["AB-1001"]], "2"), paste0(new[["AB-1002"]], 1:2)))
+  expect_true(paste0(new[["AB-1002"]], "3") %in% names(step$data$x))
+  # Values are not rewritten.
+  expect_setequal(step$data$dm$NOTE, d$dm$NOTE)
+})
+
+test_that("the dates step masks keys followed by digits in the locations it prints", {
+  d <- data.frame(USUBJID = c("AB-1001", "AB-1002"), TXT = c("2020-01-05", "x"))
+  names(d)[2] <- "AB-10022"
+  expect_warning(anon_subject_dates(d, seed = 1), "dates that were not shifted: data.\\[KEY\\]2\\.")
+})
+
+test_that("related IDs of more than one subject are not rewritten, and are counted when found", {
+  d <- list(
+    dm = data.frame(USUBJID = c("A-1", "B-1"), SUBJID = c("S0001", "S0002"), X = 1:2),
+    other = data.frame(USUBJID = c("A-1", "B-1"), SUBJID = c("S0001", "S0001"), X = 1:2)
+  )
+  attr(d$dm$X, "label") <- "S0001 and S0002"
+  expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "^1 original value\\(s\\) of `SUBJID` belong to more than one subject")
+  ids <- anon_secrets(step)$subject_ids
+  number <- sub("SUBJ-", "", ids$pseudonym[ids$key == "B-1"])
+  expect_equal(attr(step$data$dm$X, "label"), paste("S0001 and", number))
+})
+
+test_that("a missing-value code of an identifier column that is a key elsewhere is named in a warning", {
+  skip_if_not_installed("haven")
+  sv <- data.frame(XDTC = c("2020-01-01", "2020-01-02"))
+  sv$USUBJID <- haven::labelled_spss(c("A-1", "A-2"), na_values = "A-2")
+  rel <- data.frame(USUBJID = c("A-1", "A-2"))
+  rel$RSUBJID <- haven::labelled_spss(c("A-2", "-9"), na_values = c("A-2", "-9"))
+  d <- list(dm = data.frame(USUBJID = c("A-1", "A-2")), sv = sv, rel = rel)
+  pattern <- "had missing-value codes that are also subject keys elsewhere: sv.USUBJID, rel.RSUBJID\\. Those values became missing"
+  expect_warning(ids <- anon_subject_ids(d, seed = 1)$data, pattern)
+  expect_equal(is.na(ids$sv$USUBJID), c(FALSE, TRUE))
+  expect_true(all(is.na(ids$rel$RSUBJID)))
+  expect_warning(
+    expect_warning(dates <- anon_subject_dates(d, seed = 1)$data, "subject keys elsewhere: sv.USUBJID\\."),
+    "date value\\(s\\) in rows without a `USUBJID` were removed"
+  )
+  expect_true(is.na(dates$sv$XDTC[2]))
+  # A code that is no key elsewhere is a plain missing value.
+  d$sv$USUBJID <- haven::labelled_spss(c("A-1", "-9"), na_values = "-9")
+  d$rel <- NULL
+  expect_warning(anon_subject_ids(d, seed = 1), NA)
+})
+
+test_that("a related ID in text becomes the number its column gets", {
+  d <- data.frame(USUBJID = paste0("AB-", 1:12), SUBJID = 100001:100012, X = 1)
+  attr(d$X, "label") <- "for 100003"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  expect_equal(attr(step$data$X, "label"), paste("for", step$data$SUBJID[step$data$USUBJID == anon_secrets(step)$subject_ids$pseudonym[3]]))
+  d$SUBJID <- as.character(d$SUBJID)
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  number <- sub("SUBJ-", "", anon_secrets(step)$subject_ids$pseudonym[3])
+  expect_equal(attr(step$data$X, "label"), paste("for", number))
+  expect_equal(nchar(number), 2)
 })

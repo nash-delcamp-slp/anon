@@ -43,6 +43,17 @@ deid_nested_start <- as.Date("2119-03-07")
 deid_all_keys <- c(deid_keys, deid_nested_key)
 deid_all_starts <- c(deid_start, deid_nested_start)
 
+# Numeric keys of at least 5 digits for the same subjects (and for the unused
+# factor level planted in vs$USUBJID), by original key, for the numeric
+# variant of the fixture (deid_numeric_fixture()). The last main key continues
+# the first's digits, so the first must not be found inside it: numbers are
+# matched as whole numbers. With fewer than ten subjects, pseudonym numbers
+# sort the same as text and as numbers, as the invariants sort them.
+deid_numeric_keys <- stats::setNames(
+  c(77010001 + 0:6, 770100012, 77010010, 77010009),
+  c(deid_all_keys, "ZQ-7701-0009")
+)
+
 # Seeds used by the pipelines. The step's settings and log say whether a seed
 # was set but not its value, so the values are sentinels too.
 deid_seeds <- 770193:770196
@@ -71,6 +82,10 @@ deid_flagged <- list(
   list(dataset = "dm", column = "PACK[REF]", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = paste0("PACK[", deid_keys[2], "]"), reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
+  # A comment holding a SUBJID, and a key followed by digits at the end of a
+  # value (as unlist() names elements): values are searched, not rewritten.
+  list(dataset = "dm", column = "COMM", reason = "still contain original `SUBJID` values"),
+  list(id = "comm_glued_key", dataset = "dm", column = "COMM", reason = "still contain original `USUBJID` values"),
   # A column inside the packed column, named with a key, that holds dates as
   # text. The dates step names columns inside nested data by position.
   list(dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
@@ -98,7 +113,10 @@ deid_flagged <- c(deid_flagged, list(list(
 )))
 if (requireNamespace("haven", quietly = TRUE)) {
   deid_flagged <- c(deid_flagged, list(
-    list(pattern = "^Value labels of these columns were merged because the rewrite made their codes equal: dm\\.VISIT\\.$")
+    list(pattern = "^Value labels of these columns were merged because the rewrite made their codes equal: dm\\.VISIT\\.$"),
+    # A key's missing-value code that is another subject's key: the value
+    # becomes missing, with a warning.
+    list(pattern = "^These identifier columns had missing-value codes that are also subject keys elsewhere: sv\\.USUBJID\\. ")
   ))
 }
 
@@ -170,9 +188,12 @@ deid_fixture <- function() {
     rficdtc = factor(format(deid_start - 14), levels = c(format(deid_start - 14), "2081-01-01")),
     RFSTDT = deid_start,
     COVAL = paste("Patient", deid_keys, "seen on", format(deid_start + 3)),
+    COMM = c(paste("see", deid_subjids[2]), paste0(deid_keys[3], "1"), rep("", n - 2)),
     row.names = deid_keys,
     stringsAsFactors = FALSE
   )
+  # A SUBJID in a label: rewritten to the pseudonym's number.
+  attr(dm$AGE, "label") <- paste("Age of", deid_subjids[3], "at screening")
   attr(dm$USUBJID, "label") <- "Unique Subject Identifier"
   attr(dm$RFSTDTC, "label") <- "Subject Reference Start Date/Time"
   attr(dm$rficdtc, "label") <- "Date/Time of Informed Consent"
@@ -352,6 +373,8 @@ deid_fixture <- function() {
   # A time series column, whose `tsp` is structural (in a dataset without the
   # key: sorting rows drops a time series' class).
   ta$TSV <- stats::ts(c(1, 2))
+  # A column named with a SUBJID.
+  ta[[deid_subjids[5]]] <- c(1, 2)
   # A rowwise tibble, whose `groups` is structural.
   tw <- dplyr::rowwise(tibble::tibble(ARM = c("A", "B"), N = 1:2))
   named <- data.frame(X = 1)
@@ -364,6 +387,10 @@ deid_fixture <- function() {
   # names, a data frame drops them).
   vs_means <- vapply(split(vs$VSSTRESN, as.character(vs$USUBJID)), mean, numeric(1))
   vsum <- tibble::tibble(USUBJID = deid_keys, VSMEAN = vs_means[deid_keys])
+  # A vector named by subject and position, as unlist(split()) makes it: each
+  # key followed by digits ("<key>1"), the last key's names starting with the
+  # first key.
+  vsx <- tibble::tibble(V = unlist(split(vs$VSSTRESN, as.character(vs$USUBJID))))
 
   # Vital signs nested by subject, as a vctrs list_of (as tidyr::nest()
   # makes it), with a packed column inside: each element belongs to its row's
@@ -467,18 +494,112 @@ deid_fixture <- function() {
 
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
+    vsum = vsum, vsx = vsx, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
     lz = lz, ln = ln, lr = lr, lk = lk
   )
+  # A key column whose missing-value code is another subject's key (when
+  # haven is installed): that value becomes missing, with a warning.
+  if (requireNamespace("haven", quietly = TRUE)) {
+    sv <- data.frame(SVN = 1:2)
+    sv$USUBJID <- haven::labelled_spss(deid_keys[c(1, 6)], na_values = deid_keys[6])
+    out$sv <- sv
+  }
   out[[deid_keys[4]]] <- named
   out
 }
 
+# The fixture with numeric keys (see deid_numeric_keys): key columns (USUBJID
+# and RSUBJID) at any depth become numbers, and each key in text, attributes
+# and names becomes its number, followed by the same digits where it was
+# followed by digits (see deid_rewrite_text()). Factor keys become plain
+# numbers, losing their levels and contrasts; haven-labelled keys stay
+# labelled. SUBJIDs are kept: they are at least 5 characters long.
+deid_numeric_fixture <- function() {
+  deid_to_numeric(deid_fixture())
+}
+
+deid_numeric_text <- function(x) {
+  map <- list(new_key = stats::setNames(as.character(deid_numeric_keys), names(deid_numeric_keys)))
+  deid_rewrite_text(x, map, names = TRUE, dates = FALSE)
+}
+
+# `x` with keys made numeric, at any depth through lists, data frames and
+# attributes; `id` is TRUE for a key column. S4 objects, environments and
+# functions are left as they are.
+deid_to_numeric <- function(x, id = FALSE) {
+  if (is.null(x) || isS4(x) || is.environment(x) || is.function(x)) {
+    return(x)
+  }
+  if (id && is.atomic(x)) {
+    return(deid_numeric_id(x))
+  }
+  a <- attributes(x)
+  if (is.list(x)) {
+    ids <- if (is.data.frame(x)) names(x) %in% c("USUBJID", "RSUBJID") else rep(FALSE, length(unclass(x)))
+    v <- unclass(x)
+    attributes(v) <- NULL
+    for (i in seq_along(v)) {
+      if (!is.null(v[[i]])) v[[i]] <- deid_to_numeric(v[[i]], id = ids[i])
+    }
+  } else {
+    v <- x
+    attributes(v) <- NULL
+    if (is.character(v)) v <- deid_numeric_text(v)
+  }
+  attributes(v) <- deid_numeric_attributes(a)
+  v
+}
+
+deid_numeric_attributes <- function(a) {
+  for (name in names(a)) {
+    value <- a[[name]]
+    a[[name]] <- if (name %in% c("names", "levels") || (name == "row.names" && is.character(value))) {
+      deid_numeric_text(value)
+    } else if (name == "dimnames") {
+      lapply(value, function(d) if (!is.null(d)) deid_numeric_text(d))
+    } else if (name %in% c("class", "row.names")) {
+      value
+    } else {
+      deid_to_numeric(value)
+    }
+  }
+  a
+}
+
+# A key column as numbers (blank keys missing), keeping its other attributes.
+deid_numeric_id <- function(x) {
+  a <- attributes(x)
+  text <- as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else x)
+  stopifnot(all(is.na(text) | text == "" | text %in% names(deid_numeric_keys)))
+  v <- unname(deid_numeric_keys[text])
+  if (inherits(x, "haven_labelled_spss")) {
+    return(haven::labelled_spss(v, na_values = unname(deid_numeric_keys[a$na_values]), label = a$label))
+  }
+  attributes(v) <- deid_numeric_attributes(a[setdiff(names(a), c("levels", "class", "contrasts", "names"))])
+  v
+}
+
+# A key column with haven user-defined missing values made missing, as the
+# steps do in identifier columns; other columns as they are.
+deid_zap_codes <- function(x) {
+  if (!inherits(x, "haven_labelled_spss")) {
+    return(x)
+  }
+  v <- vctrs::vec_data(x)
+  v[is.na(x)] <- NA
+  v
+}
+
 # Text that describes the data (attributes and names) as the pipelines should
-# leave it: each original key, as a whole word, becomes its subject's
-# pseudonym (longer keys first, as one key starts another), and each ISO 8601
-# full date becomes "[DATE]".
-deid_rewrite_text <- function(x, oracle) {
+# leave it: each original key, as a whole word (a number as a whole number,
+# not inside a longer number or a decimal), becomes its subject's pseudonym,
+# and each SUBJID (`oracle$new_also`) the pseudonym's number (longer ones
+# first, as one key starts another); keys and SUBJIDs made only of digits only
+# from 5 characters. In `names`, a key holding a non-digit followed by digits
+# at the end of the name (as unlist() names elements) becomes the pseudonym
+# followed by the same digits. With `dates`, each ISO 8601 full date becomes
+# "[DATE]".
+deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   # Text is searched in UTF-8 (text marked latin1 converted), with the bytes
   # of text that isn't valid UTF-8 written as "<92>"; that converted text is
   # kept only where something was rewritten.
@@ -486,11 +607,20 @@ deid_rewrite_text <- function(x, oracle) {
   invalid <- !is.na(repaired) & !validUTF8(repaired)
   repaired[invalid] <- iconv(repaired[invalid], "UTF-8", "UTF-8", sub = "byte")
   new <- repaired
+  before <- "(?<![[:alnum:]])(?<![0-9][.,])"
+  after <- "(?![[:alnum:]])(?![.,][0-9])"
   keys <- names(oracle$new_key)
-  for (k in keys[order(-nchar(keys))]) {
-    new <- gsub(paste0("(?<![[:alnum:]])\\Q", k, "\\E(?![[:alnum:]])"), oracle$new_key[[k]], new, perl = TRUE)
+  keys <- keys[grepl("[^0-9]", keys) | nchar(keys) >= 5]
+  also <- names(oracle$new_also)
+  also <- also[nchar(also) >= 5 & !also %in% names(oracle$new_key)]
+  new_ids <- c(oracle$new_key[keys], oracle$new_also[also])
+  for (k in names(new_ids)[order(-nchar(names(new_ids)))]) {
+    ending <- if (names && k %in% keys && grepl("[^0-9]", k)) paste0("(?:", after, "|(?=[0-9]+$))") else after
+    new <- gsub(paste0(before, "\\Q", k, "\\E", ending), new_ids[[k]], new, perl = TRUE)
   }
-  new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
+  if (dates) {
+    new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
+  }
   keep <- !is.na(new) & new == repaired
   new[keep] <- x[keep]
   new
@@ -548,10 +678,10 @@ deid_rewrite_frame <- function(df, oracle, values = FALSE) {
 # The names, character row names and attributes of a data frame (`x`, its
 # unclassed copy holding the new columns) rewritten, its class put back.
 deid_rewrite_frame_text <- function(x, df, cls, oracle) {
-  attr(x, "names") <- deid_rewrite_text(names(x), oracle)
+  attr(x, "names") <- deid_rewrite_text(names(x), oracle, names = TRUE)
   row_names <- attr(x, "row.names")
   if (is.character(row_names)) {
-    attr(x, "row.names") <- deid_rewrite_text(row_names, oracle)
+    attr(x, "row.names") <- deid_rewrite_text(row_names, oracle, names = TRUE)
   }
   x <- deid_rewrite_attributes(x, oracle, frame = TRUE, structural = deid_structural(df))
   class(x) <- cls
@@ -641,10 +771,10 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE, structural = deid_
     attr(x, name) <- value
   }
   if (!frame && !is.null(names(x))) {
-    names(x) <- deid_rewrite_text(names(x), oracle)
+    names(x) <- deid_rewrite_text(names(x), oracle, names = TRUE)
   }
   if (!is.null(dimnames(x))) {
-    dimnames(x) <- lapply(dimnames(x), function(d) if (!is.null(d)) deid_rewrite_text(d, oracle))
+    dimnames(x) <- lapply(dimnames(x), function(d) if (!is.null(d)) deid_rewrite_text(d, oracle, names = TRUE))
   }
   x
 }
@@ -694,27 +824,12 @@ deid_known_gaps <- list(
       attr(d$vs$VSSTRESN, "assay") <- factor("DRUGQX assay")
       d
     }
-  ),
-  # Keys glued to digits in names (as unlist(split(V, USUBJID)) makes them,
-  # "<key>1"), which the whole-word search doesn't find (Q2 PR).
-  key_glued_to_digits = list(
-    sentinel = deid_keys[1],
-    plant = function(d) {
-      d$vsx <- tibble::tibble(V = unlist(split(d$vs$VSSTRESN, as.character(d$vs$USUBJID))))
-      d
-    }
-  ),
-  subjid_in_text = list(
-    sentinel = "ZQ0002",
-    plant = function(d) {
-      d$dm$COMM <- c("see ZQ0002", "", "", "", "", "", "", "")
-      d
-    }
   )
 )
 
 # Strings that must not appear in anything that leaves the package: keys and
-# related IDs (also without separators), every planted real full date (also as
+# related IDs (also without separators, and the numeric keys of
+# deid_numeric_fixture()), every planted real full date (also as
 # 06MAR2031 and 20310306), the numbers behind real Date and POSIXct values,
 # and the pipelines' seeds. Matching ignores case; numeric sentinels match
 # only as whole numbers. Partial and year-only dates are checked against the
@@ -725,7 +840,7 @@ deid_sentinels <- function(patterns = FALSE) {
   dates <- rep(deid_all_starts, each = length(days)) + days
   # Including the unused factor level planted in vs$USUBJID and the SUBJID of
   # the row of `pr` without a key.
-  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099")
+  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099", as.character(deid_numeric_keys))
   c(
     unique(c(ids, gsub("[^[:alnum:]]", "", ids))),
     # The unused factor level planted in dm$rficdtc.
@@ -761,7 +876,10 @@ deid_sentinels <- function(patterns = FALSE) {
 # - `removed`: `"ds.col"` or `"ds"` names of columns and datasets expected to
 #   be removed;
 # - `other_attributes`: what the pipeline does with attributes beyond the
-#   core ones ("rewrite" or "drop"), which the expected attributes follow.
+#   core ones ("rewrite" or "drop"), which the expected attributes follow;
+# - `fixture`: the function giving the input (deid_fixture(), or its numeric
+#   variant), and `keys`: its subject keys as text, in the order of
+#   `deid_all_keys`.
 deid_pipelines <- list(
   ids_then_dates = list(
     run = function(data) {
@@ -794,6 +912,24 @@ deid_pipelines <- list(
     },
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365, other_attributes = "drop",
     flagged = deid_flagged_with(drop = "s4_attribute")
+  ),
+  # Numeric keys get numbers as pseudonyms, also in text. A key made only of
+  # digits followed by digits can't be told from a longer number, so the
+  # comment holding one isn't named for keys (it is for its SUBJID).
+  ids_then_dates_numeric = list(
+    run = function(data) {
+      anon_subject_dates(
+        anon_subject_ids(data, keep_secrets = TRUE, seed = deid_seeds[1]),
+        keep_secrets = TRUE, seed = deid_seeds[2]
+      )
+    },
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    fixture = deid_numeric_fixture, keys = as.character(deid_numeric_keys[deid_all_keys]),
+    flagged = lapply(deid_flagged_with(drop = "comm_glued_key"), function(f) {
+      if (!is.null(f$column)) f$column <- deid_numeric_text(f$column)
+      if (identical(f$id, "s4_attribute")) f$pattern <- sub("SUBJ-[0-9]+", "[0-9]+", f$pattern, fixed = TRUE)
+      f
+    })
   )
 )
 
@@ -806,7 +942,9 @@ deid_pipeline_defaults <- list(
   attributes = list(),
   keep_rows = function(ds, original, oracle) rep(TRUE, nrow(original)),
   removed = character(0),
-  other_attributes = "rewrite"
+  other_attributes = "rewrite",
+  fixture = deid_fixture,
+  keys = deid_all_keys
 )
 
 # A pipeline record with the optional fields filled in.
@@ -1035,7 +1173,9 @@ deid_leaks <- function(results, sentinels = NULL) {
 }
 
 # From a step's secrets: per original key, the new key and the date offset in
-# days; and what the pipeline does with other attributes (`other`).
+# days; per fixture SUBJID, the pseudonym's number as the SUBJID column gets
+# it (`new_also`); and what the pipeline does with other attributes
+# (`other`).
 deid_oracle <- function(step, other = "rewrite") {
   secrets <- anon_secrets(step)
   ids <- secrets$subject_ids
@@ -1048,5 +1188,10 @@ deid_oracle <- function(step, other = "rewrite") {
   if (match("subject_ids", steps) < match("subject_dates", steps)) {
     offset_key <- names(new_key)[match(offset_key, new_key)]
   }
-  list(new_key = new_key, offset = stats::setNames(offsets$offset_days, offset_key), other = other)
+  # The fixture's SUBJIDs belong to deid_keys, or to their numbers in the
+  # numeric fixture.
+  own <- ifelse(deid_keys %in% names(new_key), deid_keys, as.character(deid_numeric_keys[deid_keys]))
+  numbers <- as.integer(sub(step$settings$subject_ids$prefix, "", new_key[own], fixed = TRUE))
+  new_also <- stats::setNames(formatC(numbers, width = nchar(length(new_key)), flag = "0"), deid_subjids)
+  list(new_key = new_key, new_also = new_also, offset = stats::setNames(offsets$offset_days, offset_key), other = other)
 }
