@@ -160,8 +160,10 @@ each of its rows belongs to the subject in that column. Its \code{key}, \code{al
 and \code{key_cols} columns are replaced as in a dataset, subjects found only in
 nested data get pseudonyms too, and a data frame with its own key has its
 rows sorted by the new key (row names reset); others keep their rows in
-order. Row names of nested data frames are reset when their rows are
-sorted; in those that belong to their outer row, only row names that are
+order. Row names of nested data frames (tibbles too) are reset when their
+rows are sorted, with those of their packed columns, whose rows move with
+them (as in a dataset sorted by the new key); in those that belong to their
+outer row, only row names that are
 row positions (integer, or made of digits) are reset, and other row names,
 such as the terms of a table of model coefficients, are kept and rewritten
 as text. A dataset (or nested

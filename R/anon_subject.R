@@ -126,8 +126,10 @@
 #' and `key_cols` columns are replaced as in a dataset, subjects found only in
 #' nested data get pseudonyms too, and a data frame with its own key has its
 #' rows sorted by the new key (row names reset); others keep their rows in
-#' order. Row names of nested data frames are reset when their rows are
-#' sorted; in those that belong to their outer row, only row names that are
+#' order. Row names of nested data frames (tibbles too) are reset when their
+#' rows are sorted, with those of their packed columns, whose rows move with
+#' them (as in a dataset sorted by the new key); in those that belong to their
+#' outer row, only row names that are
 #' row positions (integer, or made of digits) are reset, and other row names,
 #' such as the terms of a table of model coefficients, are kept and rewritten
 #' as text. A dataset (or nested
@@ -321,8 +323,8 @@ anon_subject_ids <- function(
       if (tb$owns && tb$kind == "list") {
         return(sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers))
       }
-      if (!tibble::is_tibble(df) && !has_text_row_names(df)) {
-        rownames(df) <- NULL
+      if (!has_text_row_names(df)) {
+        df <- reset_row_names(df, packed = FALSE)
       }
       df
     })
@@ -1738,7 +1740,7 @@ rewrite_list_column <- function(ctx, column) {
   # them) are rewritten once: the rewritten attributes and names, and the
   # counts, are reused for the others.
   done <- new.env(parent = emptyenv())
-  element <- function(e) {
+  element <- function(e, id = NULL) {
     if (is.data.frame(e)) {
       id <- frame_text_id(e)
       if (!is.null(id) && !is.null(done[[id]])) {
@@ -1760,10 +1762,8 @@ rewrite_list_column <- function(ctx, column) {
     if (is.atomic(e) && !isS4(e) && is.null(attributes(e))) {
       return(e)
     }
-    # Vectors and plain lists alike in their attributes and names are
-    # rewritten once, like data frames.
-    skeleton <- text_skeleton(e)
-    id <- if (!isFALSE(skeleton)) rlang::hash(skeleton)
+    # Vectors and plain lists alike in their attributes and names (`id`, see
+    # text_ids()) are rewritten once, like data frames.
     if (!is.null(id) && !is.null(done[[id]])) {
       hit <- done[[id]]
       ctx$counts <- ctx$counts + hit$counts
@@ -1782,13 +1782,13 @@ rewrite_list_column <- function(ctx, column) {
     }
     out
   }
-  elements <- function(l) {
+  elements <- function(l, ids = NULL) {
     cls <- oldClass(l)
     x <- unclass(l)
     for (i in seq_along(x)) {
       e <- x[[i]]
       if (!is.null(e)) {
-        new <- element(e)
+        new <- element(e, if (length(ids) > 0 && !is.na(ids[i])) ids[i])
         if (!identical(new, e)) x[[i]] <- new
       }
     }
@@ -1797,7 +1797,31 @@ rewrite_list_column <- function(ctx, column) {
   }
   # A list_of's prototype follows its rewritten elements (names, labels), so
   # that they still match it.
-  with_elements_ptype(elements(column))
+  with_elements_ptype(elements(column, text_ids(column)))
+}
+
+# For each element of a list column, the id of its text_skeleton() when
+# another element has the same one (it is then worth rewriting once), and NA
+# otherwise, and for data frames (see frame_text_id()) and vectors without
+# attributes.
+text_ids <- function(column) {
+  # Both passes of rewrite_described_text() see the same column.
+  cache_id <- paste0("text_ids:", rlang::obj_address(column))
+  if (isTRUE(text_cache$.active) && !is.null(text_cache[[cache_id]])) {
+    return(text_cache[[cache_id]])
+  }
+  ids <- vapply(unclass(column), function(e) {
+    if (is.null(e) || is.data.frame(e) || (is.atomic(e) && !isS4(e) && is.null(attributes(e)))) {
+      return(NA_character_)
+    }
+    skeleton <- text_skeleton(e)
+    if (isFALSE(skeleton)) NA_character_ else rlang::hash(skeleton)
+  }, character(1), USE.NAMES = FALSE)
+  ids[!ids %in% ids[duplicated(ids)]] <- NA_character_
+  if (isTRUE(text_cache$.active)) {
+    assign(cache_id, ids, envir = text_cache)
+  }
+  ids
 }
 
 # The attributes (names included) of a vector, or of a plain list and what it
@@ -2764,18 +2788,27 @@ any_numeric_key <- function(data, key) {
 
 # Sort rows by the new key so row order no longer follows the original keys.
 # The order of rows within a subject, and of rows without a key, is kept. Row
-# names are reset.
+# names are reset (see reset_row_names()).
 sort_by_new_key <- function(df, idx, numbers) {
-  reset <- !tibble::is_tibble(df)
-  if (nrow(df) < 2) {
-    if (reset) rownames(df) <- NULL
-    return(df)
+  if (nrow(df) >= 2) {
+    ord <- order(numbers[idx], seq_len(nrow(df)), na.last = TRUE)
+    df <- vctrs::vec_slice(df, ord)
   }
-  ord <- order(numbers[idx], seq_len(nrow(df)), na.last = TRUE)
-  df <- vctrs::vec_slice(df, ord)
-  if (reset) {
-    # Row names can hold original keys or reveal the original order.
-    rownames(df) <- NULL
+  # Row names can hold original keys or reveal the original order.
+  reset_row_names(df)
+}
+
+# A data frame (a tibble too) without row names; with `packed`, its packed
+# data frame columns too, whose rows move with its own when it is sorted.
+# Automatic row names are left as they are.
+reset_row_names <- function(df, packed = TRUE) {
+  if (.row_names_info(df) > 0L) {
+    attr(df, "row.names") <- .set_row_names(nrow_of(df))
+  }
+  if (packed) {
+    for (j in which(vapply(df, is.data.frame, logical(1)))) {
+      df <- set_column(df, j, reset_row_names(.subset2(df, j)))
+    }
   }
   df
 }

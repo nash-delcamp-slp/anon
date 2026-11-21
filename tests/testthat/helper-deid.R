@@ -208,11 +208,21 @@ deid_fixture <- function() {
     start <- deid_all_starts[match(ks, deid_all_keys)]
     out <- tibble::tibble(USUBJID = ks, MXDTC = format(start + 1))
     if (i > 4) out$MXN <- 1
+    # A tibble holding text row names: reset as it is sorted.
+    if (i == 1) attr(out, "row.names") <- c("first", "second")
     out
   }))
   # Plain data frames belonging to their row, with the row names of the rows
   # they were taken from, which the IDs step resets.
   dm$RN <- I(lapply(seq_len(n), function(i) data.frame(V = i, row.names = 10L + i)))
+  # The same in tibbles holding row names (as tibble::as_tibble(rownames =
+  # NA) keeps them), as positions in text.
+  dm$TRN <- I(lapply(seq_len(n), function(i) {
+    tibble::as_tibble(data.frame(V = i, row.names = as.character(20L + i)), rownames = NA)
+  }))
+  # A packed column with text row names: its rows move with the dataset's,
+  # which are sorted, so they are reset.
+  dm$PRN <- data.frame(Z = seq_len(n), row.names = paste0("obs", seq_len(n)))
   # Tables of model coefficients, named by term: their row names are text
   # and are kept.
   dm$COEF <- I(lapply(seq_len(n), function(i) data.frame(Estimate = c(1, i), row.names = c("(Intercept)", "TIME"))))
@@ -440,10 +450,25 @@ deid_fixture <- function() {
   lr <- tibble::tibble(ID = c("a", "b"))
   lr$data <- vctrs::new_list_of(lapply(deid_keys[2:3], function(k) vctrs::vec_slice(lab_ptype(k), 0)), ptype = ptype0)
 
+  # A list_of whose factor key and date have rows: the prototype takes the
+  # levels its elements hold, new keys and shifted dates, and drops a level
+  # of another factor that no element holds.
+  lk_rows <- function(i) {
+    tibble::tibble(
+      USUBJID = factor(deid_keys[i], levels = deid_keys[1:3]),
+      LBDTC = factor(format(deid_start[i] + 3), levels = format(deid_start[1:3] + 3)),
+      NOTE = factor("x")
+    )
+  }
+  lk_ptype <- vctrs::vec_ptype(lk_rows(1))
+  lk_ptype$NOTE <- factor(character(0), levels = c("x", "y"))
+  lk <- tibble::tibble(G = 1:2)
+  lk$data <- vctrs::new_list_of(lapply(1:2, lk_rows), ptype = lk_ptype)
+
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
     vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
-    lz = lz, ln = ln, lr = lr
+    lz = lz, ln = ln, lr = lr, lk = lk
   )
   out[[deid_keys[4]]] <- named
   out

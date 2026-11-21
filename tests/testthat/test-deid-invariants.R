@@ -108,11 +108,38 @@ deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
   for (i in seq_along(out)) {
     if (!is.null(out[[i]])) out[[i]] <- deid_expected_element(out[[i]], keys[i], oracle, prefix, key, keyed)
   }
+  if (inherits(x, "vctrs_list_of")) {
+    # The elements of a list_of share one type: a replaced or shifted factor
+    # in them has as levels all the new values found in any of them, sorted.
+    for (col in deid_list_of_factors(out, c(key, deid_date_cols))) {
+      levels_all <- sort(unique(unlist(lapply(Filter(Negate(is.null), out), function(e) as.character(e[[col]])))))
+      for (i in seq_along(out)) {
+        if (!is.null(out[[i]])) out[[i]][[col]] <- deid_relevel(out[[i]][[col]], levels_all)
+      }
+    }
+  }
   class(out) <- cls
   out <- deid_rewrite_attributes(out, oracle)
   if (inherits(x, "vctrs_list_of")) {
-    attr(out, "ptype") <- deid_expected_ptype(x, oracle, prefix, key, keyed)
+    attr(out, "ptype") <- deid_expected_ptype(x, out, oracle, prefix, key, keyed)
   }
+  out
+}
+
+# The names of the factor columns, among `cols`, of a list_of's data frames.
+deid_list_of_factors <- function(x, cols) {
+  elements <- Filter(Negate(is.null), unclass(x))
+  if (length(elements) == 0 || !is.data.frame(elements[[1]])) {
+    return(character(0))
+  }
+  intersect(names(elements[[1]])[vapply(elements[[1]], is.factor, logical(1))], cols)
+}
+
+# A factor with the same values and attributes and the given levels.
+deid_relevel <- function(f, levels) {
+  a <- attributes(f)
+  out <- factor(as.character(f), levels = levels)
+  attributes(out) <- c(attributes(out), a[setdiff(names(a), c("levels", "class"))])
   out
 }
 
@@ -120,12 +147,22 @@ deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
 # rows, de-identified like its elements (a replaced or shifted factor keeps
 # no levels when the elements give it none; it would otherwise hold keys or
 # real dates).
-deid_expected_ptype <- function(x, oracle, prefix, key, keyed) {
+# Its factor columns have the levels its expected elements (`elements`) hold
+# (in the old prototype's order when they are the same).
+deid_expected_ptype <- function(x, elements, oracle, prefix, key, keyed) {
   ptype <- attr(x, "ptype", exact = TRUE)
   if (!is.data.frame(ptype)) {
-    return(deid_rewrite_value(ptype, oracle))
+    return(deid_rewrite_attributes(ptype, oracle))
   }
-  deid_expected_frame(ptype, character(0), oracle, prefix, key, keyed || key %in% names(ptype), sort = TRUE)
+  out <- deid_expected_frame(ptype, character(0), oracle, prefix, key, keyed || key %in% names(ptype), sort = TRUE)
+  present <- Filter(Negate(is.null), unclass(elements))
+  for (col in names(out)[vapply(out, is.factor, logical(1))]) {
+    held <- unique(unlist(lapply(present, function(e) levels(e[[col]]))))
+    if (!setequal(held, levels(ptype[[col]]))) {
+      out[[col]] <- deid_relevel(out[[col]], held)
+    }
+  }
+  out
 }
 
 deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
@@ -247,9 +284,27 @@ deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FAL
   if (sort && own && nrow(x) > 1) {
     x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
   }
-  reset <- (sort && own) || (nested && keyed && positions)
-  if (reset && !tibble::is_tibble(x)) {
-    rownames(x) <- NULL
+  if (sort && own) {
+    x <- deid_no_row_names(x, packed = TRUE)
+  } else if (nested && keyed && positions) {
+    x <- deid_no_row_names(x, packed = FALSE)
+  }
+  x
+}
+
+# A data frame (or tibble) with automatic row names; with `packed`, its packed
+# data frame columns too, at any depth (their rows move with its rows).
+deid_no_row_names <- function(x, packed) {
+  attr(x, "row.names") <- seq_len(nrow(x))
+  attr(x, "row.names") <- .set_row_names(nrow(x))
+  if (packed) {
+    cls <- oldClass(x)
+    y <- unclass(x)
+    for (j in seq_along(y)) {
+      if (is.data.frame(y[[j]])) y[[j]] <- deid_no_row_names(y[[j]], packed = TRUE)
+    }
+    class(y) <- cls
+    x <- y
   }
   x
 }
@@ -395,8 +450,9 @@ for (pipeline_name in names(deid_pipelines)) {
           }
           got <- out[[deid_rewrite_text(col, oracle)]]
           if (is.data.frame(got)) {
-            # A packed data frame column: its rows move with the data.
-            expect_identical(got, vctrs::vec_slice(expected, which(keep)[ord]), info = id)
+            # A packed data frame column: its rows move with the data, which
+            # is sorted, so its row names are reset.
+            expect_identical(got, deid_no_row_names(vctrs::vec_slice(expected, which(keep)[ord]), packed = TRUE), info = id)
           } else if (is.factor(got) || is.character(got)) {
             expect_identical(as.character(got), as.character(expected)[keep][ord], info = id)
           } else if (is.list(got)) {
@@ -471,7 +527,10 @@ for (pipeline_name in names(deid_pipelines)) {
         want <- expected[[rewrite(col)]]
         if (inherits(want, "vctrs_list_of")) {
           has_key <- key %in% names(data[[ds]])
-          attr(want, "ptype") <- deid_expected_ptype(data[[ds]][[col]], text_oracle, pipeline$prefix, key, has_key)
+          row_keys <- if (has_key) as.character(data[[ds]][[key]]) else rep(NA_character_, nrow(data[[ds]]))
+          attr(want, "ptype") <- attr(
+            deid_expected_nested(data[[ds]][[col]], row_keys, text_oracle, pipeline$prefix, key, has_key), "ptype"
+          )
         }
         # Replaced and shifted factors lose a contrasts matrix named by the old
         # levels (a contrasts function's name would stay).
