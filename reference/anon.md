@@ -22,7 +22,8 @@ anon(
   nlp_auto = getOption("anon.nlp_auto"),
   .self = FALSE,
   .pattern_replacements = NULL,
-  .compiled = NULL
+  .compiled = NULL,
+  .where = NULL
 )
 ```
 
@@ -94,12 +95,31 @@ anon(
 - check_names:
 
   Logical indicating whether to anonymize object names (column names,
-  row names, list names). Default is `TRUE`.
+  row names, list names, and the names and dimnames of vectors and
+  columns; a data.table's key and indices follow its column names).
+  Default is `TRUE`.
 
 - check_labels:
 
-  Logical indicating whether to anonymize labels (attributes). Default
-  is `TRUE`.
+  Logical indicating whether to anonymize labels (attributes) of columns
+  and data frames: variable and data frame labels, comments and other
+  character attributes that aren't structural, haven value labels (the
+  label names, and the label values when they are text) and text
+  user-defined missing values (`na_values`, and the ends of a text
+  `na_range`), on vectors and columns wherever `anon()` reaches them (in
+  data frames, lists and list columns). Attributes that are structural
+  for the object's class (see the `other_attributes` argument of
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md))
+  are not redacted, except the names of a factor's contrasts matrix,
+  which follow its levels. Value labels whose codes the redaction made
+  equal are merged into one entry, their original labels joined with
+  `" / "` and then redacted, with a warning naming the column as it is
+  named in the output (or a list element, as `col[2]`); equal
+  missing-value codes are deduplicated without a warning, as which
+  values are missing doesn't change. A text `na_range` whose redacted
+  ends would be in descending order is kept, with a warning. Whatever
+  `check_labels` says, a warning names a column whose redaction changed
+  which values are user-defined missing values. Default is `TRUE`.
 
 - nlp_auto:
 
@@ -129,6 +149,11 @@ anon(
   combined single-pass regex. Passed down during recursive calls to
   avoid recompiling patterns. Default is `NULL`.
 
+- .where:
+
+  Character for internal use only. Where `x` is (such as a list column's
+  element, `"col[2]"`), for warnings. Default is `NULL`.
+
 ## Value
 
 An object of class `anon_context` with the same structure as `x` but
@@ -150,7 +175,14 @@ warnings are attached as an attribute.
 - Entire columns can be replaced if specified in `df_variable_names` or
   `df_classes`
 
-- Column names, row names, and labels are redacted when enabled
+- Column names, row names, and labels (including haven value labels) are
+  redacted when enabled
+
+Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
+searched through a repaired copy with the invalid bytes shown as hex
+(e.g. `"<92>"`), which is written back where a pattern matched; a
+pattern that matches digits can match inside such a marker. Text marked
+as `"bytes"` that isn't valid UTF-8 is left as it is, with a warning.
 
 Pattern matching is case-insensitive. When `check_approximate` is
 enabled, `anon()` will warn about remaining potential matches that are

@@ -24,9 +24,15 @@ as_anon_json(x, pretty = TRUE, auto_unbox = TRUE)
 - auto_unbox:
 
   Logical passed to
-  [`jsonlite::toJSON()`](https://jeroen.r-universe.dev/jsonlite/reference/fromJSON.html).
+  [`jsonlite::toJSON()`](https://rdrr.io/pkg/jsonlite/man/fromJSON.html).
   Defaults to `TRUE`.
 
 ## Value
 
 A length-one character vector containing JSON.
+
+## Details
+
+haven-labelled values (`haven_labelled`, `haven_labelled_spss`) are
+written as their underlying values. Their value labels are not written:
+they describe the values and may hold identifying text.

@@ -109,12 +109,33 @@ anon_report(
 - check_names:
 
   Logical indicating whether to anonymize object names (column names,
-  row names, list names). Default is `TRUE`.
+  row names, list names, and the names and dimnames of vectors and
+  columns; a data.table's key and indices follow its column names).
+  Default is `TRUE`.
 
 - check_labels:
 
-  Logical indicating whether to anonymize labels (attributes). Default
-  is `TRUE`.
+  Logical indicating whether to anonymize labels (attributes) of columns
+  and data frames: variable and data frame labels, comments and other
+  character attributes that aren't structural, haven value labels (the
+  label names, and the label values when they are text) and text
+  user-defined missing values (`na_values`, and the ends of a text
+  `na_range`), on vectors and columns wherever
+  [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+  reaches them (in data frames, lists and list columns). Attributes that
+  are structural for the object's class (see the `other_attributes`
+  argument of
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md))
+  are not redacted, except the names of a factor's contrasts matrix,
+  which follow its levels. Value labels whose codes the redaction made
+  equal are merged into one entry, their original labels joined with
+  `" / "` and then redacted, with a warning naming the column as it is
+  named in the output (or a list element, as `col[2]`); equal
+  missing-value codes are deduplicated without a warning, as which
+  values are missing doesn't change. A text `na_range` whose redacted
+  ends would be in descending order is kept, with a warning. Whatever
+  `check_labels` says, a warning names a column whose redaction changed
+  which values are user-defined missing values. Default is `TRUE`.
 
 - nlp_auto:
 
