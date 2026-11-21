@@ -76,6 +76,19 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   out
 }
 
+# The oracle for text in attributes and names: the step's own, or, for a
+# pipeline without secrets, that of the pipeline it must match.
+deid_text_oracle <- function(pipeline, step) {
+  if (isTRUE(pipeline$keep_secrets)) {
+    return(deid_oracle(step, pipeline$other_attributes))
+  }
+  if (is.null(pipeline$same_as)) {
+    stop("A pipeline without secrets needs `same_as` to check its attributes and names.")
+  }
+  twin <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
+  deid_oracle(deid_run(twin, deid_fixture())$step, pipeline$other_attributes)
+}
+
 # Columns of dataset `ds` named in a pipeline's `removed` ("ds.col").
 deid_removed_columns <- function(removed, ds) {
   prefix <- paste0(ds, ".")
@@ -93,13 +106,16 @@ for (pipeline_name in names(deid_pipelines)) {
 
   test_that(paste0(pipeline_name, ": what can't be de-identified is named in a warning, with no other column"), {
     run <- deid_run(pipeline, deid_fixture())
-    for (f in pipeline$flagged) {
+    # Warnings print locations with keys and dates rewritten.
+    text_oracle <- deid_text_oracle(pipeline, run$step)
+    flagged <- lapply(pipeline$flagged, deid_rewrite_flag, oracle = text_oracle)
+    for (f in flagged) {
       pattern <- deid_flag_pattern(f)
       expect_true(any(grepl(pattern, run$warnings)), info = pattern)
     }
-    reasons <- Filter(Negate(is.null), lapply(pipeline$flagged, `[[`, "reason"))
+    reasons <- Filter(Negate(is.null), lapply(flagged, `[[`, "reason"))
     for (reason in unique(unlist(reasons))) {
-      expected <- unlist(lapply(pipeline$flagged, function(f) {
+      expected <- unlist(lapply(flagged, function(f) {
         if (identical(f$reason, reason)) paste0(f$dataset, ".", f$column)
       }))
       for (w in grep(reason, run$warnings, fixed = TRUE, value = TRUE)) {
@@ -134,7 +150,7 @@ for (pipeline_name in names(deid_pipelines)) {
 
     test_that(paste0(pipeline_name, ": offsets and pseudonyms don't follow a pattern"), {
       step <- deid_run(pipeline, deid_fixture())$step
-      oracle <- deid_oracle(step)
+      oracle <- deid_oracle(step, pipeline$other_attributes)
       n <- length(deid_keys)
       expect_setequal(names(oracle$new_key), deid_keys)
       expect_setequal(names(oracle$offset), deid_keys)
@@ -157,16 +173,17 @@ for (pipeline_name in names(deid_pipelines)) {
     test_that(paste0(pipeline_name, ": every value matches its subject's pseudonym and offset, and the rest is unchanged"), {
       data <- deid_fixture()
       step <- deid_run(pipeline, data)$step
-      oracle <- deid_oracle(step)
+      oracle <- deid_oracle(step, pipeline$other_attributes)
       flagged_datasets <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$dataset) && is.null(f$column)) f$dataset))
       flagged_columns <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$column)) paste0(f$dataset, ".", f$column)))
 
       for (ds in setdiff(names(data), pipeline$removed)) {
-        out <- step$data[[ds]]
+        out <- step$data[[deid_rewrite_text(ds, oracle)]]
         original <- data[[ds]]
-        # Documented as left unchanged.
+        # Documented as left unchanged, apart from keys and dates in its
+        # attributes and names.
         if (!key %in% names(original) || ds %in% flagged_datasets) {
-          expect_identical(out, original, info = ds)
+          expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
@@ -189,11 +206,22 @@ for (pipeline_name in names(deid_pipelines)) {
           } else {
             deid_expected_column(original[[col]], col, all_keys, oracle, pipeline$prefix, key)
           }
-          got <- out[[col]]
-          if (is.factor(got) || is.character(got)) {
+          got <- out[[deid_rewrite_text(col, oracle)]]
+          if (is.data.frame(got)) {
+            # A packed data frame column: its rows move with the data.
+            expect_identical(got, vctrs::vec_slice(expected, which(keep)[ord]), info = id)
+          } else if (is.factor(got) || is.character(got)) {
             expect_identical(as.character(got), as.character(expected)[keep][ord], info = id)
           } else {
             expect_identical(as.vector(unclass(got)), as.vector(unclass(expected))[keep][ord], info = id)
+          }
+          # Names of a vector column follow its values, rewritten.
+          if (!is.data.frame(got)) {
+            want_names <- names(original[[col]])
+            if (!is.null(want_names)) {
+              want_names <- deid_rewrite_text(want_names, oracle)[keep][ord]
+            }
+            expect_identical(names(got), want_names, info = id)
           }
         }
       }
@@ -214,28 +242,62 @@ for (pipeline_name in names(deid_pipelines)) {
     data <- deid_fixture()
     step <- deid_run(pipeline, data)$step
     out <- step$data
-    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step)
-    expect_named(out, setdiff(names(data), pipeline$removed))
+    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step, pipeline$other_attributes)
+    # Keys and dates in attributes and names are rewritten.
+    text_oracle <- deid_text_oracle(pipeline, step)
+    rewrite <- function(x) deid_rewrite_text(x, text_oracle)
+    kept <- setdiff(names(data), pipeline$removed)
+    expect_named(out, rewrite(kept))
+    replaced_cols <- c(key, "SUBJID", "RSUBJID", deid_date_cols)
     # Attributes that change on purpose: row names (reset), factor levels
     # (they hold keys or dates), and haven value labels and missing-value
-    # codes (they describe the original values). Names are checked on their
-    # own.
+    # codes (they describe the original values, and are dropped from replaced
+    # and shifted columns; elsewhere they are checked below). Names are
+    # checked on their own, a column's with its values.
     changing <- c("row.names", "levels", "labels", "na_values", "na_range")
     keep <- function(x, also = character(0)) {
       a <- attributes(x)
       a[sort(setdiff(names(a), c(changing, also)))]
     }
-    for (ds in names(out)) {
+    for (ds in kept) {
+      got <- out[[rewrite(ds)]]
+      expected <- deid_rewrite_frame(data[[ds]], text_oracle)
       cols <- setdiff(names(data[[ds]]), deid_removed_columns(pipeline$removed, ds))
-      expect_named(out[[ds]], cols)
-      expect_identical(nrow(out[[ds]]), sum(pipeline$keep_rows(ds, data[[ds]], oracle)), info = ds)
-      expect_identical(keep(out[[ds]], "names"), keep(data[[ds]], "names"), info = ds)
+      expect_named(got, rewrite(cols))
+      expect_identical(nrow(got), sum(pipeline$keep_rows(ds, data[[ds]], oracle)), info = ds)
+      expect_identical(keep(got, "names"), keep(expected, "names"), info = ds)
       for (col in cols) {
         id <- paste0(ds, ".", col)
+        x <- got[[rewrite(col)]]
         type <- if (is.null(pipeline$types[[id]])) typeof(data[[ds]][[col]]) else pipeline$types[[id]]
-        expect_identical(typeof(out[[ds]][[col]]), type, info = id)
+        expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
-        expect_identical(keep(out[[ds]][[col]], also), keep(data[[ds]][[col]], also), info = id)
+        want <- expected[[rewrite(col)]]
+        # Replaced and shifted factors lose a contrasts matrix named by the old
+        # levels (a contrasts function's name would stay).
+        if (col %in% replaced_cols && is.matrix(attr(want, "contrasts", exact = TRUE))) {
+          attr(want, "contrasts") <- NULL
+          expect_null(attr(x, "contrasts", exact = TRUE), info = id)
+        }
+        expect_identical(keep(x, c(also, "names")), keep(want, c(also, "names")), info = id)
+        # Names of a vector column follow its values (in any row order),
+        # rewritten; a packed data frame column is data and keeps its names.
+        if (is.data.frame(x)) {
+          expect_identical(names(x), names(data[[ds]][[col]]), info = id)
+        } else if (is.null(names(data[[ds]][[col]]))) {
+          expect_null(names(x), info = id)
+        } else {
+          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))), info = id)
+        }
+        # Value labels and missing-value codes are kept on columns that are
+        # neither replaced nor shifted, and are never anything but the
+        # rewritten original.
+        for (name in setdiff(c("labels", "na_values", "na_range"), also)) {
+          want <- attr(expected[[rewrite(col)]], name, exact = TRUE)
+          if (!col %in% replaced_cols || !is.null(attr(x, name, exact = TRUE))) {
+            expect_identical(attr(x, name, exact = TRUE), want, info = paste(id, name))
+          }
+        }
       }
     }
   })
@@ -298,14 +360,25 @@ for (pipeline_name in names(deid_pipelines)) {
           results <- results[vapply(results, function(r) r$patterns, logical(1))]
         }
         results$pipeline <- list(text = c(run$warnings, run$messages), patterns = FALSE)
-        expect(
-          length(deid_leaks(results, sentinels = gap$sentinel)) > 0,
-          paste0("gap '", gap_name, "' no longer leaks: move it into deid_fixture() and remove it from deid_known_gaps")
-        )
+        leaks <- deid_leaks(results, sentinels = gap$sentinel)
+        if (pipeline_name %in% gap$handled_by) {
+          expect(length(leaks) == 0, paste0("gap '", gap_name, "' leaks in a pipeline that handles it: ", paste(leaks, collapse = "; ")))
+        } else {
+          expect(
+            length(leaks) > 0,
+            paste0("gap '", gap_name, "' no longer leaks: move it into deid_fixture() and remove it from deid_known_gaps")
+          )
+        }
       }
     })
   }
 }
+
+test_that("the fixture holds its haven-labelled columns", {
+  # Without haven they are not planted, and the invariants cover less.
+  skip_if_not_installed("haven")
+  expect_true(all(vapply(deid_fixture()$dm[c("GRP", "ARMCD", "SITE")], inherits, logical(1), "haven_labelled")))
+})
 
 test_that("each subject's New York times are on either side of a daylight saving change", {
   vs <- deid_fixture()$vs

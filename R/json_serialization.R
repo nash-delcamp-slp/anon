@@ -24,6 +24,10 @@ as_anon_payload <- function(x, path = "$") {
 #' Convert supported anon objects and common anon_context payloads into a JSON
 #' representation suitable for downstream AI/tooling use.
 #'
+#' haven-labelled values (`haven_labelled`, `haven_labelled_spss`) are written
+#' as their underlying values. Their value labels are not written: they
+#' describe the values and may hold identifying text.
+#'
 #' @inheritParams as_anon_payload
 #' @param pretty Logical indicating whether to pretty-print the JSON output.
 #'   Defaults to \code{TRUE}.
@@ -391,6 +395,12 @@ serialize_supported_value <- function(x, path = "$") {
 
   if (inherits(x, "anon_context")) {
     return(as_anon_payload.anon_context(x, path = path))
+  }
+
+  # haven-labelled values are written as their underlying values. Value labels
+  # are not written: they describe the values and may hold identifying text.
+  if (inherits(x, "haven_labelled")) {
+    return(serialize_supported_value(vctrs::vec_data(x), path = path))
   }
 
   if (inherits(x, "Date") || inherits(x, "POSIXt") || inherits(x, "difftime")) {

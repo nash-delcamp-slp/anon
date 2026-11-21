@@ -24,3 +24,8 @@ A length-one character vector containing JSON.
 Convert supported anon objects and common anon_context payloads into a JSON
 representation suitable for downstream AI/tooling use.
 }
+\details{
+haven-labelled values (\code{haven_labelled}, \code{haven_labelled_spss}) are written
+as their underlying values. Their value labels are not written: they
+describe the values and may hold identifying text.
+}
