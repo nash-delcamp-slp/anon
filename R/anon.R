@@ -80,6 +80,8 @@
 #' - Individual columns are processed based on their content
 #' - Entire columns can be replaced if specified in `df_variable_names` or `df_classes`
 #' - Column names, row names, and labels (including haven value labels) are redacted when enabled
+#' - List columns are redacted element by element, nested data frames included, and keep
+#'   their class (`AsIs`, vctrs `list_of`, whose prototype is redacted like the elements)
 #'
 #' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 #' through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -592,6 +594,32 @@ anon <- function(
         check_approximate,
         max_distance
       )
+    }
+
+    # A list column keeps its class (AsIs, vctrs list_of); a list_of's
+    # prototype is redacted like its elements, so that they still match it.
+    if (is_plain_list(x) && !is.null(oldClass(x))) {
+      ptype <- attr(x, "ptype", exact = TRUE)
+      if (inherits(x, "vctrs_list_of") && !is.null(ptype)) {
+        ptype <- anon(
+          ptype,
+          pattern_list = pattern_list,
+          default_replacement = default_replacement,
+          check_approximate = FALSE,
+          max_distance = max_distance,
+          df_variable_names = df_variable_names,
+          df_classes = df_classes,
+          check_names = check_names,
+          check_labels = check_labels,
+          .self = TRUE,
+          .pattern_replacements = pattern_replacements,
+          .compiled = compiled,
+          .where = .where
+        )
+        attr(ptype, "approximate_warnings") <- NULL
+        attr(result, "ptype") <- ptype
+      }
+      class(result) <- oldClass(x)
     }
   } else {
     result <- x

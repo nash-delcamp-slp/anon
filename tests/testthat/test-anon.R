@@ -791,3 +791,26 @@ test_that("anon() drops a contrasts matrix when redaction merges levels", {
   df <- data.frame(f = f)
   expect_null(attr(anon(df, pattern_list = list("[D]" = c("DrugA", "DrugB")))$f, "contrasts"))
 })
+
+test_that("anon() redacts inside nested data frames and keeps a list_of's class and prototype", {
+  skip_if_not_installed("haven")
+  inner <- function() {
+    t <- tibble::tibble(DRUGQX_COL = c("DRUGQX a", "b"), L = haven::labelled(c(1, 2), labels = c("DRUGQX dose" = 1)))
+    attr(t$DRUGQX_COL, "label") <- "DRUGQX label"
+    attr(t, "label") <- "DRUGQX table"
+    t
+  }
+  d <- tibble::tibble(ID = 1:2)
+  d$N <- vctrs::list_of(inner(), inner())
+  d$I <- I(list(inner(), NULL))
+  d$P <- inner()
+  out <- anon(d, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_false(any(grepl("DRUGQX", deparse(unclass(out)))))
+  expect_s3_class(out$N, "vctrs_list_of")
+  expect_s3_class(out$I, "AsIs")
+  expect_named(out$N[[1]], c("[DRUG]_COL", "L"))
+  expect_identical(out$N[[1]][["[DRUG]_COL"]][1], "[DRUG] a")
+  expect_identical(attr(out$P, "label"), "[DRUG] table")
+  expect_identical(names(attr(out$I[[1]]$L, "labels")), "[DRUG] dose")
+  expect_identical(do.call(vctrs::vec_ptype_common, unname(as.list(unclass(out$N)))), attr(out$N, "ptype"))
+})

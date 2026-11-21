@@ -277,3 +277,11 @@ test_that("haven-labelled columns serialize as their values, without value label
   expect_true(jsonlite::validate(json))
   expect_false(grepl("Secret", json))
 })
+
+test_that("a packed data frame column serializes row by row", {
+  d <- data.frame(a = 1:3)
+  d$P <- data.frame(x = c("u", "v", "w"))
+  payload <- serialize_table_payload(d)
+  expect_identical(payload$rows[[3]]$P$rows[[1]]$x, "w")
+  expect_no_error(as_anon_json(list(d = d)))
+})

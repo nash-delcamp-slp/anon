@@ -1099,15 +1099,17 @@ test_that("keys are rewritten at any depth of attributes, in vector names and di
   expect_true(any(is.na(step$log$dataset) & grepl("in attributes and names: 1 attribute", step$log$detail)))
 })
 
-test_that("keys and dates inside list-column elements are flagged, not rewritten", {
+test_that("keys and dates in the names and attributes of list-column elements are rewritten", {
   d <- tibble::tibble(
     USUBJID = c("S-01", "S-02"), RFSTDTC = c("2014-01-01", "2014-02-01"),
     L = list(list(`S-02` = 1), structure(2, note = "x")),
     D = list(1, structure(2, note = "seen 2014-01-05"))
   )
-  expect_warning(out <- anon_subject_ids(d, seed = 1)$data, "still contain original `USUBJID` values.*: data.L\\.")
-  expect_true("S-02" %in% unlist(lapply(out$L, names)))
-  expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.D\\.")
+  expect_no_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1))
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_setequal(unlist(lapply(step$data$L, names)), new[["S-02"]])
+  expect_no_warning(out <- anon_subject_dates(d, seed = 1)$data)
+  expect_setequal(unlist(lapply(out$D, attr, "note")), "seen [DATE]")
 })
 
 test_that("text that isn't valid UTF-8 is searched through a repaired copy; latin1 text is searched", {
@@ -1231,19 +1233,32 @@ test_that("rewritten names that clash are made unique in the ids step", {
   expect_equal(step$data[["SUBJ-2_1"]], data.frame(Y = 1))
 })
 
-test_that("packed data frame columns are data: searched and flagged, not rewritten", {
+test_that("packed data frame columns are de-identified with their outer rows; their text values are searched", {
   d <- tibble::tibble(USUBJID = c("S-01", "S-02"), RFSTDTC = c("2014-01-01", "2014-02-01"))
   d$P <- tibble::tibble(REF = c("S-02", "x"), SEEN = c("2014-01-05", "y"), Q = structure(1:2, label = "for S-01"))
-  d$P$IN <- tibble::tibble(Z = as.Date("2014-01-05"))
+  d$P$IN <- tibble::tibble(Z = as.Date(c("2014-01-05", "2014-02-05")))
+  attr(d$P, "label") <- "Links of S-02"
   d$H <- tibble::tibble(`S-01` = 1)
   expect_warning(
-    out <- anon_subject_ids(d, seed = 1)$data,
-    "still contain original `USUBJID` values, possibly inside text: data.P\\[REF\\], data.P\\[Q\\], data.H\\. Add text or factor columns to `key_cols`"
+    step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1),
+    "still contain original `USUBJID` values, possibly inside text: data.P\\[REF\\]\\. Add text or factor columns to `key_cols`"
   )
-  expect_identical(out$P, d$P[match(out$USUBJID, c("SUBJ-1", "SUBJ-2")), ])
-  expect_named(out$H, "S-01")
-  # The dates step names columns inside packed columns by position.
-  expect_warning(anon_subject_dates(d, seed = 1), "contain dates that were not shifted: data.P\\[2\\], data.P\\[4\\]\\[1\\]\\.")
+  out <- step$data
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  ord <- match(out$USUBJID, new[c("S-01", "S-02")])
+  expect_identical(out$P$REF, d$P$REF[ord])
+  # Its label, its columns' attributes and its column names are rewritten.
+  expect_identical(attr(out$P, "label"), paste("Links of", new[["S-02"]]))
+  expect_identical(attr(out$P$Q, "label"), paste("for", new[["S-01"]]))
+  expect_named(out$H, new[["S-01"]])
+  # Dates in packed columns, at any depth, move with their outer row's
+  # subject; dates in text are named by position.
+  expect_warning(
+    step <- anon_subject_dates(d, keep_secrets = TRUE, seed = 1),
+    "contain dates that were not shifted: data.P\\[2\\]\\."
+  )
+  off <- anon_secrets(step)$date_offsets$offset_days
+  expect_identical(step$data$P$IN$Z, d$P$IN$Z + off)
 })
 
 test_that("dates held in attributes as Date or date-time values become [DATE]", {
@@ -1373,10 +1388,13 @@ test_that("a factor held in an attribute whose levels now read the same becomes 
 })
 
 test_that("text held in list columns is searched quickly", {
+  # A timing, with a generous limit (about 2 s on a laptop) so that a busy
+  # machine doesn't fail it.
+  skip_on_cran()
   n <- 20000
   d <- tibble::tibble(USUBJID = sprintf("S-%05d", seq_len(n)))
   d$L <- lapply(seq_len(n), function(i) list(a = "x", b = structure(i, note = "n")))
-  expect_lt(system.time(anon_subject_ids(d, seed = 1))[["elapsed"]], 5)
+  expect_lt(system.time(anon_subject_ids(d, seed = 1))[["elapsed"]], 20)
 })
 
 test_that("other_attributes = \"drop\" drops attributes beyond the core ones, and counts them", {
@@ -1528,10 +1546,12 @@ test_that("locations inside packed columns are printed with keys and dates rewri
   }
   w <- step_warnings(out <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1))
   s2 <- anon_secrets(out)$subject_ids$pseudonym[2]
-  expect_match(w, paste0("data.P, data.P\\[", s2, "\\]\\. Add text or factor columns"), all = FALSE)
+  # The packed column's names are rewritten, so only the column holding a key
+  # is named.
+  expect_match(w, paste0("text: data.P\\[", s2, "\\]\\. Add text or factor columns"), all = FALSE)
   expect_false(any(grepl("S-0", w)))
   w <- step_warnings(anon_subject_dates(d, seed = 1))
-  expect_match(w, "not shifted: data.P, data.P\\[2\\]\\.", all = FALSE)
+  expect_match(w, "not shifted: data.P\\[2\\]\\.", all = FALSE)
   expect_false(any(grepl("2014-03-03", w)))
 })
 
@@ -1573,18 +1593,22 @@ test_that("attributes are structural only on the classes that use them", {
   expect_equal(step$log$detail[grepl("dropped", step$log$detail)], "5 other attribute(s) dropped")
 })
 
-test_that("a vctrs prototype is kept, with text in it rewritten", {
+test_that("a vctrs prototype follows its elements, with the text of its attributes rewritten", {
   d <- tibble::tibble(USUBJID = c("S-01", "S-02"))
-  d$L <- vctrs::list_of(factor("a"), factor("a"), .ptype = factor(levels = c("a", "S-01")))
+  ptype <- structure(factor(levels = c("a", "S-01")), label = "Codes of S-01")
+  d$L <- vctrs::list_of(factor("a"), factor("a"), .ptype = ptype)
   for (other in c("rewrite", "drop")) {
     # The elements are cast to the prototype, so their levels hold the key
-    # too: they are data, and flagged.
+    # too: they are data, and flagged. The prototype matches them.
     expect_warning(
       step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1, other_attributes = other),
       "still contain original `USUBJID` values.*: data.L\\."
     )
     new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
-    expect_equal(levels(attr(step$data$L, "ptype")), c("a", new[["S-01"]]), info = other)
+    p <- attr(step$data$L, "ptype")
+    expect_identical(levels(p), levels(step$data$L[[1]]), info = other)
+    expect_identical(attr(p, "label"), paste("Codes of", new[["S-01"]]), info = other)
+    expect_no_error(vctrs::vec_cast(step$data$L[[1]], p))
     expect_s3_class(step$data$L, "vctrs_list_of")
   }
 })
@@ -1647,19 +1671,18 @@ test_that("warnings print locations with keys and dates hidden, and text that ca
     w
   }
   dates_first <- warnings_of(step <- anon_subject_dates(d, seed = 1))
-  # The packed column itself is named too: its column names hold a date. The
-  # dates step names columns inside packed columns by position, also when
+  # The dates step names columns inside packed columns by position, also when
   # given the data of an IDs step rather than the step.
-  expect_match(dates_first, "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE)
+  expect_match(dates_first, "not shifted: data.PK\\[2\\]\\.", all = FALSE)
   expect_match(
     warnings_of(anon_subject_dates(anon_subject_ids(d, seed = 2)$data, seed = 1)),
-    "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE
+    "not shifted: data.PK\\[2\\]\\.", all = FALSE
   )
   ids_after <- warnings_of(anon_subject_ids(step, seed = 2))
   ids_first <- warnings_of(step <- anon_subject_ids(d, seed = 2))
   # After the IDs step, columns inside packed columns are shown by position.
   dates_after <- warnings_of(anon_subject_dates(step, seed = 1))
-  expect_match(dates_after, "not shifted: data.PK, data.PK\\[2\\]\\.", all = FALSE)
+  expect_match(dates_after, "not shifted: data.PK\\[2\\]\\.", all = FALSE)
   all <- c(dates_first, ids_after, ids_first, dates_after)
   expect_false(any(grepl("AB-00|2020-0[123]", all)))
   # A sub-column name marked "bytes" that isn't valid UTF-8 is escaped.

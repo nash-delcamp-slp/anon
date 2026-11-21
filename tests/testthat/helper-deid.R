@@ -35,6 +35,14 @@ deid_start <- as.Date(c(
 ))
 deid_min_spacing <- 21
 
+# A subject found only inside nested data (in the first of two shapes of data
+# frames in a list column), in no dataset's key column, with its own start
+# date, eleven years after the others'.
+deid_nested_key <- "ZQ-7701-0010"
+deid_nested_start <- as.Date("2119-03-07")
+deid_all_keys <- c(deid_keys, deid_nested_key)
+deid_all_starts <- c(deid_start, deid_nested_start)
+
 # Seeds used by the pipelines. The step's settings and log say whether a seed
 # was set but not its value, so the values are sentinels too.
 deid_seeds <- 770193:770196
@@ -56,24 +64,30 @@ deid_patterns <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
 deid_flagged <- list(
   list(dataset = "dm", column = "COVAL", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "LINKS", reason = "still contain original `USUBJID` values"),
-  list(dataset = "dm", column = "REFS", reason = "still contain original `USUBJID` values"),
-  # A packed data frame column is data, like a list column: the packed column
-  # (one of its columns is named with a key) and its columns holding keys are
-  # named; dropping any of them drops the packed column.
-  list(dataset = "dm", column = "PACK", reason = "still contain original `USUBJID` values"),
+  # The text values of a packed data frame column are data, like those of a
+  # list column: its columns holding keys are named (one of them by its name,
+  # which held a key and is rewritten); dropping any of them drops the packed
+  # column.
   list(dataset = "dm", column = "PACK[REF]", reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = paste0("PACK[", deid_keys[2], "]"), reason = "still contain original `USUBJID` values"),
   list(dataset = "dm", column = "COVAL", reason = "contain dates that were not shifted"),
-  # A column inside the packed column, named with a key, that holds dates.
-  # The dates step names columns inside packed columns by position (it can't
-  # recognise original keys there once the IDs step has run).
+  # A column inside the packed column, named with a key, that holds dates as
+  # text. The dates step names columns inside nested data by position.
   list(dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
+  # A list column holding objects that can't be de-identified.
+  list(dataset = "dm", column = "FIT", reason = "hold objects that can't be de-identified"),
+  # A factor naming subjects inside nested data.
+  list(dataset = "lof", column = "data[[]][V]", reason = "still contain original `USUBJID` values"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
-  list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\)\\.$"),
-  # The row of `pr` with a blank key: its SUBJID and its 7 dates.
+  # With a per-test table, not a dataset of subjects: only some of its rows
+  # hold a data frame with a subject, so its own dates are left as they are.
+  list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\); qc \\(RUNDT\\)\\.$"),
+  # The row of `pr` with a blank key: its SUBJID and its 7 dates; and the row
+  # of a data frame nested in `lbn` with a blank key: its date, and the date
+  # of the data frame nested in that row.
   list(pattern = "^1 value\\(s\\) of `SUBJID` in rows without a `USUBJID` could not be mapped and were removed\\.$"),
-  list(pattern = "^7 date value\\(s\\) in rows without a `USUBJID` were removed\\.$")
+  list(pattern = "^9 date value\\(s\\) in rows without a `USUBJID` were removed\\.$")
 )
 # An S4 object held in an attribute of a column named with a key: kept, and
 # named with the key rewritten (or shown as "[KEY]" by the dates step). It is
@@ -164,13 +178,64 @@ deid_fixture <- function() {
   attr(dm$rficdtc, "label") <- "Date/Time of Informed Consent"
   # A list column holding a key, which can't be rewritten and is flagged.
   dm$LINKS <- I(as.list(c(deid_keys[1], "x", "y", "z", "w", "v", "u", "t")))
-  # A list column whose elements are named with keys, which is flagged too.
+  # A list column whose elements are named with keys: names are rewritten.
   dm$REFS <- I(lapply(c(2:8, 1), function(i) stats::setNames(list(1), deid_keys[i])))
   # A packed data frame column holding other subjects' keys, one of its
-  # columns named with a key.
+  # columns named with a key, and a key in its label.
   dm$PACK <- data.frame(REF = deid_keys[c(3:8, 1:2)], N = 1:8)
   dm$PACK[[deid_keys[2]]] <- deid_keys[c(4:8, 1:3)]
   dm$PACK[[deid_keys[7]]] <- format(deid_start[c(2:8, 1)] + 2)
+  attr(dm$PACK, "label") <- paste("Links of", deid_keys[1])
+  # Nested data: a data frame per row holding the row's subject's date (with
+  # the subject's key in its label, so that each differs in more than its
+  # values), a list column of dates, numbers with a date in an attribute, and
+  # a data frame per row with its own key column.
+  dm$NEST <- I(lapply(seq_along(deid_start), function(i) {
+    tibble::tibble(DT = structure(deid_start[i], label = paste("Date of", deid_keys[i])))
+  }))
+  dm$WHEN <- I(as.list(deid_start))
+  dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
+  # Numbers alike but for the key in a note: each is rewritten with its own.
+  dm$NOTED <- I(lapply(seq_len(n), function(i) structure(i, note = paste("for", deid_keys[i]))))
+  # Each data frame's own key is another subject's than its row's: its own
+  # key wins.
+  dm$SUB <- I(lapply(deid_keys[c(2:n, 1)], function(k) tibble::tibble(USUBJID = k, X = 1)))
+  # Data frames of two shapes, with their own key: the first shape holds rows
+  # of the subject found only here; one data frame holds rows of two subjects
+  # in an order the keys don't follow.
+  dm$MIX <- I(lapply(seq_len(n), function(i) {
+    ks <- if (i == 1) c(deid_nested_key, deid_keys[i]) else deid_keys[i]
+    start <- deid_all_starts[match(ks, deid_all_keys)]
+    out <- tibble::tibble(USUBJID = ks, MXDTC = format(start + 1))
+    if (i > 4) out$MXN <- 1
+    # A tibble holding text row names: reset as it is sorted.
+    if (i == 1) attr(out, "row.names") <- c("first", "second")
+    out
+  }))
+  # Plain data frames belonging to their row, with the row names of the rows
+  # they were taken from, which the IDs step resets.
+  dm$RN <- I(lapply(seq_len(n), function(i) data.frame(V = i, row.names = 10L + i)))
+  # The same in tibbles holding row names (as tibble::as_tibble(rownames =
+  # NA) keeps them), as positions in text.
+  dm$TRN <- I(lapply(seq_len(n), function(i) {
+    tibble::as_tibble(data.frame(V = i, row.names = as.character(20L + i)), rownames = NA)
+  }))
+  # A packed column with text row names: its rows move with the dataset's,
+  # which are sorted, so they are reset.
+  dm$PRN <- data.frame(Z = seq_len(n), row.names = paste0("obs", seq_len(n)))
+  # Tables of model coefficients, named by term: their row names are text
+  # and are kept.
+  dm$COEF <- I(lapply(seq_len(n), function(i) data.frame(Estimate = c(1, i), row.names = c("(Intercept)", "TIME"))))
+  # Date-times held in a list column as POSIXlt values, in a zone whose
+  # `tzone` names its standard and daylight saving abbreviations too.
+  dm$LT <- I(lapply(seq_len(n), function(i) as.POSIXlt(paste(format(deid_start[i] + 1), "09:00"), tz = "America/New_York")))
+  # A list column holding objects that can't be de-identified (a resampling
+  # split holding keys, as rsample makes them, and a fitted model).
+  dm$FIT <- I(c(
+    list(structure(list(data = data.frame(USUBJID = deid_keys[1:2]), in_id = 1L), class = "rsplit")),
+    list(structure(list(coefficients = c(AGE = 0.5)), class = "lm")),
+    rep(list(NULL), n - 2)
+  ))
   # A factor with contrasts, which are structural.
   dm$SEXF <- factor(rep(c("F", "M"), 4))
   stats::contrasts(dm$SEXF) <- stats::contr.sum(2)
@@ -300,9 +365,110 @@ deid_fixture <- function() {
   vs_means <- vapply(split(vs$VSSTRESN, as.character(vs$USUBJID)), mean, numeric(1))
   vsum <- tibble::tibble(USUBJID = deid_keys, VSMEAN = vs_means[deid_keys])
 
+  # Vital signs nested by subject, as a vctrs list_of (as tidyr::nest()
+  # makes it), with a packed column inside: each element belongs to its row's
+  # subject.
+  vs_rows <- function(i) {
+    dates <- deid_start[i] + c(0, 7)
+    tibble::tibble(
+      VSDTC = format(dates), VSDY = deid_study_day(dates, deid_start[i]),
+      P = tibble::tibble(VSTM = as.POSIXct(paste(format(dates), "08:30"), tz = "America/New_York"))
+    )
+  }
+  vsn <- tibble::tibble(USUBJID = deid_keys)
+  vs_list <- lapply(seq_len(n), function(i) {
+    out <- vs_rows(i)
+    attr(out$VSDTC, "label") <- "Vital Signs Date/Time"
+    out
+  })
+  # Its prototype keeps the columns' labels, as dplyr::group_nest() makes it
+  # (tidyr::unnest() gives them to the unnested columns).
+  vsn$data <- vctrs::new_list_of(vs_list, ptype = vctrs::vec_ptype(vs_list[[1]]))
+
+  # A dataset whose key is only in a packed column, with its rows in an order
+  # the keys don't follow: each row has the packed key's subject.
+  pk <- tibble::tibble(PKDTC = format(deid_start[c(3, 1, 2, 8:4)] + 1))
+  pk$ID <- tibble::tibble(USUBJID = deid_keys[c(3, 1, 2, 8:4)])
+  # A dataset of data frames split by subject (each holding one subject), in
+  # an order the keys don't follow: each row has its data frame's subject.
+  spl <- tibble::tibble(SPDTC = format(deid_start[c(5, 2, 7)] + 2))
+  # They are plain data frames with text row names naming the rows they were
+  # split from, which the IDs step resets as it sorts them.
+  spl$data <- lapply(c(5, 2, 7), function(i) {
+    data.frame(USUBJID = deid_keys[i], SPDT = deid_start[i] + c(3, 4), row.names = paste0("obs", 2 * i + 0:1))
+  })
+
+  # Labs nested by test, in a dataset without the key: the nested data frames
+  # hold the key, rows of several subjects in an order the keys don't follow,
+  # a row with a blank key (holding the first subject's dates), and, in each
+  # row, a data frame of its own.
+  lab_rows <- function(ks, day) {
+    start <- deid_start[match(ks, deid_keys)]
+    start[ks == ""] <- deid_start[1]
+    out <- tibble::tibble(
+      USUBJID = ks, LBDTC = paste0(format(start + day), "T09:00"), LBDY = deid_study_day(start + day, start)
+    )
+    out$REPS <- lapply(start, function(s) tibble::tibble(RPDT = s + day + 1))
+    out
+  }
+  lbn <- tibble::tibble(LBTESTCD = c("ALB", "GLUC"))
+  lbn$data <- list(lab_rows(deid_keys[c(3, 1, 2)], 2), lab_rows(c(deid_keys[4:8], ""), 3))
+  # A row with a blank date in the first data frame: the date removed from the
+  # second, of the same shape, takes that data frame's own missing value (NA).
+  lbn$data[[1]] <- vctrs::vec_rbind(
+    lbn$data[[1]],
+    tibble::tibble(USUBJID = deid_keys[4], LBDTC = "", LBDY = NA_integer_, REPS = list(NULL))
+  )
+
+  # A per-test table of the extreme values found, with the run date of the
+  # analysis: one test has a subject's row, one none (no row), one no data
+  # frame.
+  qc <- tibble::tibble(LBTESTCD = c("ALB", "GLUC", "HGB"), RUNDT = as.Date("2150-05-01") + 0:2)
+  qc$outliers <- list(
+    tibble::tibble(USUBJID = deid_keys[2], LBSTRESN = 99),
+    tibble::tibble(USUBJID = character(0), LBSTRESN = numeric(0)),
+    NULL
+  )
+  # A list_of whose data frames hold a factor naming subjects, as data (not
+  # the key): its prototype must match the elements, whose levels aren't
+  # rewritten.
+  lof <- tibble::tibble(USUBJID = deid_keys[1:2])
+  lof_rows <- lapply(1:2, function(i) tibble::tibble(V = factor(deid_keys[i])))
+  lof$data <- vctrs::new_list_of(lof_rows, ptype = vctrs::vec_ptype(vctrs::vec_rbind(lof_rows[[1]], lof_rows[[2]])))
+
+  # list_of columns whose elements give their prototype nothing to follow (no
+  # element, only NULL, only data frames without rows): the prototype's key
+  # and date factors hold the keys and a real date as levels, which must go.
+  lab_ptype <- function(k) {
+    tibble::tibble(USUBJID = factor(k, levels = deid_keys[1:3]), LBDTC = factor(format(deid_start[1] + 2)))
+  }
+  ptype0 <- vctrs::vec_ptype(lab_ptype(deid_keys[1]))
+  lz <- tibble::tibble(ID = character(0))
+  lz$data <- vctrs::new_list_of(list(), ptype = ptype0)
+  ln <- tibble::tibble(ID = c("a", "b"))
+  ln$data <- vctrs::new_list_of(list(NULL, NULL), ptype = ptype0)
+  lr <- tibble::tibble(ID = c("a", "b"))
+  lr$data <- vctrs::new_list_of(lapply(deid_keys[2:3], function(k) vctrs::vec_slice(lab_ptype(k), 0)), ptype = ptype0)
+
+  # A list_of whose factor key and date have rows: the prototype takes the
+  # levels its elements hold, new keys and shifted dates, and drops a level
+  # of another factor that no element holds.
+  lk_rows <- function(i) {
+    tibble::tibble(
+      USUBJID = factor(deid_keys[i], levels = deid_keys[1:3]),
+      LBDTC = factor(format(deid_start[i] + 3), levels = format(deid_start[1:3] + 3)),
+      NOTE = factor("x")
+    )
+  }
+  lk_ptype <- vctrs::vec_ptype(lk_rows(1))
+  lk_ptype$NOTE <- factor(character(0), levels = c("x", "y"))
+  lk <- tibble::tibble(G = 1:2)
+  lk$data <- vctrs::new_list_of(lapply(1:2, lk_rows), ptype = lk_ptype)
+
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, tw = tw
+    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
+    lz = lz, ln = ln, lr = lr, lk = lk
   )
   out[[deid_keys[4]]] <- named
   out
@@ -358,19 +524,30 @@ deid_structural <- function(x) {
 # A data frame with the text that describes it rewritten as
 # deid_rewrite_text() says, and its values untouched: column names, character
 # row names, and the attributes of the data frame and its columns (see
-# deid_rewrite_attributes()). Packed data frame columns are data and are left
-# as they are. With `values` (a data frame held in an attribute), its text
-# values are rewritten too.
+# deid_rewrite_attributes()), and inside nested data the same for packed data
+# frame columns and, in list columns, for what their elements hold (see
+# deid_rewrite_list()). With `values` (a data frame held in an attribute), its
+# text values are rewritten too.
 deid_rewrite_frame <- function(df, oracle, values = FALSE) {
   cls <- oldClass(df)
   x <- unclass(df)
   for (j in seq_along(x)) {
     if (values) {
       x[[j]] <- deid_rewrite_value(x[[j]], oracle)
-    } else if (!is.data.frame(x[[j]])) {
+    } else if (is.data.frame(x[[j]])) {
+      x[[j]] <- deid_rewrite_frame(x[[j]], oracle)
+    } else if (is.list(x[[j]]) && !isS4(x[[j]])) {
+      x[[j]] <- deid_rewrite_list(x[[j]], oracle)
+    } else {
       x[[j]] <- deid_rewrite_attributes(x[[j]], oracle)
     }
   }
+  deid_rewrite_frame_text(x, df, cls, oracle)
+}
+
+# The names, character row names and attributes of a data frame (`x`, its
+# unclassed copy holding the new columns) rewritten, its class put back.
+deid_rewrite_frame_text <- function(x, df, cls, oracle) {
   attr(x, "names") <- deid_rewrite_text(names(x), oracle)
   row_names <- attr(x, "row.names")
   if (is.character(row_names)) {
@@ -379,6 +556,39 @@ deid_rewrite_frame <- function(df, oracle, values = FALSE) {
   x <- deid_rewrite_attributes(x, oracle, frame = TRUE, structural = deid_structural(df))
   class(x) <- cls
   x
+}
+
+# Lists the steps walk into (kept apart from the package's own test, covering
+# the same cases): unclassed lists, or lists marked only as AsIs or vctrs
+# lists. Other objects in list columns are not entered.
+deid_plain_list <- function(x) {
+  is.list(x) && !isS4(x) && !is.data.frame(x) &&
+    all(oldClass(x) %in% c("AsIs", "list", "vctrs_list_of", "vctrs_vctr"))
+}
+
+# A list column with the text that describes what it holds rewritten: its own
+# attributes, and at any depth through plain lists the attributes and names of
+# vectors and lists and the text of data frames (deid_rewrite_frame()). Text
+# values are data and are left as they are.
+deid_rewrite_list <- function(l, oracle) {
+  if (!deid_plain_list(l)) {
+    return(l)
+  }
+  cls <- oldClass(l)
+  x <- unclass(l)
+  for (i in seq_along(x)) {
+    e <- x[[i]]
+    if (is.null(e)) next
+    x[[i]] <- if (is.data.frame(e)) {
+      deid_rewrite_frame(e, oracle)
+    } else if (is.atomic(e) && !isS4(e)) {
+      deid_rewrite_attributes(e, oracle)
+    } else {
+      deid_rewrite_list(e, oracle)
+    }
+  }
+  class(x) <- cls
+  deid_rewrite_attributes(x, oracle)
 }
 
 # Attributes rewritten at any depth, except the structural ones (and a data
@@ -485,37 +695,6 @@ deid_known_gaps <- list(
       d
     }
   ),
-  # Nested data (its own PR): dates in nested tibbles, in list columns and in
-  # attributes of list-column elements are not shifted or flagged, and keys in
-  # a nested tibble with its own key column are not replaced.
-  nested_tibble_date = list(
-    sentinel = as.character(as.numeric(deid_start[3])),
-    plant = function(d) {
-      d$dm$NEST <- I(lapply(seq_along(deid_start), function(i) tibble::tibble(DT = deid_start[i])))
-      d
-    }
-  ),
-  list_column_dates = list(
-    sentinel = as.character(as.numeric(deid_start[4])),
-    plant = function(d) {
-      d$dm$WHEN <- I(as.list(deid_start))
-      d
-    }
-  ),
-  list_element_date_attribute = list(
-    sentinel = as.character(as.numeric(deid_start[5])),
-    plant = function(d) {
-      d$dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
-      d
-    }
-  ),
-  nested_keyed_tibble = list(
-    sentinel = deid_keys[6],
-    plant = function(d) {
-      d$dm$SUB <- I(lapply(deid_keys, function(k) tibble::tibble(USUBJID = k, X = 1)))
-      d
-    }
-  ),
   # Keys glued to digits in names (as unlist(split(V, USUBJID)) makes them,
   # "<key>1"), which the whole-word search doesn't find (Q2 PR).
   key_glued_to_digits = list(
@@ -543,10 +722,10 @@ deid_known_gaps <- list(
 # year. With `patterns = TRUE`, the user-pattern terms too.
 deid_sentinels <- function(patterns = FALSE) {
   days <- c(-14, -10, -3, -1, 0, 1, 2, 3, 4, 5, 7)
-  dates <- rep(deid_start, each = length(days)) + days
+  dates <- rep(deid_all_starts, each = length(days)) + days
   # Including the unused factor level planted in vs$USUBJID and the SUBJID of
   # the row of `pr` without a key.
-  ids <- c(deid_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099")
+  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099")
   c(
     unique(c(ids, gsub("[^[:alnum:]]", "", ids))),
     # The unused factor level planted in dm$rficdtc.
@@ -554,7 +733,7 @@ deid_sentinels <- function(patterns = FALSE) {
     format(dates),
     toupper(deid_format_c(dates, "%d%b%Y")),
     format(dates, "%Y%m%d"),
-    as.character(as.numeric(c(deid_start, deid_start + 7))),
+    as.character(as.numeric(c(deid_all_starts, deid_start + 7))),
     as.character(as.numeric(c(deid_vs_times("UTC"), deid_vs_times("America/New_York")))),
     as.character(deid_seeds),
     if (patterns) unlist(deid_patterns, use.names = FALSE)

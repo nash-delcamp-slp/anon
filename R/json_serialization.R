@@ -335,7 +335,10 @@ serialize_table_payload <- function(x, path = "$") {
 
     for (j in seq_along(df)) {
       column <- df[[j]]
-      value <- if (is.list(column) && !is.data.frame(column)) {
+      # A packed data frame column gives the row's one-row data frame.
+      value <- if (is.data.frame(column)) {
+        column[i, , drop = FALSE]
+      } else if (is.list(column)) {
         column[[i]]
       } else {
         column[i]
