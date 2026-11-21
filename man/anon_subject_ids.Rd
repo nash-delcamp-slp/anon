@@ -160,13 +160,24 @@ each of its rows belongs to the subject in that column. Its \code{key}, \code{al
 and \code{key_cols} columns are replaced as in a dataset, subjects found only in
 nested data get pseudonyms too, and a data frame with its own key has its
 rows sorted by the new key (row names reset); others keep their rows in
-order. A dataset whose key is only in nested data (such as data nested by
-test, each element holding \code{USUBJID}) is de-identified through it. Rows
-with no subject (a missing key, or a blank key in the outer row) follow the
-rules above; nested data frames with no key, in a dataset without the key,
-are left unchanged like such datasets. Column types and labels are kept; a
-\code{list_of} keeps its class, its prototype following the new elements (such as
-factor levels), and grouped tibbles are regrouped. List-column elements
+order. Row names of nested data frames are reset. A dataset (or nested
+data frame) without the \code{key} column whose rows still get one subject each
+from nested data is de-identified as if it had the key, each row having
+that subject: its rows are sorted by the new key and its own dates shifted.
+This is so when a packed column has the key (as \code{tidyr::pack()} makes it),
+and, when its rows don't already belong to subjects, when the data frames
+in one of its list columns each hold one subject (such as data split by
+subject). When they hold several subjects (such as data nested by test,
+each element holding \code{USUBJID}), the nested data frames are de-identified
+through their key, and the dataset's own columns are left unchanged, in
+their order, like a dataset without the key. Subjects are collected from
+every nested data frame. Rows with no subject (a missing key, or a blank key
+in the outer row) follow the rules above, the missing value being chosen
+for each data frame; nested data frames with no key, in a dataset without
+the key, are left unchanged like such datasets. Column types and labels are
+kept; a \code{list_of} keeps its class, and its prototype (with its columns'
+labels) follows the new elements (such as factor levels); grouped tibbles
+are regrouped. List-column elements
 that are not data frames, vectors, plain lists or \code{NULL} (fitted models such
 as \code{lm} or parsnip fits, recipes, workflows, \code{rsplit} and \code{rset} objects,
 environments, functions, formulas, S4 objects) are not entered or changed,

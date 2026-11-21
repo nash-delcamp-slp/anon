@@ -126,13 +126,24 @@
 #' and `key_cols` columns are replaced as in a dataset, subjects found only in
 #' nested data get pseudonyms too, and a data frame with its own key has its
 #' rows sorted by the new key (row names reset); others keep their rows in
-#' order. A dataset whose key is only in nested data (such as data nested by
-#' test, each element holding `USUBJID`) is de-identified through it. Rows
-#' with no subject (a missing key, or a blank key in the outer row) follow the
-#' rules above; nested data frames with no key, in a dataset without the key,
-#' are left unchanged like such datasets. Column types and labels are kept; a
-#' `list_of` keeps its class, its prototype following the new elements (such as
-#' factor levels), and grouped tibbles are regrouped. List-column elements
+#' order. Row names of nested data frames are reset. A dataset (or nested
+#' data frame) without the `key` column whose rows still get one subject each
+#' from nested data is de-identified as if it had the key, each row having
+#' that subject: its rows are sorted by the new key and its own dates shifted.
+#' This is so when a packed column has the key (as `tidyr::pack()` makes it),
+#' and, when its rows don't already belong to subjects, when the data frames
+#' in one of its list columns each hold one subject (such as data split by
+#' subject). When they hold several subjects (such as data nested by test,
+#' each element holding `USUBJID`), the nested data frames are de-identified
+#' through their key, and the dataset's own columns are left unchanged, in
+#' their order, like a dataset without the key. Subjects are collected from
+#' every nested data frame. Rows with no subject (a missing key, or a blank key
+#' in the outer row) follow the rules above, the missing value being chosen
+#' for each data frame; nested data frames with no key, in a dataset without
+#' the key, are left unchanged like such datasets. Column types and labels are
+#' kept; a `list_of` keeps its class, and its prototype (with its columns'
+#' labels) follows the new elements (such as factor levels); grouped tibbles
+#' are regrouped. List-column elements
 #' that are not data frames, vectors, plain lists or `NULL` (fitted models such
 #' as `lm` or parsnip fits, recipes, workflows, `rsplit` and `rset` objects,
 #' environments, functions, formulas, S4 objects) are not entered or changed,
@@ -215,7 +226,7 @@ anon_subject_ids <- function(
   data <- input$data
   check_key_name(key)
   local_text_cache(key = key)
-  tables <- lapply(data, nested_tables, key = key)
+  tables <- Map(nested_tables, data, key = key, dataset = seq_along(data))
   keyed <- keyed_datasets(data, key, tables)
   for (ds in names(tables)) {
     for (t in seq_along(tables[[ds]])) {
@@ -269,7 +280,7 @@ anon_subject_ids <- function(
         unmapped <- is.na(idx) & present
         also_idx <- ifelse(present, idx, NA_integer_)
         removed_also <- removed_also + sum(unmapped)
-        df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped)
+        df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped, missing = table_missing(tb, df[[col]]))
         replaced <- c(replaced, match(col, cols))
         tally$add(table_column_path(tb, match(col, cols)), "also", list(changed = sum(!is.na(also_idx)), removed = sum(unmapped)))
       }
@@ -278,23 +289,29 @@ anon_subject_ids <- function(
         col_idx <- match(normalize_keys(df[[col]]), keys)
         unmapped <- is.na(col_idx) & !is.na(normalize_keys(df[[col]]))
         removed_key_cols <- removed_key_cols + sum(unmapped)
-        df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped)
+        df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped, missing = table_missing(tb, df[[col]]))
         replaced <- c(replaced, match(col, cols))
         tally$add(table_column_path(tb, match(col, cols)), "key_cols", list(changed = sum(!is.na(col_idx)), removed = sum(unmapped)))
       }
       tabs[[t]]$df <- df
       tabs[[t]]$changed <- union(tb$changed, replaced)
+      # Row names of nested data frames are reset below, as at the top level.
+      tabs[[t]]$touch <- t > 1
     }
     for (row in tally$rows()) {
       log <- deid_log_add(log, ds, row$variable, details[[row$kind]], row$counts$changed, row$counts$removed)
     }
-    # Data frames in list columns with their own key are sorted by it, as
-    # datasets are; those that belong to their outer row keep their order.
+    # Data frames in list columns that own their rows are sorted by the new
+    # key, as datasets are; those that belong to their outer row keep their
+    # order. Row names, which can reveal the original order, are reset.
     data[[ds]] <- assemble_tables(tabs, function(df, tb, m) {
-      if (!tb$has_key) {
-        return(df)
+      if (tb$owns && tb$kind == "list") {
+        return(sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers))
       }
-      sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers)
+      if (!tibble::is_tibble(df)) {
+        rownames(df) <- NULL
+      }
+      df
     })
     if (ds %in% keyed) {
       data[[ds]] <- sort_by_new_key(data[[ds]], tabs[[1]]$idx, numbers)
@@ -304,7 +321,7 @@ anon_subject_ids <- function(
   # for in text; other attributes are still dropped when asked.
   searched <- !any_numeric_key(frames, key) && length(searchable_keys(keys)) > 0
   rewrite <- if (searched) key_rewriter(keys, pseudonyms) else identity
-  with_key <- datasets_with_key(tables)
+  nested_key <- setdiff(datasets_with_key(tables), keyed)
   rewritten <- rewrite_described_text(
     data, rewrite, log, "original keys replaced with pseudonyms", other = other_attributes
   )
@@ -312,7 +329,7 @@ anon_subject_ids <- function(
   log <- rewritten$log
   keyed <- rewritten$rename(keyed)
   input$previous <- rewrite_previous_step(input$previous, rewritten)
-  log <- deid_log_unkeyed(log, data, rewritten$rename(with_key), key)
+  log <- deid_log_unkeyed(log, data, keyed, key, rewritten$rename(nested_key))
   # Warnings print locations, whose names can hold keys and dates (which this
   # step doesn't rewrite in data but must not print).
   locate <- function(x) format_locations(x, function(text) date_rewriter(rewrite(text)))
@@ -369,10 +386,11 @@ anon_subject_ids <- function(
 #' @inheritParams anon_subject_ids
 #' @param vars Names of date columns to shift. By default, every character or
 #'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
-#'   SDTM) and every Date or POSIXct column, in each dataset that has the `key`
-#'   and in nested data frames with a subject (see "Nested data" in
-#'   [anon_subject_ids()]); a list column holding Date or POSIXct values counts
-#'   as a Date column. `vars` names columns at every depth of nested data.
+#'   SDTM) and every Date, POSIXct or POSIXlt column, in each dataset whose
+#'   rows have subjects and in nested data frames with a subject (see "Nested data" in
+#'   [anon_subject_ids()]); a list column holding Date, POSIXct or POSIXlt
+#'   values counts as a Date column. `vars` names columns at every depth of
+#'   nested data.
 #'   In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
 #'   values that are ISO 8601 dates with more than a bare year are shifted too
 #'   (year-only values are left alone because they can't be told apart from
@@ -402,8 +420,8 @@ anon_subject_ids <- function(
 #'
 #' @details
 #' Full ISO 8601 dates move by exactly the subject's offset and keep their
-#' format and any time part. Date columns keep their type, and POSIXct columns
-#' keep their type, time zone and clock time (the calendar date moves, so a
+#' format and any time part. Date columns keep their type, and POSIXct and
+#' POSIXlt columns keep their type, time zone and clock time (the calendar date moves, so a
 #' shift across a daylight saving change keeps 08:00 at 08:00). Column
 #' attributes such as variable labels are kept, with the dates in them
 #' replaced by `"[DATE]"` (see below); value labels (haven `labels`) are
@@ -528,7 +546,7 @@ anon_subject_dates <- function(
   # keys in nested names, ran first.
   check_key_name(key)
   local_text_cache(key = key, positional = TRUE)
-  tables <- lapply(data, nested_tables, key = key, positional = TRUE)
+  tables <- Map(nested_tables, data, key = key, positional = TRUE, dataset = seq_along(data))
   keyed <- keyed_datasets(data, key, tables)
   for (ds in names(tables)) {
     for (t in seq_along(tables[[ds]])) {
@@ -606,7 +624,8 @@ anon_subject_dates <- function(
           keep_non_dates <- col %in% mixed_cols
           shifted <- shift_dates_by_subject(
             df[[col]], subject_offset, partial, keep_non_dates,
-            keep_years = keep_non_dates && !col %in% years_only_cols
+            keep_years = keep_non_dates && !col %in% years_only_cols,
+            missing = if (is.character(df[[col]]) || is.factor(df[[col]])) table_missing(tb, df[[col]])
           )
         }
         if (shifted$kept_years > 0) {
@@ -619,7 +638,7 @@ anon_subject_dates <- function(
       }
 
       if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
-        shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
+        shifted <- shift_qval_dates(df$QVAL, subject_offset, partial, missing = table_missing(tb, df$QVAL))
         if (shifted$kept_years > 0) {
           kept_qval_years <- c(kept_qval_years, where("QVAL"))
         }
@@ -644,7 +663,7 @@ anon_subject_dates <- function(
     }
     data[[ds]] <- assemble_tables(tabs)
   }
-  with_key <- datasets_with_key(tables)
+  nested_key <- setdiff(datasets_with_key(tables), keyed)
   rewritten <- rewrite_described_text(
     data, date_rewriter, log, "dates replaced with [DATE]", dates = TRUE, other = other_attributes
   )
@@ -656,7 +675,7 @@ anon_subject_dates <- function(
   }
   keyed <- rewritten$rename(keyed)
   input$previous <- rewrite_previous_step(input$previous, rewritten)
-  log <- deid_log_unkeyed(log, data, rewritten$rename(with_key), key)
+  log <- deid_log_unkeyed(log, data, keyed, key, rewritten$rename(nested_key))
 
   if (totals[["no_key"]] > 0) {
     warning(totals[["no_key"]], " date value(s) in rows without a `", key, "` were removed.", call. = FALSE)
@@ -884,11 +903,13 @@ check_key_name <- function(key) {
   }
 }
 
-# The datasets with the key column. The key may also be found only in nested
-# data frames (see nested_tables()).
+# The datasets whose rows have subjects: those with the key column, and those
+# whose packed columns, or list columns holding one subject per row, have it
+# (see resolve_owners()). The key may also be found only deeper in nested
+# data frames.
 keyed_datasets <- function(data, key, tables) {
-  keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
-  if (length(keyed) == 0 && length(datasets_with_key(tables)) == 0) {
+  keyed <- names(tables)[vapply(tables, function(tabs) tabs[[1]]$keyed, logical(1))]
+  if (length(datasets_with_key(tables)) == 0) {
     stop("Key column `", key, "` not found in any dataset.", call. = FALSE)
   }
   keyed
@@ -907,8 +928,9 @@ subject_keys <- function(data, key) {
 
 # Replace identifiers by subject index, keeping the column's type and
 # attributes (such as labels). Rows without a subject keep their value unless
-# `remove` is TRUE for them.
-replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x))) {
+# `remove` is TRUE for them; removed text becomes `missing` (see
+# fill_missing()).
+replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x)), missing = NULL) {
   has <- !is.na(idx)
   if (is.numeric(x)) {
     out <- x
@@ -919,12 +941,12 @@ replace_ids <- function(x, idx, labels, numbers, remove = rep(FALSE, length(x)))
   if (is.factor(x)) {
     values <- as.character(x)
     values[has] <- labels[idx[has]]
-    values[remove] <- missing_text_like(values)
+    values <- fill_missing(values, remove, missing)
     return(with_attributes_of(factor(values), x))
   }
   out <- x
   out[has] <- labels[idx[has]]
-  out[remove] <- missing_text_like(as.character(x))
+  out <- fill_missing(out, remove, missing, as.character(x))
   drop_value_labels(out)
 }
 
@@ -985,6 +1007,17 @@ missing_text_like <- function(x) {
   if (any(!is.na(x) & x == "")) "" else NA_character_
 }
 
+# `x` with the values at `at` removed: set to `missing` (one value, or one per
+# value of `x`, as nested data chooses it per data frame), by default the
+# missing value `text` already uses.
+fill_missing <- function(x, at, missing = NULL, text = as.character(x)) {
+  if (is.null(missing)) {
+    missing <- missing_text_like(text)
+  }
+  x[at] <- if (length(missing) == 1) missing else missing[at]
+  x
+}
+
 check_one_value_per_subject <- function(x, idx, col) {
   value <- blank_to_na(x)
   if (is.numeric(value)) value <- key_as_character(value)
@@ -1021,7 +1054,7 @@ dataset_date_vars <- function(df, vars, key, dataset, locate = identity, list_da
     selected <- setdiff(intersect(vars, names(df)), key)
     for (col in if (check) selected else character(0)) {
       x <- df[[col]]
-      not_dates <- if (inherits(x, c("Date", "POSIXct")) || isTRUE(list_dates[match(col, names(df))])) {
+      not_dates <- if (inherits(x, c("Date", "POSIXct", "POSIXlt")) || isTRUE(list_dates[match(col, names(df))])) {
         FALSE
       } else if (is.character(x) || is.factor(x)) {
         kinds <- parse_iso8601_dates(as.character(x))$kind
@@ -1030,12 +1063,12 @@ dataset_date_vars <- function(df, vars, key, dataset, locate = identity, list_da
         TRUE
       }
       if (not_dates) {
-        stop("`", col, "` in `", locate(dataset), "` is not a date column (Date, POSIXct, or ISO 8601 text).", call. = FALSE)
+        stop("`", col, "` in `", locate(dataset), "` is not a date column (Date, POSIXct, POSIXlt, or ISO 8601 text).", call. = FALSE)
       }
     }
     return(selected)
   }
-  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct")), logical(1)) | list_dates
+  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct", "POSIXlt")), logical(1)) | list_dates
   is_text <- vapply(df, function(col) is.character(col) || is.factor(col), logical(1))
   # useBytes: a name marked "bytes" can't be translated.
   is_dtc <- grepl("DTC$", names(df), ignore.case = TRUE, useBytes = TRUE) & is_text
@@ -1060,17 +1093,29 @@ sample_with_seed <- function(n, size, seed = NULL) {
 
 # Shift each value by its subject's offset (days), keeping the column's type and
 # attributes. Values without an offset, and text that is not ISO 8601, are
-# removed. Returns the new values and counts.
-shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, keep_years = keep_non_dates) {
+# removed (text becomes `missing`, see fill_missing()). Returns the new values
+# and counts.
+shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, keep_years = keep_non_dates, missing = NULL) {
   if (inherits(x, "haven_labelled")) {
-    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial, keep_non_dates, keep_years)
+    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial, keep_non_dates, keep_years, missing)
     attrs <- attributes(x)
     attrs[c("labels", "na_values", "na_range")] <- NULL
     attributes(shifted$values) <- attrs
     return(shifted)
   }
+  if (inherits(x, "POSIXlt")) {
+    # Shifted as POSIXct, keeping the POSIXlt class and time zone.
+    shifted <- shift_dates_by_subject(as.POSIXct(x), offset, partial)
+    tz <- attr(x, "tzone", exact = TRUE)
+    lt <- as.POSIXlt(shifted$values, tz = if (length(tz) == 0) "" else tz[[1]])
+    for (name in setdiff(names(attributes(x)), names(attributes(lt)))) {
+      attr(lt, name) <- attr(x, name, exact = TRUE)
+    }
+    shifted$values <- lt
+    return(shifted)
+  }
   if (is.factor(x)) {
-    shifted <- shift_dates_by_subject(as.character(x), offset, partial, keep_non_dates, keep_years)
+    shifted <- shift_dates_by_subject(as.character(x), offset, partial, keep_non_dates, keep_years, missing)
     shifted$values <- with_attributes_of(factor(shifted$values), x)
     return(shifted)
   }
@@ -1104,7 +1149,7 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
     invalid <- present & !unchanged & !no_offset & !removed_partial & !nzchar(new_values)
     out[] <- new_values
     out[unchanged] <- x[unchanged]
-    out[no_offset | invalid | removed_partial] <- missing_text_like(x)
+    out <- fill_missing(out, no_offset | invalid | removed_partial, missing, x)
   } else if (inherits(x, "POSIXct")) {
     no_offset <- present & is.na(offset)
     tz <- attr(x, "tzone", exact = TRUE)
@@ -1198,7 +1243,7 @@ interval_end_kinds <- function(x, kinds) {
 
 # Shift QVAL values that are ISO 8601 dates with more than a bare year (which
 # can't be told apart from a number); other values are untouched.
-shift_qval_dates <- function(x, offset, partial = "shift") {
+shift_qval_dates <- function(x, offset, partial = "shift", missing = NULL) {
   text <- as.character(x)
   kinds <- parse_iso8601_dates(text)$kind
   year_only <- !is.na(text) & is_year_only_value(text, kinds)
@@ -1216,7 +1261,7 @@ shift_qval_dates <- function(x, offset, partial = "shift") {
   new_text[movable] <- suppressWarnings(shift_iso8601(text[movable], offset[movable], "shift", year_step = TRUE))
   failed <- movable & !nzchar(new_text)
   movable <- movable & !failed
-  new_text[no_offset | removed_partial | failed] <- missing_text_like(text)
+  new_text <- fill_missing(new_text, no_offset | removed_partial | failed, missing, text)
   if (is.factor(x)) {
     out <- with_attributes_of(factor(new_text), x)
   } else {
@@ -1624,7 +1669,7 @@ rewrite_frame <- function(ctx, df, values = FALSE, nested = FALSE) {
       column
     } else if (is.data.frame(column)) {
       rewrite_frame(ctx, column, nested = TRUE)
-    } else if (is.list(column)) {
+    } else if (is.list(column) && !inherits(column, "POSIXlt")) {
       rewrite_list_column(ctx, column)
     } else {
       rewrite_attributes(ctx, column)
@@ -2232,6 +2277,8 @@ table_leaves <- function(tb, t, positional = FALSE) {
       leaf$s4 <- TRUE
     } else if (is.data.frame(x)) {
       leaf$frame <- TRUE
+    } else if (inherits(x, "POSIXlt")) {
+      leaf$date <- TRUE
     } else if (is.list(x)) {
       content <- tb$lists[[j]]
       leaf$text <- content$text
@@ -2515,7 +2562,8 @@ warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = i
   }
   if (length(hits) > 0) {
     warning(
-      "Datasets without `", key, "` kept their values unchanged but contain identifiers or dates: ",
+      "Datasets without `", key, "`, or data frames nested in them without it, kept their values unchanged ",
+      "but contain identifiers or dates: ",
       paste(hits, collapse = "; "), ".",
       call. = FALSE
     )
@@ -2601,9 +2649,16 @@ draw_offsets <- function(n, max_days, min_days, seed) {
   )
 }
 
-deid_log_unkeyed <- function(log, data, keyed, key) {
+# Log the datasets whose rows have no subject; `nested` names those holding
+# nested data frames with the key, which were de-identified.
+deid_log_unkeyed <- function(log, data, keyed, key, nested = character(0)) {
   for (ds in setdiff(names(data), keyed)) {
-    log <- deid_log_add(log, ds, NA_character_, paste0("no `", key, "` column; values left unchanged"), 0, 0)
+    detail <- if (ds %in% nested) {
+      paste0("no `", key, "` column; values left unchanged, apart from nested data frames with it")
+    } else {
+      paste0("no `", key, "` column; values left unchanged")
+    }
+    log <- deid_log_add(log, ds, NA_character_, detail, 0, 0)
   }
   log
 }

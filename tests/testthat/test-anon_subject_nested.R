@@ -121,7 +121,7 @@ test_that("a subject seen only in nested data gets a pseudonym, the same in ever
   # A dataset whose key is only in nested data is de-identified through it.
   only <- anon_subject_dates(nested, keep_secrets = TRUE, seed = 6)
   expect_false(identical(only$data$data[[1]]$LBDTC, nested$data[[1]]$LBDTC))
-  expect_false(any(grepl("no `USUBJID` column", only$log$detail)))
+  expect_true(any(grepl("no `USUBJID` column; values left unchanged, apart from nested data frames with it", only$log$detail)))
   expect_error(anon_subject_ids(list(a = data.frame(X = 1))), "not found in any dataset")
 })
 
@@ -140,7 +140,7 @@ test_that("nested rows without a subject follow the top-level rules", {
   r <- step_warnings(anon_subject_dates(list(dm = nested_dm(), ts = ts), seed = 7))
   expect_identical(r$value$data$ts, ts)
   expect_match(
-    r$warnings, "Datasets without `USUBJID` kept their values unchanged but contain identifiers or dates: ts \\(data\\[\\[\\]\\]\\[2\\], data\\[\\[\\]\\]\\[1\\]\\)\\.",
+    r$warnings, "Datasets without `USUBJID`, or data frames nested in them without it, kept their values unchanged but contain identifiers or dates: ts \\(data\\[\\[\\]\\]\\[2\\], data\\[\\[\\]\\]\\[1\\]\\)\\.",
     all = FALSE
   )
   # In keyed data, an element belongs to its row, whose blank key leaves its
@@ -335,4 +335,124 @@ test_that("data frames that differ only in their values are rewritten alike, and
   }
   expect_identical(attr(step$data$L[[match(new[["S-03"]], step$data$USUBJID)]]$W, "label"), paste("About", new[["S-02"]]))
   expect_match(step$log$detail[step$log$dataset %in% "data" & is.na(step$log$variable)], "4 attribute value")
+})
+
+test_that("subjects are collected from every shape of nested data frames", {
+  # Two shapes of data frames in one list column, the first holding the only
+  # rows of two subjects; keys as text in one and as a factor in the other.
+  a <- data.frame(USUBJID = c("K-1", "K-2"), AEDTC = c("2020-01-01", "2020-01-02"))
+  b <- data.frame(USUBJID = factor("K-3"), AEDTC = "2020-01-03")
+  x <- tibble::tibble(g = 1:2, data = list(a, b))
+  step <- anon_subject_ids(x, keep_secrets = TRUE, seed = 21)
+  expect_setequal(anon_secrets(step)$subject_ids$key, c("K-1", "K-2", "K-3"))
+  kept <- unlist(lapply(step$data$data, function(d) as.character(d$USUBJID)))
+  expect_false(any(kept %in% c("K-1", "K-2", "K-3")))
+})
+
+test_that("a list_of keeps its prototype's labels", {
+  rows <- function(k) {
+    t <- tibble::tibble(USUBJID = k, LBDTC = "2020-01-01")
+    attr(t$LBDTC, "label") <- "Date/Time of Specimen Collection"
+    t
+  }
+  d <- tibble::tibble(T = c("A", "B"))
+  d$data <- vctrs::new_list_of(list(rows("S-01"), rows("S-02")), ptype = vctrs::vec_ptype(rows("S-01")))
+  for (step in list(anon_subject_ids(d, seed = 22), anon_subject_dates(d, seed = 22))) {
+    expect_identical(attr(step$data$data, "ptype"), attr(d$data, "ptype"))
+  }
+  # When the elements' type changes (factor levels), the labels stay.
+  d$data <- vctrs::new_list_of(lapply(list(rows("S-01"), rows("S-02")), function(t) {
+    t$USUBJID <- factor(t$USUBJID, levels = c("S-01", "S-02"))
+    t
+  }), ptype = vctrs::vec_ptype(transform(rows("S-01"), USUBJID = factor("S-01", levels = c("S-01", "S-02")))))
+  attr(attr(d$data, "ptype")$LBDTC, "label") <- "Date/Time of Specimen Collection"
+  step <- anon_subject_ids(d, seed = 22)
+  ptype <- attr(step$data$data, "ptype")
+  expect_identical(attr(ptype$LBDTC, "label"), "Date/Time of Specimen Collection")
+  expect_true(all(levels(ptype$USUBJID) %in% c("SUBJ-1", "SUBJ-2")))
+})
+
+test_that("a dataset whose rows get subjects through nested data is sorted and shifted", {
+  dm <- nested_dm()
+  # The key only in a packed column.
+  p <- tibble::tibble(XDTC = c("2016-07-11", "2014-01-02", "2015-03-02"))
+  p$ID <- tibble::tibble(USUBJID = c("S-03", "S-01", "S-02"))
+  # Data frames split by subject, one subject each.
+  sp <- tibble::tibble(YDTC = c("2015-03-03", "2016-07-12", "2014-01-03"))
+  sp$data <- lapply(c("S-02", "S-03", "S-01"), function(k) data.frame(USUBJID = k, V = 1:2))
+  # Data frames nested by test, several subjects each: rows keep their order.
+  bt <- nest_base(nested_lb(), "LBTESTCD")
+  step <- anon_subject_dates(
+    anon_subject_ids(list(dm = dm, p = p, sp = sp, bt = bt), keep_secrets = TRUE, seed = 23),
+    keep_secrets = TRUE, seed = 24
+  )
+  sec <- anon_secrets(step)
+  new <- stats::setNames(sec$subject_ids$pseudonym, sec$subject_ids$key)
+  off <- stats::setNames(sec$date_offsets$offset_days, names(new)[match(sec$date_offsets$key, new)])
+  out <- step$data
+  expect_identical(out$p$ID$USUBJID, sort(unname(new)))
+  orig <- match(names(new)[match(out$p$ID$USUBJID, new)], p$ID$USUBJID)
+  expect_identical(out$p$XDTC, format(as.Date(p$XDTC[orig]) + unname(off[p$ID$USUBJID[orig]])))
+  owners <- vapply(out$sp$data, function(d) d$USUBJID[1], "")
+  expect_identical(owners, sort(unname(new)))
+  orig <- match(names(new)[match(owners, new)], c("S-02", "S-03", "S-01"))
+  expect_identical(out$sp$YDTC, format(as.Date(sp$YDTC[orig]) + unname(off[c("S-02", "S-03", "S-01")[orig]])))
+  expect_identical(out$bt$LBTESTCD, bt$LBTESTCD)
+  expect_false(any(grepl("^p$|^sp$", step$log$dataset[grepl("no `USUBJID`", step$log$detail)])))
+  expect_true(any(step$log$dataset %in% "bt" & grepl("apart from nested data frames", step$log$detail)))
+})
+
+test_that("a data frame's own key wins over its outer row's", {
+  d <- tibble::tibble(USUBJID = c("S-01", "S-02"))
+  d$L <- list(tibble::tibble(USUBJID = "S-02", DT = as.Date("2015-01-02")), tibble::tibble(DT = as.Date("2015-01-03")))
+  step <- anon_subject_dates(d, keep_secrets = TRUE, seed = 25)
+  off <- stats::setNames(anon_secrets(step)$date_offsets$offset_days, anon_secrets(step)$date_offsets$key)
+  out <- step$data$L
+  expect_identical(out[[1]]$DT, as.Date("2015-01-02") + off[["S-02"]])
+  expect_identical(out[[2]]$DT, as.Date("2015-01-03") + off[["S-02"]])
+})
+
+test_that("row names of nested data frames are reset by the IDs step", {
+  lb <- nested_lb()
+  x <- tibble::tibble(USUBJID = c("S-01", "S-02"), data = list(lb[2:3, -1], lb[4:5, -1]))
+  x$P <- data.frame(Z = 1:2, row.names = c("S-01", "S-02"))
+  out <- anon_subject_ids(x, seed = 26)$data
+  for (e in out$data) expect_identical(rownames(e), c("1", "2"))
+  expect_identical(rownames(out$P), c("1", "2"))
+})
+
+test_that("removed text takes the missing value of its own data frame", {
+  d <- tibble::tibble(USUBJID = c("S-01", "", ""))
+  mk <- function(x) tibble::tibble(XDTC = x)
+  d$L <- list(mk(c("2014-01-01", "")), mk("2014-02-02"), mk(c("2014-02-03", "")))
+  out <- suppressWarnings(anon_subject_dates(d, seed = 27))$data
+  got <- lapply(out$L[order(out$USUBJID != "S-01")], `[[`, "XDTC")
+  expect_identical(got[[2]], NA_character_)
+  expect_identical(got[[3]], c("", ""))
+})
+
+test_that("POSIXlt columns and list-column values are shifted and stay POSIXlt", {
+  d <- data.frame(USUBJID = c("S-01", "S-02"))
+  d$T <- as.POSIXlt(c("2020-01-01 10:00", "2020-02-01 10:00"), tz = "UTC")
+  d$L <- I(list(as.POSIXlt("2020-01-03 08:30", tz = "America/New_York"), NULL))
+  r <- step_warnings(anon_subject_dates(d, keep_secrets = TRUE, seed = 28))
+  expect_false(any(grepl("can't be de-identified|not shifted", r$warnings)))
+  off <- stats::setNames(anon_secrets(r$value)$date_offsets$offset_days, anon_secrets(r$value)$date_offsets$key)
+  out <- r$value$data
+  expect_s3_class(out$T, "POSIXlt")
+  expect_identical(format(out$T[match("S-01", out$USUBJID)]), format(as.POSIXct("2020-01-01 10:00", tz = "UTC") + off[["S-01"]] * 86400))
+  lt <- out$L[[match("S-01", out$USUBJID)]]
+  expect_s3_class(lt, "POSIXlt")
+  expect_identical(format(lt, "%H:%M"), "08:30")
+})
+
+test_that("errors about nested data locate it by position", {
+  x <- tibble::tibble(USUBJID = "ABC-1001")
+  x[["ABC-1001 2020-01-05"]] <- list(structure(list(1, 2), names = c("a", "a"), class = "data.frame", row.names = 1L))
+  expect_error(anon_subject_ids(x), "in dataset 1 of `data`, at `\\[2\\]\\[\\[\\]\\]`, column 2 repeats")
+  y <- tibble::tibble(site = "A")
+  y[["ABC-1001 on 2020-01-05"]] <- list(data.frame(USUBJID = 1001))
+  e <- tryCatch(anon_subject_ids(list(dm = data.frame(USUBJID = "ABC-1002"), y = y)), error = conditionMessage)
+  expect_match(e, "y\\[2\\]\\[\\[\\]\\]: numeric")
+  expect_false(grepl("ABC-1001|2020", e))
 })

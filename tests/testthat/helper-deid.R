@@ -35,6 +35,14 @@ deid_start <- as.Date(c(
 ))
 deid_min_spacing <- 21
 
+# A subject found only inside nested data (in the first of two shapes of data
+# frames in a list column), in no dataset's key column, with its own start
+# date, eleven years after the others'.
+deid_nested_key <- "ZQ-7701-0010"
+deid_nested_start <- as.Date("2119-03-07")
+deid_all_keys <- c(deid_keys, deid_nested_key)
+deid_all_starts <- c(deid_start, deid_nested_start)
+
 # Seeds used by the pipelines. The step's settings and log say whether a seed
 # was set but not its value, so the values are sentinels too.
 deid_seeds <- 770193:770196
@@ -183,7 +191,22 @@ deid_fixture <- function() {
   }))
   dm$WHEN <- I(as.list(deid_start))
   dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
-  dm$SUB <- I(lapply(deid_keys, function(k) tibble::tibble(USUBJID = k, X = 1)))
+  # Each data frame's own key is another subject's than its row's: its own
+  # key wins.
+  dm$SUB <- I(lapply(deid_keys[c(2:n, 1)], function(k) tibble::tibble(USUBJID = k, X = 1)))
+  # Data frames of two shapes, with their own key: the first shape holds rows
+  # of the subject found only here; one data frame holds rows of two subjects
+  # in an order the keys don't follow.
+  dm$MIX <- I(lapply(seq_len(n), function(i) {
+    ks <- if (i == 1) c(deid_nested_key, deid_keys[i]) else deid_keys[i]
+    start <- deid_all_starts[match(ks, deid_all_keys)]
+    out <- tibble::tibble(USUBJID = ks, MXDTC = format(start + 1))
+    if (i > 4) out$MXN <- 1
+    out
+  }))
+  # Plain data frames belonging to their row, with the row names of the rows
+  # they were taken from, which the IDs step resets.
+  dm$RN <- I(lapply(seq_len(n), function(i) data.frame(V = i, row.names = 10L + i)))
   # A list column holding objects that can't be de-identified (a resampling
   # split holding keys, as rsample makes them, and a fitted model).
   dm$FIT <- I(c(
@@ -331,7 +354,27 @@ deid_fixture <- function() {
     )
   }
   vsn <- tibble::tibble(USUBJID = deid_keys)
-  vsn$data <- do.call(vctrs::list_of, lapply(seq_len(n), vs_rows))
+  vs_list <- lapply(seq_len(n), function(i) {
+    out <- vs_rows(i)
+    attr(out$VSDTC, "label") <- "Vital Signs Date/Time"
+    out
+  })
+  # Its prototype keeps the columns' labels, as dplyr::group_nest() makes it
+  # (tidyr::unnest() gives them to the unnested columns).
+  vsn$data <- vctrs::new_list_of(vs_list, ptype = vctrs::vec_ptype(vs_list[[1]]))
+
+  # A dataset whose key is only in a packed column, with its rows in an order
+  # the keys don't follow: each row has the packed key's subject.
+  pk <- tibble::tibble(PKDTC = format(deid_start[c(3, 1, 2, 8:4)] + 1))
+  pk$ID <- tibble::tibble(USUBJID = deid_keys[c(3, 1, 2, 8:4)])
+  # A dataset of data frames split by subject (each holding one subject), in
+  # an order the keys don't follow: each row has its data frame's subject.
+  spl <- tibble::tibble(SPDTC = format(deid_start[c(5, 2, 7)] + 2))
+  # They are plain data frames with the row names of the rows they were split
+  # from, which the IDs step resets.
+  spl$data <- lapply(c(5, 2, 7), function(i) {
+    data.frame(USUBJID = deid_keys[i], SPDT = deid_start[i] + c(3, 4), row.names = 2 * i + 0:1)
+  })
 
   # Labs nested by test, in a dataset without the key: the nested data frames
   # hold the key, rows of several subjects in an order the keys don't follow,
@@ -348,10 +391,16 @@ deid_fixture <- function() {
   }
   lbn <- tibble::tibble(LBTESTCD = c("ALB", "GLUC"))
   lbn$data <- list(lab_rows(deid_keys[c(3, 1, 2)], 2), lab_rows(c(deid_keys[4:8], ""), 3))
+  # A row with a blank date in the first data frame: the date removed from the
+  # second, of the same shape, takes that data frame's own missing value (NA).
+  lbn$data[[1]] <- vctrs::vec_rbind(
+    lbn$data[[1]],
+    tibble::tibble(USUBJID = deid_keys[4], LBDTC = "", LBDY = NA_integer_, REPS = list(NULL))
+  )
 
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn
+    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl
   )
   out[[deid_keys[4]]] <- named
   out
@@ -605,10 +654,10 @@ deid_known_gaps <- list(
 # year. With `patterns = TRUE`, the user-pattern terms too.
 deid_sentinels <- function(patterns = FALSE) {
   days <- c(-14, -10, -3, -1, 0, 1, 2, 3, 4, 5, 7)
-  dates <- rep(deid_start, each = length(days)) + days
+  dates <- rep(deid_all_starts, each = length(days)) + days
   # Including the unused factor level planted in vs$USUBJID and the SUBJID of
   # the row of `pr` without a key.
-  ids <- c(deid_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099")
+  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099")
   c(
     unique(c(ids, gsub("[^[:alnum:]]", "", ids))),
     # The unused factor level planted in dm$rficdtc.
@@ -616,7 +665,7 @@ deid_sentinels <- function(patterns = FALSE) {
     format(dates),
     toupper(deid_format_c(dates, "%d%b%Y")),
     format(dates, "%Y%m%d"),
-    as.character(as.numeric(c(deid_start, deid_start + 7))),
+    as.character(as.numeric(c(deid_all_starts, deid_start + 7))),
     as.character(as.numeric(c(deid_vs_times("UTC"), deid_vs_times("America/New_York")))),
     as.character(deid_seeds),
     if (patterns) unlist(deid_patterns, use.names = FALSE)

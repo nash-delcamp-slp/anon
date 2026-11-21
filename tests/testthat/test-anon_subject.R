@@ -207,7 +207,7 @@ test_that("unshifted ISO dates and unkeyed datasets with dates or IDs give warni
   )
   expect_warning(
     expect_warning(anon_subject_dates(d, seed = 13), "contain dates that were not shifted: ae.AESTTPT"),
-    "Datasets without `USUBJID` kept their values unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
+    "Datasets without `USUBJID`, or data frames nested in them without it, kept their values unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
   )
   expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)")
 })

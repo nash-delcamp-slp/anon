@@ -28,10 +28,11 @@ rewritten (see Details).}
 
 \item{vars}{Names of date columns to shift. By default, every character or
 factor column whose name ends in \code{DTC} (any case; ISO 8601 dates, as in
-SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}
-and in nested data frames with a subject (see "Nested data" in
-\code{\link[=anon_subject_ids]{anon_subject_ids()}}); a list column holding Date or POSIXct values counts
-as a Date column. \code{vars} names columns at every depth of nested data.
+SDTM) and every Date, POSIXct or POSIXlt column, in each dataset whose
+rows have subjects and in nested data frames with a subject (see "Nested data" in
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}); a list column holding Date, POSIXct or POSIXlt
+values counts as a Date column. \code{vars} names columns at every depth of
+nested data.
 In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
 values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
@@ -100,8 +101,8 @@ each participant.
 }
 \details{
 Full ISO 8601 dates move by exactly the subject's offset and keep their
-format and any time part. Date columns keep their type, and POSIXct columns
-keep their type, time zone and clock time (the calendar date moves, so a
+format and any time part. Date columns keep their type, and POSIXct and
+POSIXlt columns keep their type, time zone and clock time (the calendar date moves, so a
 shift across a daylight saving change keeps 08:00 at 08:00). Column
 attributes such as variable labels are kept, with the dates in them
 replaced by \code{"[DATE]"} (see below); value labels (haven \code{labels}) are

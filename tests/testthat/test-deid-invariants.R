@@ -15,7 +15,7 @@ deid_date_cols <- c(
   "RFSTDTC", "rficdtc", "RFSTDT", "VSDTC", "VSDTM", "VSNYDTM", "EXSTDTC", "EXENDTC", "QVAL",
   "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC",
   # Inside nested data.
-  "DT", "VSTM", "LBDTC", "RPDT"
+  "DT", "VSTM", "LBDTC", "RPDT", "MXDTC", "PKDTC", "SPDTC", "SPDT"
 )
 
 # The missing value a text column already uses: "" if it has blank strings,
@@ -114,7 +114,7 @@ deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
 
 deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
   if (is.data.frame(e)) {
-    return(deid_expected_frame(e, rep(owner, nrow(e)), oracle, prefix, key, keyed, element = TRUE))
+    return(deid_expected_frame(e, rep(owner, nrow(e)), oracle, prefix, key, keyed, sort = TRUE))
   }
   if (isS4(e)) {
     return(e)
@@ -137,13 +137,48 @@ deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
   deid_rewrite_attributes(out, oracle)
 }
 
+# The subjects a data frame's rows have of their own (kept apart from the
+# package's own rule, covering the same cases): from its key column; from a
+# packed column that has its own (each packed row belongs to its outer row);
+# or from a list column whose data frames hold one subject per row. Returns
+# the keys (NA: none) and where they came from, or NULL.
+deid_frame_owners <- function(df, key) {
+  if (key %in% names(df)) {
+    k <- as.character(df[[key]])
+    k[!is.na(k) & k == ""] <- NA
+    return(list(keys = k, from = "own"))
+  }
+  for (v in unclass(df)) {
+    if (is.data.frame(v)) {
+      o <- deid_frame_owners(v, key)
+      if (!is.null(o) && o$from != "list") return(list(keys = o$keys, from = "packed"))
+    }
+  }
+  for (v in unclass(df)) {
+    if (!is.data.frame(v) && deid_plain_list(v)) {
+      per_row <- lapply(v, function(e) {
+        o <- if (is.data.frame(e)) deid_frame_owners(e, key)
+        unique(stats::na.omit(o$keys))
+      })
+      if (all(lengths(per_row) <= 1) && any(lengths(per_row) == 1)) {
+        return(list(keys = vapply(per_row, function(k) if (length(k)) k else NA_character_, ""), from = "list"))
+      }
+    }
+  }
+  NULL
+}
+
 # A data frame as each pipeline should leave it, its rows belonging to `keys`
-# (NA: no subject) unless it has its own key column; `element` for a data
-# frame held in a list column, sorted by its own key.
-deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, element = FALSE) {
-  own <- key %in% names(df)
+# (NA: no subject) unless it has subjects of its own (see
+# deid_frame_owners(); those found through a list column only when its rows
+# don't already belong to subjects). With `sort` (a data frame held in a list
+# column, or a dataset), rows with subjects of their own are sorted by the new
+# key; inside nested data, with subjects, a data frame's row names are reset.
+deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FALSE, nested = TRUE) {
+  o <- deid_frame_owners(df, key)
+  own <- !is.null(o) && (o$from != "list" || !keyed)
   if (own) {
-    keys <- as.character(df[[key]])
+    keys <- o$keys
   }
   keyed <- keyed || own
   cls <- oldClass(df)
@@ -161,9 +196,12 @@ deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, element = 
     }
   }
   x <- deid_rewrite_frame_text(x, df, cls, oracle)
-  if (element && own && nrow(x) > 1) {
+  if (sort && own && nrow(x) > 1) {
     x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
     if (!tibble::is_tibble(x)) rownames(x) <- NULL
+  }
+  if (nested && keyed && !tibble::is_tibble(x)) {
+    rownames(x) <- NULL
   }
   x
 }
@@ -193,7 +231,7 @@ for (pipeline_name in names(deid_pipelines)) {
 
   test_that(paste0(pipeline_name, ": the pipeline's offsets keep the fixture's sentinels apart"), {
     expect_gt(pipeline$min_days, deid_min_spacing)
-    expect_gt(as.numeric(min(diff(deid_start))), pipeline$max_days + deid_min_spacing)
+    expect_gt(as.numeric(min(diff(deid_all_starts))), pipeline$max_days + deid_min_spacing)
   })
 
   test_that(paste0(pipeline_name, ": what can't be de-identified is named in a warning, with no other column"), {
@@ -244,8 +282,8 @@ for (pipeline_name in names(deid_pipelines)) {
       step <- deid_run(pipeline, deid_fixture())$step
       oracle <- deid_oracle(step, pipeline$other_attributes)
       n <- length(deid_keys)
-      expect_setequal(names(oracle$new_key), deid_keys)
-      expect_setequal(names(oracle$offset), deid_keys)
+      expect_setequal(names(oracle$new_key), deid_all_keys)
+      expect_setequal(names(oracle$offset), deid_all_keys)
 
       off <- oracle$offset
       expect_true(all(abs(off) >= pipeline$min_days))
@@ -272,12 +310,19 @@ for (pipeline_name in names(deid_pipelines)) {
       for (ds in setdiff(names(data), pipeline$removed)) {
         out <- step$data[[deid_rewrite_text(ds, oracle)]]
         original <- data[[ds]]
-        # Documented as left unchanged, apart from keys and dates in its
-        # attributes and names, and nested data frames with the key, which are
-        # de-identified.
-        if (!key %in% names(original) || ds %in% flagged_datasets) {
+        # A flagged dataset is documented as left unchanged, apart from keys
+        # and dates in its attributes and names. A dataset without the key
+        # column is too, unless its rows get subjects through nested data
+        # (and are then sorted and shifted), and nested data frames with the
+        # key are de-identified.
+        if (ds %in% flagged_datasets) {
+          expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
+          next
+        }
+        if (!key %in% names(original)) {
           no_key <- rep(NA_character_, nrow(original))
-          expect_identical(out, deid_expected_frame(original, no_key, oracle, pipeline$prefix, key, FALSE), info = ds)
+          want <- deid_expected_frame(original, no_key, oracle, pipeline$prefix, key, FALSE, sort = TRUE, nested = FALSE)
+          expect_identical(out, want, info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
@@ -444,12 +489,12 @@ for (pipeline_name in names(deid_pipelines)) {
     expect_s3_class(vsn$data, "vctrs_list_of")
     for (rows in out$lbn$data) {
       k <- as.character(rows[[key]])
-      present <- k != ""
-      expect_false(is.unsorted(k[present]))
+      present <- k != "" & !is.na(rows$LBDTC) & rows$LBDTC != ""
+      expect_false(is.unsorted(k[k != ""]))
       day <- as.Date(substr(rows$LBDTC[present], 1, 10))
       expect_identical(deid_study_day(day, as.Date(out$dm$RFSTDTC[match(k[present], keys)])), rows$LBDY[present])
       expect_identical(do.call(c, lapply(rows$REPS[present], `[[`, "RPDT")), day + 1)
-      expect_true(all(is.na(rows$LBDTC[!present]) | rows$LBDTC[!present] == ""))
+      expect_true(all(is.na(rows$LBDTC[k == ""])))
     }
   })
 
