@@ -146,8 +146,11 @@ ten, and how many more): remove them, or rebuild them from redacted data,
 before sharing.
 
 Secrets read from a de-identification step with \code{\link[=anon_secrets]{anon_secrets()}}, and a
-step's secrets environment, are dropped wherever \code{anon()} finds them, with
-a warning (a step's own secrets are dropped as described under Value).
+step's secrets environment, are dropped wherever \code{anon()} finds them
+(attributes included, where a step's secrets are dropped too), with a
+warning (a step's own secrets are dropped as described under Value).
+External pointers and weak references are kept without a warning: they
+hold no text, and are saved as null.
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -183,13 +186,20 @@ then the global environment, with a warning.
 
 A de-identification step in it is redacted as above, its secrets dropped.
 Environments held in it are not copied: they are left as they are, as are
-functions, and named in the warning. Reading the objects forces promises.
+functions, and named in the warning. A closure, formula, terms object or
+quosure whose environment is the environment given gets the copy as its
+environment (so it runs on the redacted objects), and one whose
+environment is another one R doesn't save by reference (such as a
+function's frame) gets the global environment, wherever \code{anon()} finds it
+(in environments, lists, list columns and attributes, such as a model's
+\code{terms}), with a warning naming them, so that saving the copy doesn't save
+the original's data. Reading the objects forces promises.
 Active bindings (reading one would run its function) and objects that
 can't be read (a missing argument, or a promise whose code fails) are not
 copied, with a warning. The copy is not locked, whether or not the
 environment given is. A name that redacts to nothing is replaced by
-\code{"[unnamed 1]"} and so on. Objects whose redacted names would be the same
-are an error, as an environment can't hold both.
+\code{"[unnamed 1]"} and so on. Names that redact alike are made unique
+(\code{"[DRUG]"}, \code{"[DRUG] 1"}), as in reports.
 }
 
 \section{Global Options}{

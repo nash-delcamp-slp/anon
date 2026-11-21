@@ -322,6 +322,9 @@ deid_fixture <- function() {
   attr(vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
   attr(vs$VSSTRESN, "assay") <- structure(factor("DRUGQX assay"), lab = "STUDYQX lab")
   attr(vs$VSSTRESN, "DRUGQX_lot") <- "L1"
+  # A call held in an attribute named with a user-pattern term: anon() can't
+  # redact the call, and must name the attribute redacted in its warning.
+  attr(vs$VSSTRESN, "DRUGQX_call") <- quote(f(x))
   # Text that isn't valid UTF-8 (a stray Windows-1252 apostrophe) holding a
   # user-pattern term, in values and a label: anon() must still redact it.
   vs$VSCOM <- rep(c("DRUGQX\x92s note", "none"), n)
@@ -1087,29 +1090,48 @@ deid_env_with <- function(step) {
 }
 
 # An environment holding `step`, its `dm` (under a name holding a
-# user-pattern term) and, for a step with secrets, the secrets read with
-# anon_secrets() and the step's secrets environment, redacted with anon():
-# the copy must be a new environment holding the step (still a step, without
-# secrets) and the data frame, under the expected names, without the
-# secrets; the environment given must not change.
+# user-pattern term), a closure whose environment holds the step, one whose
+# environment is the environment itself and, for a step with secrets, the
+# secrets read with anon_secrets() (also in an attribute of `dm`) and the
+# step's secrets environment, redacted with anon(): the copy must be a new
+# environment holding the step (still a step, without secrets), the data
+# frame and the closures, under the expected names, without the secrets;
+# saving it must not save the closure's environment; and the environment
+# given must not change.
 deid_anon_env <- function(step) {
   e <- new.env()
   assign("step", step, envir = e)
-  assign("DRUGQX_dm", step$data$dm, envir = e)
+  dm <- step$data$dm
   if (!is.null(step$secrets)) {
+    attr(dm, "keys") <- anon_secrets(step)
     assign("keys", anon_secrets(step), envir = e)
     assign("vault", step$secrets, envir = e)
   }
-  before <- serialize(as.list(e, all.names = TRUE), NULL)
+  assign("DRUGQX_dm", dm, envir = e)
+  holder <- new.env(parent = globalenv())
+  holder$step <- step
+  # Without source references, which would save this file's text.
+  reader <- utils::removeSource(function() nrow(step$data$dm))
+  environment(reader) <- holder
+  assign("reader", reader, envir = e)
+  own <- utils::removeSource(function() length(ls()))
+  environment(own) <- e
+  assign("own", own, envir = e)
+  # The objects, saved (`own` is left out: saving it saves `e` itself).
+  snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), "own"), envir = e), NULL)
+  before <- snapshot()
   a <- anon(e, pattern_list = deid_patterns)
   if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
-  if (!is.null(attributes(e)) || !identical(serialize(as.list(e, all.names = TRUE), NULL), before)) {
+  if (!is.null(attributes(e)) || !identical(snapshot(), before) || !identical(environment(e$own), e)) {
     stop("anon() changed the environment it was given")
   }
-  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "step")))) {
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "own", "reader", "step")))) {
     stop("anon() returned an environment holding other objects than expected")
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
+  if (!identical(environment(a$own), a) || !identical(environment(a$reader), globalenv())) {
+    stop("anon() didn't replace the closures' environments")
+  }
   copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
   if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
   # The saved copy is checked as text, as its bytes hold no compressed data.

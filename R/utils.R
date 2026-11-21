@@ -5,6 +5,12 @@ collect_text <- function(x) {
   if (is_unredactable(x)) {
     return(character(0))
   }
+  # A record's text is that of its text fields.
+  if (inherits(x, "vctrs_rcrd")) {
+    fields <- unclass(x)
+    attributes(fields) <- NULL
+    return(collect_text(Filter(function(f) is.character(f) || is.factor(f) || is.list(f), fields)))
+  }
 
   # Handle missing values and empty input
   if (length(x) == 0 || all(is.na(x))) {

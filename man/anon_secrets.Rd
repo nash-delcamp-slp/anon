@@ -12,7 +12,10 @@ anon_secrets(x)
 \value{
 A named list of tibbles, e.g. \code{subject_ids} or \code{date_offsets}, of
 class \code{"anon_secrets_list"}. \code{\link[=anon]{anon()}} drops it (and a step's secrets
-environment) wherever it finds it, with a warning.
+environment) wherever it finds it, with a warning. Its tables, and
+subsets taken with \code{[}, are plain objects without that class, which
+\code{anon()} redacts like any other data: keep them apart from what you
+share.
 }
 \description{
 Returns the information needed to link de-identified data back to the

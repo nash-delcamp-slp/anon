@@ -842,7 +842,10 @@ anon_subject_dates <- function(
 #'
 #' @return A named list of tibbles, e.g. `subject_ids` or `date_offsets`, of
 #'   class `"anon_secrets_list"`. [anon()] drops it (and a step's secrets
-#'   environment) wherever it finds it, with a warning.
+#'   environment) wherever it finds it, with a warning. Its tables, and
+#'   subsets taken with `[`, are plain objects without that class, which
+#'   `anon()` redacts like any other data: keep them apart from what you
+#'   share.
 #'
 #' @examples
 #' data <- data.frame(USUBJID = c("a", "b"))
