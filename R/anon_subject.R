@@ -126,14 +126,21 @@
 #' and `key_cols` columns are replaced as in a dataset, subjects found only in
 #' nested data get pseudonyms too, and a data frame with its own key has its
 #' rows sorted by the new key (row names reset); others keep their rows in
-#' order. Row names of nested data frames are reset. A dataset (or nested
+#' order. Row names of nested data frames that are row positions (integer,
+#' or made of digits) are reset; other row names, such as the terms of a table
+#' of model coefficients, are kept and rewritten as text. A dataset (or nested
 #' data frame) without the `key` column whose rows still get one subject each
 #' from nested data is de-identified as if it had the key, each row having
 #' that subject: its rows are sorted by the new key and its own dates shifted.
 #' This is so when a packed column has the key (as `tidyr::pack()` makes it),
 #' and, when its rows don't already belong to subjects, when the data frames
-#' in one of its list columns each hold one subject (such as data split by
-#' subject). When they hold several subjects (such as data nested by test,
+#' in one of its list columns hold exactly one subject in every row (such as
+#' data split by subject; a row with no data frame, or none with a key, holds
+#' none). A table where every row happens to hold one subject (such as a
+#' per-test table where each test found one subject) is treated the same way.
+#' When nested data gives the rows subjects in ways that disagree (two packed
+#' columns with the key, or a packed and a list column), a warning names the
+#' table. When they hold several subjects (such as data nested by test,
 #' each element holding `USUBJID`), the nested data frames are de-identified
 #' through their key, and the dataset's own columns are left unchanged, in
 #' their order, like a dataset without the key. Subjects are collected from
@@ -303,12 +310,15 @@ anon_subject_ids <- function(
     }
     # Data frames in list columns that own their rows are sorted by the new
     # key, as datasets are; those that belong to their outer row keep their
-    # order. Row names, which can reveal the original order, are reset.
+    # order. Row positions as row names (integer, or text made of digits),
+    # which can reveal the original order, are reset; other row names (such
+    # as the terms of a table of model coefficients) are text, rewritten with
+    # the other names, and kept.
     data[[ds]] <- assemble_tables(tabs, function(df, tb, m) {
       if (tb$owns && tb$kind == "list") {
-        return(sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers))
+        df <- sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers, keep_text_names = TRUE)
       }
-      if (!tibble::is_tibble(df)) {
+      if (!tibble::is_tibble(df) && !has_text_row_names(df)) {
         rownames(df) <- NULL
       }
       df
@@ -356,6 +366,7 @@ anon_subject_ids <- function(
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
   warn_s4_columns(data, paste0("original `", key, "` values"), rewritten$s4, locate = locate)
   warn_opaque_columns(data, locate = locate)
+  warn_owner_conflicts(tables, locate = locate)
   if (searched) {
     warn_kept_codes(rewritten$kept, paste0("original `", key, "` values"), locate = locate)
     warn_invalid_utf8(data, rewritten$invalid, locate = locate)
@@ -708,6 +719,7 @@ anon_subject_dates <- function(
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
   warn_s4_columns(data, "dates", rewritten$s4, locate = locate)
   warn_opaque_columns(data, locate = locate)
+  warn_owner_conflicts(tables, locate = locate)
   warn_invalid_utf8(data, rewritten$invalid, locate = locate)
 
   secrets <- if (isTRUE(keep_secrets)) {
@@ -1111,6 +1123,7 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
     for (name in setdiff(names(attributes(x)), names(attributes(lt)))) {
       attr(lt, name) <- attr(x, name, exact = TRUE)
     }
+    attr(lt, "tzone") <- tz
     shifted$values <- lt
     return(shifted)
   }
@@ -1295,20 +1308,28 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
     return(invisible())
   }
   key_pattern <- key_text_regex(keys)
-  hits <- character(0)
-  nested <- FALSE
+  # The texts of every location are searched in one call (nested data can
+  # print one location for many tables).
+  where <- character(0)
+  is_nested <- logical(0)
+  texts <- list()
   for (ds in names(data)) {
     for (leaf in dataset_leaves(data[[ds]])) {
-      if (name_key(leaf$name) %in% name_key(c(key, skip))) {
+      if (name_key(leaf$name) %in% name_key(c(key, skip)) || length(leaf$text) == 0) {
         next
       }
-      values <- valid_utf8_text(leaf$text)
-      if (length(values) > 0 && any(stringi::stri_detect_regex(values, key_pattern), na.rm = TRUE)) {
-        hits <- c(hits, paste0(ds, ".", leaf$path))
-        nested <- nested || isTRUE(leaf$nested)
-      }
+      where <- c(where, paste0(ds, ".", leaf$path))
+      is_nested <- c(is_nested, isTRUE(leaf$nested))
+      texts <- c(texts, list(leaf$text))
     }
   }
+  values <- lapply(texts, valid_utf8_text)
+  all_values <- unlist(values, use.names = FALSE)
+  distinct <- unique(all_values)
+  found <- distinct[stringi::stri_detect_regex(distinct, key_pattern) %in% TRUE]
+  hit <- vapply(values, function(v) any(v %in% found), logical(1))
+  hits <- unique(where[hit])
+  nested <- any(is_nested[hit])
   if (length(hits) > 0) {
     advice <- if (nested) {
       paste0(
@@ -1705,7 +1726,7 @@ rewrite_list_column <- function(ctx, column) {
   if (!is_plain_list(column)) {
     return(column)
   }
-  column <- rewrite_attributes(ctx, column)
+  column <- rewrite_attributes(ctx, column, ptype_values = FALSE)
   where <- ctx$where
   # Data frames that differ only in their values (as tidyr::nest() makes
   # them) are rewritten once: the rewritten attributes and names, and the
@@ -1751,7 +1772,9 @@ rewrite_list_column <- function(ctx, column) {
     class(x) <- cls
     x
   }
-  elements(column)
+  # A list_of's prototype follows its rewritten elements (names, labels), so
+  # that they still match it.
+  with_elements_ptype(elements(column))
 }
 
 # An id for the text a data frame's rewrite depends on, when that is only its
@@ -1795,10 +1818,12 @@ with_frame_text <- function(df, frame, columns) {
 # names, left to the caller, and `columns` maps the data frame's old column
 # names to new ones, for the attributes that refer to columns; with `values`
 # (a data frame held in an attribute), the values of a grouped tibble's
-# `groups` are rewritten too. Environments, functions and S4 objects are left
+# `groups` are rewritten too. With `ptype_values` FALSE (a list column of
+# data), a vctrs prototype's values are left as they are, as the elements'
+# are. Environments, functions and S4 objects are left
 # alone: they can refer to themselves, changing their attributes would change
 # them for every holder, and an S4 object's slots must stay valid.
-rewrite_attributes <- function(ctx, x, frame = FALSE, columns = NULL, values = FALSE) {
+rewrite_attributes <- function(ctx, x, frame = FALSE, columns = NULL, values = FALSE, ptype_values = TRUE) {
   attrs <- attributes(x)
   if (length(attrs) == 0 || is.environment(x) || is.function(x) || isS4(x)) {
     return(x)
@@ -1821,10 +1846,15 @@ rewrite_attributes <- function(ctx, x, frame = FALSE, columns = NULL, values = F
       renamed <- value
       dimnames(renamed) <- rewrite_dimnames(ctx, dimnames(value))
       renamed
-    } else if (name == "ptype" && name %in% structural) {
+    } else if (name == "ptype" && name %in% structural && ptype_values) {
       # A vctrs prototype is kept, but text in it (such as factor levels) is
       # rewritten like any value held in an attribute.
       rewrite_value(ctx, value)
+    } else if (name == "ptype" && name %in% structural) {
+      # The prototype of a list column of data: its values (such as factor
+      # levels) mirror the elements', which are data and not rewritten, so
+      # only its attributes and names are.
+      if (is.data.frame(value)) rewrite_frame(ctx, value, nested = TRUE) else rewrite_attributes(ctx, value)
     } else if (name %in% structural) {
       value
     } else if (name %in% codes && !frame && inherits(value, c("Date", "POSIXt"))) {
@@ -2165,6 +2195,7 @@ warn_s4_columns <- function(data, what, in_attributes = character(0), locate = i
       }
     }
   }
+  hits <- unique(hits)
   if (length(hits) > 0) {
     warning(
       "These columns hold S4 objects, which can't be checked for ", what, ": ",
@@ -2193,11 +2224,35 @@ warn_opaque_columns <- function(data, locate = identity) {
       }
     }
   }
+  hits <- unique(hits)
   if (length(hits) > 0) {
     warning(
       "These list columns hold objects that can't be de-identified (models, recipes, resampling splits, ",
       "environments, functions or similar): ", paste(locate(hits), collapse = ", "),
       ". They may hold original data; de-identify the data before building them, and remove these columns.",
+      call. = FALSE
+    )
+  }
+}
+
+# Warn about data frames whose rows get subjects from nested data in more
+# than one way that disagree (two packed columns with the key, or a packed
+# column and a list column; see resolve_owners()). `tables` are the step's
+# tables, by dataset, before it changed them.
+warn_owner_conflicts <- function(tables, locate = identity) {
+  hits <- character(0)
+  for (ds in names(tables)) {
+    for (tb in tables[[ds]]) {
+      if (isTRUE(tb$owner_conflict)) {
+        hits <- c(hits, if (nzchar(tb$path)) paste0(ds, ".", tb$path) else ds)
+      }
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These data frames get their rows' subjects from nested data whose keys disagree; the first ",
+      "packed column with the key was used, or else the first list column: ",
+      paste(unique(locate(hits)), collapse = ", "), ". Check which subject each row belongs to.",
       call. = FALSE
     )
   }
@@ -2406,6 +2461,7 @@ warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identi
       }
     }
   }
+  hits <- unique(hits)
   if (length(hits) > 0) {
     warning(
       "These columns contain dates that were not shifted: ",
@@ -2416,6 +2472,7 @@ warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identi
       call. = FALSE
     )
   }
+  sas_hits <- unique(sas_hits)
   if (length(sas_hits) > 0) {
     warning(
       "These numeric columns have a SAS date or datetime format and were not shifted: ",
@@ -2540,12 +2597,14 @@ sas_date_format_pattern <- paste0(
 # checked.
 warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = identity) {
   hits <- character(0)
+  nested <- FALSE
   for (ds in names(data)) {
     flagged <- character(0)
     for (tb in dataset_tables(data[[ds]])) {
       if (tb$keyed) {
         next
       }
+      before <- length(flagged)
       names_ <- vapply(tb$leaves, `[[`, character(1), "name")
       paths <- vapply(tb$leaves, `[[`, character(1), "path")
       cols <- if (check_dates) dataset_date_vars(tb$df, NULL, key, ds, list_dates = tb$list_dates) else character(0)
@@ -2555,6 +2614,7 @@ warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = i
         paths[match(cols, names_)],
         if (check_dates) iso_date_columns(tb, names_)
       )
+      nested <- nested || (nzchar(tb$path) && length(flagged) > before)
     }
     if (length(flagged) > 0) {
       hits <- c(hits, paste0(locate(ds), " (", paste(locate(unique(flagged)), collapse = ", "), ")"))
@@ -2562,8 +2622,9 @@ warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = i
   }
   if (length(hits) > 0) {
     warning(
-      "Datasets without `", key, "`, or data frames nested in them without it, kept their values unchanged ",
-      "but contain identifiers or dates: ",
+      "Datasets without `", key, "`",
+      if (nested) ", or data frames nested in them without it,",
+      " kept their values unchanged but contain identifiers or dates: ",
       paste(hits, collapse = "; "), ".",
       call. = FALSE
     )
@@ -2581,6 +2642,7 @@ warn_id_name_variants <- function(data, id_cols, locate = identity) {
       }
     }
   }
+  hits <- unique(hits)
   if (length(hits) > 0) {
     warning(
       "These columns are named like identifier columns in another case and were not replaced: ",
@@ -2621,19 +2683,29 @@ any_numeric_key <- function(data, key) {
 }
 
 # Sort rows by the new key so row order no longer follows the original keys.
-# The order of rows within a subject, and of rows without a key, is kept.
-sort_by_new_key <- function(df, idx, numbers) {
+# The order of rows within a subject, and of rows without a key, is kept. Row
+# names are reset, except text ones with `keep_text_names` (see
+# has_text_row_names()).
+sort_by_new_key <- function(df, idx, numbers, keep_text_names = FALSE) {
+  reset <- !tibble::is_tibble(df) && !(keep_text_names && has_text_row_names(df))
   if (nrow(df) < 2) {
-    if (!tibble::is_tibble(df)) rownames(df) <- NULL
+    if (reset) rownames(df) <- NULL
     return(df)
   }
   ord <- order(numbers[idx], seq_len(nrow(df)), na.last = TRUE)
   df <- vctrs::vec_slice(df, ord)
-  if (!tibble::is_tibble(df)) {
+  if (reset) {
     # Row names can hold original keys or reveal the original order.
     rownames(df) <- NULL
   }
   df
+}
+
+# Whether a data frame's row names are text rather than row positions
+# (integer, or text made only of digits).
+has_text_row_names <- function(df) {
+  rn <- .row_names_info(df, 0L)
+  is.character(rn) && !all(grepl("^[0-9]+$", rn))
 }
 
 # One offset per subject, drawn uniformly from the whole numbers between

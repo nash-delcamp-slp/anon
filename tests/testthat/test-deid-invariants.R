@@ -119,6 +119,15 @@ deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
   if (isS4(e)) {
     return(e)
   }
+  if (inherits(e, "POSIXlt")) {
+    if (!keyed) {
+      return(e)
+    }
+    tz <- attr(e, "tzone")
+    out <- as.POSIXlt(deid_shift_value(as.POSIXct(e), unname(oracle$offset[owner])), tz = tz[[1]])
+    attr(out, "tzone") <- tz
+    return(out)
+  }
   if (inherits(e, c("Date", "POSIXct")) && keyed) {
     e[] <- deid_shift_value(e, unname(oracle$offset[owner]))
   }
@@ -154,14 +163,23 @@ deid_frame_owners <- function(df, key) {
       if (!is.null(o) && o$from != "list") return(list(keys = o$keys, from = "packed"))
     }
   }
+  # The subjects of all data frames a list element holds, at any depth
+  # through plain lists.
+  held <- function(e) {
+    if (is.data.frame(e)) {
+      return(deid_frame_owners(e, key)$keys)
+    }
+    if (deid_plain_list(e)) {
+      return(unlist(lapply(e, held), use.names = FALSE))
+    }
+    NULL
+  }
   for (v in unclass(df)) {
     if (!is.data.frame(v) && deid_plain_list(v)) {
-      per_row <- lapply(v, function(e) {
-        o <- if (is.data.frame(e)) deid_frame_owners(e, key)
-        unique(stats::na.omit(o$keys))
-      })
-      if (all(lengths(per_row) <= 1) && any(lengths(per_row) == 1)) {
-        return(list(keys = vapply(per_row, function(k) if (length(k)) k else NA_character_, ""), from = "list"))
+      per_row <- lapply(v, function(e) unique(stats::na.omit(held(e))))
+      # Every row must hold exactly one subject.
+      if (length(per_row) > 0 && all(lengths(per_row) == 1)) {
+        return(list(keys = unlist(per_row), from = "list"))
       }
     }
   }
@@ -195,12 +213,17 @@ deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FAL
       deid_rewrite_attributes(v, oracle)
     }
   }
+  # Row names that are row positions (integer, or digits) are reset inside
+  # nested data with subjects, and in a dataset whose rows are sorted; other
+  # row names inside nested data are kept, rewritten.
+  rn <- attr(df, "row.names")
+  positions <- is.numeric(rn) || all(grepl("^[0-9]+$", rn))
   x <- deid_rewrite_frame_text(x, df, cls, oracle)
   if (sort && own && nrow(x) > 1) {
     x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
-    if (!tibble::is_tibble(x)) rownames(x) <- NULL
   }
-  if (nested && keyed && !tibble::is_tibble(x)) {
+  reset <- if (nested) keyed && positions else sort && own
+  if (reset && !tibble::is_tibble(x)) {
     rownames(x) <- NULL
   }
   x

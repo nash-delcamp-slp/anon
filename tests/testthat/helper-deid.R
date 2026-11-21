@@ -76,9 +76,13 @@ deid_flagged <- list(
   list(dataset = "dm", column = "PACK[4]", reason = "contain dates that were not shifted"),
   # A list column holding objects that can't be de-identified.
   list(dataset = "dm", column = "FIT", reason = "hold objects that can't be de-identified"),
+  # A factor naming subjects inside nested data.
+  list(dataset = "lof", column = "data[[]][V]", reason = "still contain original `USUBJID` values"),
   list(dataset = "vs", column = "usubjid", reason = "named like identifier columns in another case"),
   list(dataset = "ad", column = "TRTSDT", reason = "SAS date or datetime format"),
-  list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\)\\.$"),
+  # With a per-test table, not a dataset of subjects: only some of its rows
+  # hold a data frame with a subject, so its own dates are left as they are.
+  list(dataset = "notes", pattern = "^Datasets without `USUBJID`[^.]*: notes \\(usubjid, NOTEDTC\\); qc \\(RUNDT\\)\\.$"),
   # The row of `pr` with a blank key: its SUBJID and its 7 dates; and the row
   # of a data frame nested in `lbn` with a blank key: its date, and the date
   # of the data frame nested in that row.
@@ -207,6 +211,11 @@ deid_fixture <- function() {
   # Plain data frames belonging to their row, with the row names of the rows
   # they were taken from, which the IDs step resets.
   dm$RN <- I(lapply(seq_len(n), function(i) data.frame(V = i, row.names = 10L + i)))
+  # Tables of model coefficients, named by term: their row names are text
+  # and are kept.
+  dm$COEF <- I(lapply(seq_len(n), function(i) data.frame(Estimate = c(1, i), row.names = c("(Intercept)", "TIME"))))
+  # Date-times held in a list column as POSIXlt values.
+  dm$LT <- I(lapply(seq_len(n), function(i) as.POSIXlt(paste(format(deid_start[i] + 1), "09:00"), tz = "UTC")))
   # A list column holding objects that can't be de-identified (a resampling
   # split holding keys, as rsample makes them, and a fitted model).
   dm$FIT <- I(c(
@@ -398,9 +407,25 @@ deid_fixture <- function() {
     tibble::tibble(USUBJID = deid_keys[4], LBDTC = "", LBDY = NA_integer_, REPS = list(NULL))
   )
 
+  # A per-test table of the extreme values found, with the run date of the
+  # analysis: one test has a subject's row, one none (no row), one no data
+  # frame.
+  qc <- tibble::tibble(LBTESTCD = c("ALB", "GLUC", "HGB"), RUNDT = as.Date("2150-05-01") + 0:2)
+  qc$outliers <- list(
+    tibble::tibble(USUBJID = deid_keys[2], LBSTRESN = 99),
+    tibble::tibble(USUBJID = character(0), LBSTRESN = numeric(0)),
+    NULL
+  )
+  # A list_of whose data frames hold a factor naming subjects, as data (not
+  # the key): its prototype must match the elements, whose levels aren't
+  # rewritten.
+  lof <- tibble::tibble(USUBJID = deid_keys[1:2])
+  lof_rows <- lapply(1:2, function(i) tibble::tibble(V = factor(deid_keys[i])))
+  lof$data <- vctrs::new_list_of(lof_rows, ptype = vctrs::vec_ptype(vctrs::vec_rbind(lof_rows[[1]], lof_rows[[2]])))
+
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl
+    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof
   )
   out[[deid_keys[4]]] <- named
   out

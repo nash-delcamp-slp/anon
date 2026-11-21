@@ -99,7 +99,10 @@ test_that("data frames with their own key are sorted by it; others keep their ro
     expect_identical(got$USUBJID, unname(new[original$USUBJID][ord]))
     expect_identical(got$LBDTC, original$LBDTC[ord])
   }
-  expect_identical(rownames(step$data$lb$data[[1]]), as.character(seq_len(nrow(nested$data[[1]]))))
+  # Its row names are text, kept with their rows.
+  original <- nested$data[[1]]
+  ord <- order(new[original$USUBJID], seq_len(nrow(original)))
+  expect_identical(rownames(step$data$lb$data[[1]]), rownames(original)[ord])
   # Nested by subject: each element keeps its rows in order.
   by_subject <- nest_base(lb, "USUBJID")
   step <- anon_subject_ids(by_subject, keep_secrets = TRUE, seed = 5)
@@ -415,10 +418,17 @@ test_that("a data frame's own key wins over its outer row's", {
 test_that("row names of nested data frames are reset by the IDs step", {
   lb <- nested_lb()
   x <- tibble::tibble(USUBJID = c("S-01", "S-02"), data = list(lb[2:3, -1], lb[4:5, -1]))
-  x$P <- data.frame(Z = 1:2, row.names = c("S-01", "S-02"))
-  out <- anon_subject_ids(x, seed = 26)$data
+  x$P <- data.frame(Z = 1:2, row.names = c("4", "7"))
+  x$C <- list(data.frame(Estimate = 1:2, row.names = c("(Intercept)", "TIME for S-01")), NULL)
+  step <- anon_subject_ids(x, keep_secrets = TRUE, seed = 26)
+  out <- step$data
   for (e in out$data) expect_identical(rownames(e), c("1", "2"))
   expect_identical(rownames(out$P), c("1", "2"))
+  # Row names that are text are kept, rewritten.
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  coef <- out$C[[match(new[["S-01"]], out$USUBJID)]]
+  expect_identical(rownames(coef), c("(Intercept)", paste("TIME for", new[["S-01"]])))
+  expect_identical(coef["(Intercept)", "Estimate"], 1L)
 })
 
 test_that("removed text takes the missing value of its own data frame", {
@@ -453,6 +463,59 @@ test_that("errors about nested data locate it by position", {
   y <- tibble::tibble(site = "A")
   y[["ABC-1001 on 2020-01-05"]] <- list(data.frame(USUBJID = 1001))
   e <- tryCatch(anon_subject_ids(list(dm = data.frame(USUBJID = "ABC-1002"), y = y)), error = conditionMessage)
-  expect_match(e, "y\\[2\\]\\[\\[\\]\\]: numeric")
+  expect_match(e, "dataset 1: text, dataset 2 at \\[2\\]\\[\\[\\]\\]: numeric")
   expect_false(grepl("ABC-1001|2020", e))
+  d <- list(dm = data.frame(USUBJID = "ABC-1002"))
+  d[["ABC-1002 2020-01-05"]] <- data.frame(USUBJID = 2)
+  e <- tryCatch(anon_subject_ids(d), error = conditionMessage)
+  expect_match(e, "dataset 1: text, dataset 2: numeric")
+})
+
+test_that("a list_of's elements still match its prototype after the rewrite, and its value labels aren't brought back", {
+  e1 <- tibble::tibble(USUBJID = "S-1", V = factor("S-1"))
+  e2 <- tibble::tibble(USUBJID = "S-2", V = factor("S-2"))
+  x <- tibble::tibble(USUBJID = c("S-1", "S-2"))
+  x$data <- vctrs::new_list_of(list(e1, e2), ptype = vctrs::vec_ptype(vctrs::vec_rbind(e1, e2)))
+  out <- suppressWarnings(anon_subject_ids(x, seed = 1))$data
+  p <- attr(out$data, "ptype")
+  expect_no_error(lapply(out$data, vctrs::vec_cast, to = p))
+  expect_no_error(vctrs::list_unchop(lapply(out$data, vctrs::vec_cast, to = p)))
+  skip_if_not_installed("haven")
+  mk <- function(k) {
+    tibble::tibble(USUBJID = haven::labelled(k, labels = c("Subject one" = "S-1", "Subject two" = "S-2"), label = "Unique subject"))
+  }
+  els <- list(mk("S-1"), mk("S-2"))
+  y <- tibble::tibble(G = 1:2)
+  y$data <- vctrs::new_list_of(els, ptype = vctrs::vec_ptype(els[[1]]))
+  p <- attr(anon_subject_ids(y, seed = 1)$data$data, "ptype")
+  expect_null(attr(p$USUBJID, "labels"))
+  expect_identical(attr(p$USUBJID, "label"), "Unique subject")
+})
+
+test_that("a table whose rows don't each hold one subject keeps its rows and dates", {
+  dm <- nested_dm()
+  x <- tibble::tibble(XDTC = c("2020-03-11", "2020-01-11", "2020-02-11"))
+  x$data <- list(tibble::tibble(USUBJID = "S-03", V = 1), NULL, tibble::tibble(USUBJID = character(0), V = numeric(0)))
+  r <- step_warnings(anon_subject_dates(anon_subject_ids(list(dm = dm, x = x), seed = 1), seed = 2))
+  expect_identical(r$value$data$x$XDTC, x$XDTC)
+  expect_match(r$warnings, "Datasets without `USUBJID` kept their values unchanged but contain identifiers or dates: x \\(XDTC\\)\\.", all = FALSE)
+})
+
+test_that("subjects from nested data that disagree are named in a warning", {
+  x <- tibble::tibble(XDTC = c("2020-01-11", "2020-02-11"))
+  x$A <- tibble::tibble(USUBJID = c("S-01", "S-02"))
+  x$B <- tibble::tibble(USUBJID = c("S-02", "S-03"))
+  r <- step_warnings(anon_subject_ids(list(dm = nested_dm(), x = x), seed = 1))
+  expect_match(r$warnings, "keys disagree; .*: x\\. Check", all = FALSE)
+  x$B <- NULL
+  x$data <- list(tibble::tibble(USUBJID = "S-03"), tibble::tibble(USUBJID = "S-02"))
+  r <- step_warnings(anon_subject_dates(list(dm = nested_dm(), x = x), seed = 1))
+  expect_match(r$warnings, "keys disagree; .*: x\\. Check", all = FALSE)
+})
+
+test_that("a POSIXlt keeps its time zone attribute", {
+  x <- data.frame(USUBJID = c("S-01", "S-02"))
+  x$LT <- as.POSIXlt(c("2020-03-07 08:00:00", "2020-10-30 08:30:00"), tz = "America/New_York")
+  out <- anon_subject_dates(x, seed = 3)$data
+  expect_identical(attr(out$LT, "tzone"), attr(x$LT, "tzone"))
 })

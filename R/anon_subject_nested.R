@@ -320,13 +320,17 @@ nested_tables <- function(df, key, positional = FALSE, dataset = NULL) {
 # of its packed columns does (each packed row belongs to its outer row, so the
 # outer row has that subject); or, when its rows don't already belong to rows
 # of a parent table with subjects, when the data frames in one of its list
-# columns hold one subject per row (such as data split by subject), each row
+# columns hold exactly one subject in every row (such as data split by
+# subject; a row with no data frame, or none with a key, holds none), each row
 # then having that subject. Otherwise its rows belong to the rows of its
-# parent table, if those have subjects (`keyed`).
+# parent table, if those have subjects (`keyed`). When nested data gives a
+# table's rows subjects in more than one way and they disagree, the first is
+# used and `owner_conflict` is set.
 resolve_owners <- function(tables, key) {
   n <- length(tables)
   source <- character(n)
   owners <- vector("list", n)
+  conflict <- logical(n)
   parents <- vapply(tables, function(x) as.integer(x$parent), integer(1))
   kinds <- vapply(tables, `[[`, character(1), "kind")
   child_of <- split(seq_len(n), factor(parents, levels = seq_len(n)))
@@ -338,11 +342,9 @@ resolve_owners <- function(tables, key) {
       source[t] <- "own"
       next
     }
-    packed <- children[kinds[children] == "packed" & source[children] %in% c("own", "packed")]
-    if (length(packed) > 0) {
-      owners[[t]] <- owners[[packed[1]]]
-      source[t] <- "packed"
-      next
+    candidates <- list()
+    for (k in children[kinds[children] == "packed" & source[children] %in% c("own", "packed")]) {
+      candidates <- c(candidates, list(list(keys = owners[[k]], source = "packed")))
     }
     listed <- children[kinds[children] == "list" & nzchar(source[children])]
     for (j in unique(vapply(tables[listed], `[[`, integer(1), "column"))) {
@@ -350,13 +352,17 @@ resolve_owners <- function(tables, key) {
       row <- unlist(lapply(tables[from], `[[`, "parent_row"), use.names = FALSE)
       k <- unlist(owners[from], use.names = FALSE)
       pairs <- unique(data.frame(row = row, k = k)[!is.na(k), , drop = FALSE])
-      if (nrow(pairs) > 0 && !anyDuplicated(pairs$row)) {
-        owner <- rep(NA_character_, nrow_of(tb$df))
-        owner[pairs$row] <- pairs$k
-        owners[[t]] <- owner
-        source[t] <- "list"
-        break
+      if (nrow(pairs) == nrow_of(tb$df) && !anyDuplicated(pairs$row)) {
+        candidates <- c(candidates, list(list(keys = pairs$k[order(pairs$row)], source = "list")))
       }
+    }
+    if (length(candidates) > 0) {
+      owners[[t]] <- candidates[[1]]$keys
+      source[t] <- candidates[[1]]$source
+      conflict[t] <- any(vapply(candidates[-1], function(c) {
+        both <- !is.na(c$keys) & !is.na(owners[[t]])
+        any(c$keys[both] != owners[[t]][both])
+      }, logical(1)))
     }
   }
   for (t in seq_len(n)) {
@@ -364,6 +370,7 @@ resolve_owners <- function(tables, key) {
     owns <- source[t] %in% c("own", "packed") || (source[t] == "list" && !parent_keyed)
     tables[[t]]$owns <- owns
     tables[[t]]$owners <- if (owns) owners[[t]]
+    tables[[t]]$owner_conflict <- owns && conflict[t]
     tables[[t]]$keyed <- owns || parent_keyed
   }
   tables
@@ -391,16 +398,16 @@ table_missing <- function(tb, x) {
 }
 
 # The data frames that hold the key column, at any depth, named by where they
-# are: the datasets first, then nested ones (by position, "ds[2][[]]", as
-# their names can hold keys). Several may have one name.
+# are, by position as names can hold keys ("dataset 2", "dataset 2 at
+# [3][[]]"). Several may have one name.
 key_frames <- function(tables, key) {
   out <- list()
   labels <- character(0)
-  for (ds in names(tables)) {
-    for (tb in tables[[ds]]) {
+  for (i in seq_along(tables)) {
+    for (tb in tables[[i]]) {
       if (tb$has_key) {
         out <- c(out, list(tb$df))
-        labels <- c(labels, paste0(ds, tb$pos))
+        labels <- c(labels, paste0("dataset ", i, if (nzchar(tb$pos)) paste0(" at ", tb$pos)))
       }
     }
   }
@@ -487,11 +494,12 @@ assemble_tables <- function(tables, finish = function(df, tb, m) df) {
   tables[[1]]$df
 }
 
-# A vctrs list_of column's prototype for its new elements: found as
-# vctrs::list_of() finds it, keeping the attributes of the old prototype's
-# columns that don't define their type (such as labels, which tidyr::unnest()
-# gives the unnested columns). The old prototype is kept when the elements
-# still match it, and when they have none in common.
+# A vctrs list_of column's prototype for its new elements. The old prototype
+# is kept when the elements still match it (they can be cast to it, and have
+# the value labels and missing-value codes it has), and when they have none
+# in common. Otherwise it is found as vctrs::list_of() finds it, keeping the
+# attributes of the old prototype's columns that don't define their type
+# (such as labels, which tidyr::unnest() gives the unnested columns).
 with_elements_ptype <- function(x) {
   if (!inherits(x, "vctrs_list_of")) {
     return(x)
@@ -499,6 +507,13 @@ with_elements_ptype <- function(x) {
   elements <- unname(Filter(Negate(is.null), unclass(x)))
   old <- attr(x, "ptype", exact = TRUE)
   if (length(elements) == 0) {
+    return(x)
+  }
+  matches <- !is.null(old) && tryCatch({
+    for (e in elements) vctrs::vec_cast(e, old)
+    TRUE
+  }, error = function(e) FALSE) && all(vapply(elements, has_codes_of, logical(1), ptype = old))
+  if (!is.null(old) && matches) {
     return(x)
   }
   ptype <- tryCatch(do.call(vctrs::vec_ptype_common, elements), error = function(e) NULL)
@@ -509,8 +524,20 @@ with_elements_ptype <- function(x) {
   x
 }
 
+# Whether `x` has the value labels and missing-value codes `ptype` has, in
+# each column found in both by name.
+has_codes_of <- function(x, ptype) {
+  if (is.data.frame(x) && is.data.frame(ptype)) {
+    common <- intersect(names(x), names(ptype))
+    return(all(vapply(common, function(nm) has_codes_of(.subset2(x, nm), .subset2(ptype, nm)), logical(1))))
+  }
+  codes <- c("labels", "na_values", "na_range")
+  all(codes[codes %in% names(attributes(ptype))] %in% names(attributes(x)))
+}
+
 # `new` given the attributes of `old` that aren't structural (see
-# structural_attributes()) and that it lacks, and, for data frames, the same
+# structural_attributes()) or value labels and missing-value codes, and that
+# it lacks, and, for data frames, the same
 # for each column found in both by name.
 with_ptype_attributes <- function(new, old) {
   if (is.null(old)) {
@@ -521,7 +548,12 @@ with_ptype_attributes <- function(new, old) {
       new <- set_column(new, j, with_ptype_attributes(.subset2(new, j), .subset2(old, names(new)[j])))
     }
   }
-  extra <- setdiff(names(attributes(old)), c(structural_attributes(old), names(attributes(new))))
+  # Value labels and missing-value codes describe values, which the elements
+  # may have dropped (replaced and shifted columns drop them).
+  extra <- setdiff(
+    names(attributes(old)),
+    c(structural_attributes(old), names(attributes(new)), "labels", "na_values", "na_range")
+  )
   for (name in extra) {
     attr(new, name) <- attr(old, name, exact = TRUE)
   }

@@ -207,7 +207,7 @@ test_that("unshifted ISO dates and unkeyed datasets with dates or IDs give warni
   )
   expect_warning(
     expect_warning(anon_subject_dates(d, seed = 13), "contain dates that were not shifted: ae.AESTTPT"),
-    "Datasets without `USUBJID`, or data frames nested in them without it, kept their values unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
+    "Datasets without `USUBJID` kept their values unchanged but contain identifiers or dates: raw \\(usubjid, VISDTC\\)"
   )
   expect_warning(anon_subject_ids(d, seed = 13), "raw \\(SUBJID, usubjid\\)")
 })
@@ -1590,18 +1590,22 @@ test_that("attributes are structural only on the classes that use them", {
   expect_equal(step$log$detail[grepl("dropped", step$log$detail)], "5 other attribute(s) dropped")
 })
 
-test_that("a vctrs prototype is kept, with text in it rewritten", {
+test_that("a vctrs prototype follows its elements, with the text of its attributes rewritten", {
   d <- tibble::tibble(USUBJID = c("S-01", "S-02"))
-  d$L <- vctrs::list_of(factor("a"), factor("a"), .ptype = factor(levels = c("a", "S-01")))
+  ptype <- structure(factor(levels = c("a", "S-01")), label = "Codes of S-01")
+  d$L <- vctrs::list_of(factor("a"), factor("a"), .ptype = ptype)
   for (other in c("rewrite", "drop")) {
     # The elements are cast to the prototype, so their levels hold the key
-    # too: they are data, and flagged.
+    # too: they are data, and flagged. The prototype matches them.
     expect_warning(
       step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1, other_attributes = other),
       "still contain original `USUBJID` values.*: data.L\\."
     )
     new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
-    expect_equal(levels(attr(step$data$L, "ptype")), c("a", new[["S-01"]]), info = other)
+    p <- attr(step$data$L, "ptype")
+    expect_identical(levels(p), levels(step$data$L[[1]]), info = other)
+    expect_identical(attr(p, "label"), paste("Codes of", new[["S-01"]]), info = other)
+    expect_no_error(vctrs::vec_cast(step$data$L[[1]], p))
     expect_s3_class(step$data$L, "vctrs_list_of")
   }
 })

@@ -160,14 +160,21 @@ each of its rows belongs to the subject in that column. Its \code{key}, \code{al
 and \code{key_cols} columns are replaced as in a dataset, subjects found only in
 nested data get pseudonyms too, and a data frame with its own key has its
 rows sorted by the new key (row names reset); others keep their rows in
-order. Row names of nested data frames are reset. A dataset (or nested
+order. Row names of nested data frames that are row positions (integer,
+or made of digits) are reset; other row names, such as the terms of a table
+of model coefficients, are kept and rewritten as text. A dataset (or nested
 data frame) without the \code{key} column whose rows still get one subject each
 from nested data is de-identified as if it had the key, each row having
 that subject: its rows are sorted by the new key and its own dates shifted.
 This is so when a packed column has the key (as \code{tidyr::pack()} makes it),
 and, when its rows don't already belong to subjects, when the data frames
-in one of its list columns each hold one subject (such as data split by
-subject). When they hold several subjects (such as data nested by test,
+in one of its list columns hold exactly one subject in every row (such as
+data split by subject; a row with no data frame, or none with a key, holds
+none). A table where every row happens to hold one subject (such as a
+per-test table where each test found one subject) is treated the same way.
+When nested data gives the rows subjects in ways that disagree (two packed
+columns with the key, or a packed and a list column), a warning names the
+table. When they hold several subjects (such as data nested by test,
 each element holding \code{USUBJID}), the nested data frames are de-identified
 through their key, and the dataset's own columns are left unchanged, in
 their order, like a dataset without the key. Subjects are collected from
