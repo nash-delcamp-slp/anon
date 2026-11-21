@@ -5,7 +5,8 @@
 #' matching to find and replace sensitive content, with options for targeted
 #' anonymization based on variable names or classes and warnings about approximate matches.
 #'
-#' @param x The object to anonymize. Can be a character vector, factor, data frame, or list.
+#' @param x The object to anonymize. Can be a character vector, factor, data
+#'   frame, list, de-identification step or environment.
 #' @param pattern_list A list of patterns to search for and replace. Can include:
 #'   - Named elements where names are replacement values and values are one or more patterns to match
 #'   - Unnamed elements where one or more patterns are replaced with `default_replacement`
@@ -37,8 +38,11 @@
 #'   vectors and columns; a data.table's key and indices follow its column
 #'   names). Default is `TRUE`.
 #' @param check_labels Logical indicating whether to anonymize labels
-#'   (attributes) of columns and data frames: variable and data frame labels,
-#'   comments and other character attributes that aren't structural, haven
+#'   (attributes) of columns, lists and data frames: variable and data frame
+#'   labels, comments and other attributes that aren't structural (text at
+#'   any depth in them, such as lists like SPSS `variable.labels` or readr's
+#'   `spec`, factors, data frames, their names and their own attributes, and
+#'   the names of these attributes), haven
 #'   value labels (the label names, and the label values when they are text)
 #'   and text user-defined missing values (`na_values`, and the ends of a
 #'   text `na_range`), on vectors and columns wherever `anon()` reaches them
@@ -72,7 +76,9 @@
 #' @return An object of class `anon_context` with the same structure as `x` but with sensitive
 #'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
 #'   itself is returned with its data redacted, the patterns also applied to its log and
-#'   settings, and its secrets dropped (read them from the original step); combine `step$data` rather than the step with `c()`. If approximate matches are found and `.self` is `FALSE`, warnings are issued.
+#'   settings, and its secrets dropped (read them from the original step); combine `step$data` rather than the step with `c()`.
+#'   For an environment, a new environment (with the same parent) holding
+#'   redacted copies of its objects (see "Environments" below). If approximate matches are found and `.self` is `FALSE`, warnings are issued.
 #'   If `.self` is `TRUE`, warnings are attached as an attribute.
 #'
 #' @details
@@ -82,6 +88,15 @@
 #' - Column names, row names, and labels (including haven value labels) are redacted when enabled
 #' - List columns are redacted element by element, nested data frames included, and keep
 #'   their class (`AsIs`, vctrs `list_of`, whose prototype is redacted like the elements)
+#'
+#' Lists, list columns and the classed lists they hold (such as fitted
+#' models) keep their attributes and class, with their elements and
+#' attributes redacted. Objects `anon()` can't search for text (functions,
+#' calls and formulas, such as a model's `call`, environments held inside
+#' other objects, S4 objects and pointers) are left as they are, with a
+#' warning naming where they are: remove them, or rebuild them from redacted
+#' data, before sharing. Environments, functions and S4 objects held in
+#' attributes are left as they are, without a warning.
 #'
 #' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 #' through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -98,6 +113,18 @@
 #'
 #' The returned object has class `anon_context` which allows it to be combined with other
 #' objects returned by `anon()` using `c()`.
+#'
+#' @section Environments:
+#' For an environment, `anon()` returns a new environment, with the same
+#' parent, holding a redacted copy of each of its objects (hidden ones
+#' included), named as `check_names` says; the environment given and its
+#' objects are not changed. A de-identification step in it is redacted as
+#' above, its secrets dropped. Environments held in it are not copied: they
+#' are left as they are, with a warning, as are functions. Active bindings are
+#' not copied (reading one would run its function), with a warning. The copy
+#' is not locked, whether or not the environment given is. Objects whose
+#' redacted names would be the same are an error, as an environment can't
+#' hold both.
 #'
 #' @section Global Options:
 #' The following global options affect function behavior:
@@ -387,6 +414,55 @@ anon <- function(
     if (isTRUE(check_names) && length(result$settings) > 0) {
       names(result$settings) <- apply_patterns(names(result$settings), compiled, FALSE, max_distance)
     }
+  } else if (is.environment(x) && !isTRUE(.self)) {
+    # A new environment, with the same parent, holding redacted copies of the
+    # objects, named as `check_names` says; the environment given is left as
+    # it is. Active bindings are not copied, as reading one runs its
+    # function. Environments held inside are not entered (see below).
+    object_names <- ls(x, all.names = TRUE, sorted = TRUE)
+    shown <- if (isTRUE(check_names)) {
+      apply_patterns(object_names, compiled, check_approximate, max_distance)
+    } else {
+      object_names
+    }
+    active <- vapply(object_names, bindingIsActive, logical(1), env = x, USE.NAMES = FALSE)
+    if (any(active)) {
+      approximate_warnings <- c(approximate_warnings, paste0(
+        "Active bindings are not copied, as reading them would run their function: ",
+        paste0("`", shown[active], "`", collapse = ", "), "."
+      ))
+    }
+    clash <- unique(shown[!active][duplicated(shown[!active])])
+    if (length(clash) > 0) {
+      stop(
+        "Objects would have the same redacted name, so they can't all be kept in one environment: ",
+        paste0("`", clash, "`", collapse = ", "), ". Rename them or change `pattern_list`.",
+        call. = FALSE
+      )
+    }
+    result <- new.env(parent = if (identical(x, emptyenv())) emptyenv() else parent.env(x))
+    for (i in which(!active)) {
+      value <- anon(
+        get(object_names[i], envir = x, inherits = FALSE),
+        pattern_list = pattern_list,
+        default_replacement = default_replacement,
+        check_approximate = check_approximate,
+        max_distance = max_distance,
+        df_variable_names = df_variable_names,
+        df_classes = df_classes,
+        check_names = check_names,
+        check_labels = check_labels,
+        .self = TRUE,
+        .pattern_replacements = pattern_replacements,
+        .compiled = compiled,
+        .where = shown[i]
+      )
+      approximate_warnings <- c(approximate_warnings, attr(value, "approximate_warnings"))
+      if (!is.null(attr(value, "approximate_warnings"))) {
+        attr(value, "approximate_warnings") <- NULL
+      }
+      assign(shown[i], value, envir = result)
+    }
   } else if (is.atomic(x) && !is.null(x)) {
     result <- redact_atomic(x, .where)
   } else if (is.data.frame(x)) {
@@ -394,6 +470,7 @@ anon <- function(
     # "unknown" while the columns are processed, and "bytes" again after.
     unmarked <- unmark_bytes_names(list(x))
     result <- unmarked$data[[1]]
+    frame_attributes <- attributes(result)
 
     # Process each column
     for (col_name in names(result)) {
@@ -520,6 +597,13 @@ anon <- function(
       )
     }
 
+    # Assigning columns or names to some classes (such as a grouped tibble)
+    # rebuilds the data frame without its other attributes (such as its
+    # label): those are put back, and redacted below.
+    for (name in setdiff(names(frame_attributes), names(attributes(result)))) {
+      attr(result, name) <- frame_attributes[[name]]
+    }
+
     # Anonymize data frame level labels and other text attributes only if
     # check_labels is TRUE
     if (isTRUE(check_labels)) {
@@ -596,8 +680,31 @@ anon <- function(
       )
     }
 
-    # A list column keeps its class (AsIs, vctrs list_of); a list_of's
-    # prototype is redacted like its elements, so that they still match it.
+    # The list keeps its own attributes, its class included (a model or
+    # other classed list stays one): those that aren't structural are
+    # redacted as `check_labels` says, and dimnames as `check_names` says.
+    own <- attributes(x)
+    own$names <- NULL
+    if (length(own) > 0) {
+      if (isTRUE(check_names) && !is.null(own$dimnames)) {
+        own$dimnames <- redact_names(
+          structure(list(), dimnames = own$dimnames),
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+        )
+        own$dimnames <- attr(own$dimnames, "dimnames", exact = TRUE)
+      }
+      attributes(result) <- c(attributes(result), own)
+      if (isTRUE(check_labels)) {
+        result <- redact_text_attributes(
+          result,
+          function(text) apply_patterns(text, compiled, check_approximate, max_distance),
+          where = .where
+        )
+      }
+    }
+
+    # A list_of's prototype is redacted like its elements, so that they still
+    # match it.
     if (is_plain_list(x) && !is.null(oldClass(x))) {
       ptype <- attr(x, "ptype", exact = TRUE)
       if (inherits(x, "vctrs_list_of") && !is.null(ptype)) {
@@ -622,6 +729,12 @@ anon <- function(
       class(result) <- oldClass(x)
     }
   } else {
+    # Functions, calls, formulas, environments held inside other objects, S4
+    # objects and similar can't be searched: they are left as they are, with
+    # a warning.
+    if (is_unredactable(x)) {
+      approximate_warnings <- c(approximate_warnings, unredactable_message(.where))
+    }
     result <- x
   }
 
@@ -804,11 +917,25 @@ column_replaced_wholesale <- function(col_name, col, df_variable_names, df_class
   !is.null(find_df_class_rule(col, df_classes))
 }
 
-# Whether a column has attributes that redact_text_attributes() looks at.
+# Whether a column has attributes that redact_text_attributes() looks at:
+# any that isn't structural.
 has_text_attributes <- function(x) {
-  attrs <- attributes(x)
-  text <- attrs[!names(attrs) %in% structural_attributes(x)]
-  any(vapply(text, is.character, logical(1))) || !is.null(attrs$labels)
+  any(!names(attributes(x)) %in% structural_attributes(x))
+}
+
+# Objects anon() can't search for text: functions, calls and formulas,
+# environments, S4 objects and pointers.
+is_unredactable <- function(x) {
+  is.function(x) || is.language(x) || is.environment(x) || isS4(x) ||
+    typeof(x) %in% c("externalptr", "weakref", "bytecode")
+}
+
+unredactable_message <- function(where) {
+  paste0(
+    if (is.null(where)) "The object" else paste0("`", where, "`"),
+    " holds a function, call, formula, environment, S4 object or similar, which anon() can't redact ",
+    "and left as it is: remove it, or rebuild it from redacted data, before sharing."
+  )
 }
 
 # A redactor for the vectors held in list `x`: their distinct texts (values,
@@ -899,16 +1026,37 @@ redact_text_attributes <- function(x, redact, where = NULL) {
   attrs <- attributes(x)
   shown <- if (is.null(where)) "a vector" else paste0("`", where, "`")
   names_attrs <- names(attrs)
+  structural <- structural_attributes(x)
   own_terms <- if (is.data.frame(x)) character(0) else c("labels", "na_range")
-  for (name in names_attrs[!names_attrs %in% c(structural_attributes(x), own_terms)]) {
-    if (is.character(attrs[[name]])) {
-      value <- redact(attrs[[name]])
-      # Names of the attribute's values (such as the column names of SPSS
-      # `variable.labels`) are text too.
-      if (!is.null(names(value))) {
-        names(value) <- redact(names(value))
+  # Text at any depth in the other attributes (character values and their
+  # names, factor levels, lists such as SPSS `variable.labels` or readr's
+  # `spec`, data frames, and the attributes of these values) is redacted by
+  # the walk the de-identification steps use (see rewrite_value()), which
+  # leaves environments, functions and S4 objects alone.
+  ctx <- NULL
+  for (name in names_attrs[!names_attrs %in% c(structural, own_terms)]) {
+    value <- attrs[[name]]
+    if (is.null(ctx)) ctx <- new_rewrite_context(redact)
+    new <- rewrite_value(ctx, value)
+    if (!identical(new, value)) {
+      attr(x, name) <- new
+    }
+  }
+  # The names of those attributes are text too, except structural and core
+  # ones (labels, comments, value labels, missing values), whose names R and
+  # the packages that read them rely on.
+  old <- names(attributes(x))
+  renamable <- !old %in% c(structural, core_attributes)
+  if (any(renamable)) {
+    new_names <- old
+    new_names[renamable] <- redact(old[renamable])
+    if (!identical(new_names, old)) {
+      new_names <- unique_rewritten(new_names, old)
+      for (k in which(new_names != old)) {
+        value <- attr(x, old[k], exact = TRUE)
+        attr(x, old[k]) <- NULL
+        attr(x, new_names[k]) <- value
       }
-      attr(x, name) <- value
     }
   }
   if (is.data.frame(x)) {
@@ -1013,6 +1161,12 @@ redact_names <- function(x, redact) {
 nlp_text_source <- function(x, df_variable_names, df_classes) {
   if (inherits(x, "anon_deid_step")) {
     return(nlp_text_source(x$data, df_variable_names, df_classes))
+  }
+  if (is.environment(x)) {
+    # The objects anon() copies (active bindings are not read).
+    object_names <- ls(x, all.names = TRUE)
+    object_names <- object_names[!vapply(object_names, bindingIsActive, logical(1), env = x)]
+    return(lapply(mget(object_names, envir = x), nlp_text_source, df_variable_names, df_classes))
   }
   if (is.data.frame(x)) {
     keep <- !vapply(

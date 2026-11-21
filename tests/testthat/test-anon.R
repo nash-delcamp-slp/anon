@@ -814,3 +814,110 @@ test_that("anon() redacts inside nested data frames and keeps a list_of's class 
   expect_identical(names(attr(out$I[[1]]$L, "labels")), "[DRUG] dose")
   expect_identical(do.call(vctrs::vec_ptype_common, unname(as.list(unclass(out$N)))), attr(out$N, "ptype"))
 })
+
+test_that("anon() redacts text at any depth in attributes, and the names of attributes", {
+  x <- 1:2
+  attr(x, "assay") <- structure(factor("DRUGQX assay"), lab = "DRUGQX lab")
+  attr(x, "DRUGQX_lot") <- "L1"
+  attr(x, "map") <- data.frame(who = "DRUGQX site")
+  df <- data.frame(x = x)
+  attr(df, "variable.labels") <- list(x = "DRUGQX result", DRUGQX_y = "y")
+  out <- anon(df, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_false(any(grepl("DRUGQX", deparse(unclass(out), control = "all"))))
+  expect_identical(attr(out, "variable.labels"), list(x = "[DRUG] result", "[DRUG]_y" = "y"))
+  expect_identical(levels(attr(out$x, "assay")), "[DRUG] assay")
+  expect_identical(attr(attr(out$x, "assay"), "lab"), "[DRUG] lab")
+  expect_identical(attr(out$x, "[DRUG]_lot"), "L1")
+  expect_identical(attr(out$x, "map")$who, "[DRUG] site")
+  # Structural and core attributes keep their names, also inside attributes.
+  y <- structure("a", label = "the label", held = factor("b"))
+  out <- anon(y, pattern_list = c("label", "levels", "class"))
+  expect_identical(attr(out, "label"), "the [REDACTED]")
+  expect_s3_class(attr(out, "held"), "factor")
+  # Without check_labels, attributes are left as they are.
+  expect_identical(attr(anon(df, pattern_list = "DRUGQX", check_labels = FALSE), "variable.labels"), attr(df, "variable.labels"))
+})
+
+test_that("anon() keeps a list's own attributes and class, redacted", {
+  l <- structure(list(a = "DRUGQX"), note = "DRUGQX note", dimx = list(src = "DRUGQX"))
+  out <- anon(l, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_identical(attr(out, "note"), "[DRUG] note")
+  expect_identical(attr(out, "dimx"), list(src = "[DRUG]"))
+  expect_identical(attr(anon(l, pattern_list = "DRUGQX", check_labels = FALSE), "note"), "DRUGQX note")
+  # A classed list (such as an htest) stays one, its text redacted.
+  h <- structure(list(data.name = "DRUGQX by arm", statistic = c(t = 1)), class = "htest")
+  expect_s3_class(anon(h, pattern_list = "DRUGQX"), "htest")
+  expect_identical(anon(h, pattern_list = list("[DRUG]" = "DRUGQX"))$data.name, "[DRUG] by arm")
+})
+
+test_that("anon() keeps models in list columns and warns about what it can't redact", {
+  fit <- stats::lm(mpg ~ wt, data = mtcars)
+  d <- tibble::tibble(ID = 1:2, FIT = list(fit, NULL), F = list(function(x) x, NULL))
+  expect_warning(
+    out <- anon(d, pattern_list = "DRUGQX"),
+    "`FIT\\[1\\]\\[[0-9]+\\]` holds a function, call, formula"
+  )
+  expect_s3_class(out$FIT[[1]], "lm")
+  expect_identical(stats::coef(out$FIT[[1]]), stats::coef(fit))
+  expect_warning(anon(d, pattern_list = "DRUGQX"), "`F\\[1\\]` holds a function")
+  expect_warning(anon(function(x) x), "^The object holds a function")
+})
+
+test_that("anon() keeps a grouped tibble's dataset label", {
+  g <- dplyr::group_by(tibble::tibble(ARM = c("DRUGQX", "B"), N = 1:2), ARM)
+  attr(g, "label") <- "DRUGQX elements"
+  out <- anon(g, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_identical(attr(out, "label"), "[DRUG] elements")
+  expect_s3_class(out, "grouped_df")
+  expect_setequal(dplyr::group_keys(out)$ARM, c("[DRUG]", "B"))
+})
+
+test_that("anon() on an environment returns a redacted copy and leaves the environment as it is", {
+  e <- new.env()
+  assign("DRUGQX_notes", c("DRUGQX a", "b"), envir = e)
+  assign(".hidden", "DRUGQX", envir = e)
+  assign("df", data.frame(x = "DRUGQX"), envir = e)
+  out <- anon(e, pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_true(is.environment(out))
+  expect_false(identical(out, e))
+  expect_identical(parent.env(out), parent.env(e))
+  expect_setequal(ls(out, all.names = TRUE), c("[DRUG]_notes", ".hidden", "df"))
+  expect_identical(get("[DRUG]_notes", envir = out), c("[DRUG] a", "b"))
+  expect_identical(get(".hidden", envir = out), "[DRUG]")
+  expect_identical(get("df", envir = out)$x, "[DRUG]")
+  # The environment given keeps its class and objects.
+  expect_null(attributes(e))
+  expect_setequal(ls(e, all.names = TRUE), c("DRUGQX_notes", ".hidden", "df"))
+  expect_identical(e$df$x, "DRUGQX")
+  expect_setequal(ls(anon(e, pattern_list = "DRUGQX", check_names = FALSE)), c("DRUGQX_notes", "df"))
+})
+
+test_that("anon() on an environment drops secrets, leaves nested environments and skips active bindings", {
+  e <- new.env()
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("A-1", "A-2"))), keep_secrets = TRUE, seed = 1)
+  assign("step", step, envir = e)
+  inner <- new.env()
+  assign("inner", inner, envir = e)
+  makeActiveBinding("DRUGQX_live", function() stop("read"), e)
+  lockEnvironment(e, bindings = TRUE)
+  warnings <- character(0)
+  out <- withCallingHandlers(
+    anon(e, pattern_list = list("[DRUG]" = "DRUGQX")),
+    warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_match(warnings, "Active bindings are not copied[^:]*: `\\[DRUG\\]_live`", all = FALSE)
+  expect_match(warnings, "`inner` holds a function, call, formula, environment", all = FALSE)
+  expect_null(out$step$secrets)
+  expect_false(is.null(step$secrets))
+  expect_identical(out$inner, inner)
+  expect_false("[DRUG]_live" %in% ls(out))
+  expect_false(environmentIsLocked(out))
+  # Objects whose redacted names are the same can't both be kept.
+  e2 <- new.env()
+  assign("DRUGQX", 1, envir = e2)
+  assign("drugqx", 2, envir = e2)
+  expect_error(anon(e2, pattern_list = list("[DRUG]" = "DRUGQX")), "same redacted name[^:]*: `\\[DRUG\\]`")
+})

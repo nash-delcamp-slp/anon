@@ -638,3 +638,23 @@ test_that("anon_data_summary() skips column rules when no examples are requested
   anon_data_summary(objects, df_variable_names = list(ID = count_calls), example_values_n = 1)
   expect_equal(calls, 1)
 })
+
+test_that("anon_data_summary() names objects as redacted, and counts text it can't translate", {
+  objs <- list(DRUGQX_dm = data.frame(USUBJID = c("a", "b")), STUDYQX_notes = "x")
+  s <- anon_data_summary(objs, pattern_list = list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX"), example_rows = 1)
+  expect_named(s$data_frames$variables, "[DRUG]_dm")
+  expect_named(s$examples$rows, "[DRUG]_dm")
+  keyed <- anon_data_summary(objs, pattern_list = list("[DRUG]" = "DRUGQX"), example_rows = anon_example_rows(1, key = "USUBJID"))
+  expect_named(keyed$examples$scenario$tables, "[DRUG]_dm")
+  expect_named(keyed$examples$scenarios[[1]]$tables, "[DRUG]_dm")
+  expect_false(any(grepl("DRUGQX|STUDYQX", capture.output(print(s)))))
+
+  x <- c("caf\xe9 DRUGQX", "b", "b")
+  Encoding(x) <- "bytes"
+  expect_warning(
+    s <- anon_data_summary(list(d = data.frame(t = x), v = x), pattern_list = "DRUGQX", example_values_n = 2),
+    "marked as \"bytes\""
+  )
+  expect_identical(s$data_frames$variables$d$n_distinct, 2L)
+  expect_identical(s$other_objects$n_distinct, 2L)
+})

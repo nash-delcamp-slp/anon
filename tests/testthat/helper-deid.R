@@ -315,6 +315,13 @@ deid_fixture <- function() {
   # are replaced.
   stats::contrasts(vs$USUBJID) <- stats::contr.treatment(levels(vs$USUBJID))
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
+  # User-pattern terms in attributes that aren't text: SPSS variable labels
+  # held in a list (as haven and foreign write them), a factor with an
+  # attribute of its own, and the name of an attribute. anon() must redact
+  # them.
+  attr(vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
+  attr(vs$VSSTRESN, "assay") <- structure(factor("DRUGQX assay"), lab = "STUDYQX lab")
+  attr(vs$VSSTRESN, "DRUGQX_lot") <- "L1"
   # Text that isn't valid UTF-8 (a stray Windows-1252 apostrophe) holding a
   # user-pattern term, in values and a label: anon() must still redact it.
   vs$VSCOM <- rep(c("DRUGQX\x92s note", "none"), n)
@@ -928,22 +935,7 @@ deid_rewrite_value <- function(v, oracle) {
 # (for example because they drop the attribute). When a fix makes a gap stop
 # leaking or stop breaking its exits, its test fails: move the planting into
 # deid_fixture() (with the expected handling) and remove the gap.
-deid_known_gaps <- list(
-  # anon() redacts character attributes but not other ones: list-valued, such
-  # as `variable.labels` (haven/foreign SPSS) or readr's `spec`, or
-  # factor-valued. Pipelines that drop other attributes remove them.
-  list_attribute_pattern = list(
-    sentinel = "DRUGQX",
-    pattern_exits_only = TRUE,
-    handled_by = "ids_then_dates_drop",
-    plant = function(d) {
-      attr(d$vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
-      # A factor held in an attribute, which anon() doesn't redact either.
-      attr(d$vs$VSSTRESN, "assay") <- factor("DRUGQX assay")
-      d
-    }
-  )
-)
+deid_known_gaps <- list()
 
 # Strings that must not appear in anything that leaves the package: keys and
 # related IDs (also without separators, and the numeric keys of
@@ -1093,6 +1085,38 @@ deid_env_with <- function(step) {
   e
 }
 
+# An environment holding `step` (and its `dm`, under a name holding a
+# user-pattern term), redacted with anon(): the copy must be an environment
+# whose step has no secrets, and the environment given must not change.
+deid_anon_env <- function(step) {
+  e <- new.env()
+  assign("step", step, envir = e)
+  assign("DRUGQX_dm", step$data$dm, envir = e)
+  before <- serialize(as.list(e, all.names = TRUE), NULL)
+  a <- anon(e, pattern_list = deid_patterns)
+  if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
+  if (!is.null(attributes(e)) || !identical(serialize(as.list(e, all.names = TRUE), NULL), before)) {
+    stop("anon() changed the environment it was given")
+  }
+  copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
+  if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
+  c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies))
+}
+
+# An environment whose object names and step dataset names hold user-pattern
+# terms: the step under such a name (its datasets are then named like
+# "STUDYQX_step$dm"), a step one of whose datasets has such a name, and a
+# data frame.
+deid_env_named <- function(step) {
+  renamed <- step
+  names(renamed$data)[names(renamed$data) == "vs"] <- "DRUGQX_vs"
+  e <- new.env()
+  assign("STUDYQX_step", step, envir = e)
+  assign("named", renamed, envir = e)
+  assign("DRUGQX_dm", step$data$dm, envir = e)
+  e
+}
+
 deid_exits <- list(
   print = list(fn = function(step) capture.output(print(step))),
   print_nested = list(fn = function(step) capture.output(print(list(a = step)))),
@@ -1164,6 +1188,31 @@ deid_exits <- list(
     fn = function(step) {
       state <- anon_app_initial_state(deid_env_with(step), pattern_list = deid_patterns, initial_selection = "step")
       deid_dput(state[c("inventory", "raw_names", "choices", "selected")])
+    },
+    patterns = TRUE
+  ),
+  anon_env = list(fn = deid_anon_env, patterns = TRUE),
+  # Reports, prompt bundles and what the app shows, on objects and step
+  # datasets named with user-pattern terms (the app is given real names to
+  # select).
+  report_names = list(
+    fn = function(step) {
+      e <- deid_env_named(step)
+      out <- character(0)
+      for (rows in list(3, anon_example_rows(n = 3, key = "USUBJID"))) {
+        report <- anon_report(e, pattern_list = deid_patterns, example_values_n = 5, example_rows = rows)
+        bundles <- vapply(c("markdown", "text", "json"), function(f) {
+          as.character(anon_prompt_bundle(report = report, format = f))
+        }, character(1))
+        out <- c(out, capture.output(print(report)), as_anon_json(report), bundles, deid_dput(unclass(report)))
+      }
+      state <- anon_app_initial_state(e, pattern_list = deid_patterns, initial_selection = c("STUDYQX_step", "DRUGQX_dm"))
+      c(
+        out,
+        capture.output(print(anon_inventory(e, pattern_list = deid_patterns))),
+        capture.output(print(anon_data_summary(e, pattern_list = deid_patterns, example_values_n = 5, example_rows = 3))),
+        deid_dput(state[c("inventory", "choices", "selected")])
+      )
     },
     patterns = TRUE
   ),

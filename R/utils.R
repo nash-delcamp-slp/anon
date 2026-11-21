@@ -1,5 +1,10 @@
 # Helper function to collect all text from an object
 collect_text <- function(x) {
+  # An environment's text is that of the objects anon() copies from it.
+  if (is.environment(x)) {
+    return(collect_text(nlp_text_source(x, NULL, NULL)))
+  }
+
   # Handle missing values and empty input
   if (length(x) == 0 || all(is.na(x))) {
     return(character(0))

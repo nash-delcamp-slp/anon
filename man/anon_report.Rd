@@ -80,8 +80,11 @@ vectors and columns; a data.table's key and indices follow its column
 names). Default is \code{TRUE}.}
 
 \item{check_labels}{Logical indicating whether to anonymize labels
-(attributes) of columns and data frames: variable and data frame labels,
-comments and other character attributes that aren't structural, haven
+(attributes) of columns, lists and data frames: variable and data frame
+labels, comments and other attributes that aren't structural (text at
+any depth in them, such as lists like SPSS \code{variable.labels} or readr's
+\code{spec}, factors, data frames, their names and their own attributes, and
+the names of these attributes), haven
 value labels (the label names, and the label values when they are text)
 and text user-defined missing values (\code{na_values}, and the ends of a
 text \code{na_range}), on vectors and columns wherever \code{anon()} reaches them
@@ -103,8 +106,11 @@ generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{a
 This argument overrides the global option.}
 }
 \value{
-An object of class \code{"anon_report"} containing an object
-inventory and environment summary for the selected objects.
+An object of class \code{"anon_report"} containing the names of the
+selected objects (\code{object_names}), an object inventory and an environment
+summary for them, with your rules applied to all of it, object names and
+a step's dataset names (\code{step$dm}) included. \code{selection} takes the
+objects' real names.
 }
 \description{
 Build a report for selected objects, applying your redaction rules

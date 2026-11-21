@@ -257,6 +257,9 @@ anon_app_server <- function(
   force(initial_state)
 
   function(input, output, session) {
+    # The app shows objects by their redacted names; the state maps the
+    # choices back to the real names.
+    app_state_data <- shiny::reactiveVal(initial_state)
     current_objects_data <- shiny::reactiveVal(initial_state$objects)
     inventory_data <- shiny::reactiveVal(initial_state$inventory)
     report_data <- shiny::reactiveVal(NULL)
@@ -350,7 +353,7 @@ anon_app_server <- function(
           pattern_list = active_rules(),
           default_replacement = active_default_replacement(),
           initial_selection = initial_selection,
-          current_selected = input$selected_objects,
+          current_selected = app_selected_names(app_state_data(), input$selected_objects),
           selection_initialized = TRUE
         ),
         error = function(e) {
@@ -362,6 +365,7 @@ anon_app_server <- function(
       )
       shiny::req(refreshed_state)
 
+      app_state_data(refreshed_state)
       current_objects_data(refreshed_state$objects)
       inventory_data(refreshed_state$inventory)
       report_data(NULL)
@@ -381,7 +385,7 @@ anon_app_server <- function(
       report <- tryCatch(
         anon_report(
           envir = envir,
-          selection = input$selected_objects,
+          selection = app_selected_names(app_state_data(), input$selected_objects),
           pattern_list = active_rules(),
           default_replacement = active_default_replacement(),
           example_values_n = active_data_summary_options()$example_values_n,
@@ -723,14 +727,27 @@ anon_app_initial_state <- function(
     current_selected = current_selected,
     selection_initialized = selection_initialized
   )
+  # The app shows the redacted names, as labels and as the values it sends
+  # back (made unique, as two names can redact alike); `raw_names` and
+  # `objects` stay on the server.
+  ids <- make.unique(inventory$name, sep = " ")
 
   list(
     objects = objects,
     inventory = inventory,
     raw_names = raw_names,
-    choices = stats::setNames(raw_names, inventory$name),
-    selected = selected
+    choices = stats::setNames(ids, inventory$name),
+    selected = ids[match(selected, raw_names)]
   )
+}
+
+# The real names of the objects chosen in the app (`ids`, values of
+# `state$choices`).
+app_selected_names <- function(state, ids) {
+  if (is.null(ids)) {
+    return(NULL)
+  }
+  state$raw_names[match(ids, state$choices)][ids %in% state$choices]
 }
 
 split_uploaded_files <- function(files) {

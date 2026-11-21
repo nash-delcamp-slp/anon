@@ -22,7 +22,8 @@ anon(
 )
 }
 \arguments{
-\item{x}{The object to anonymize. Can be a character vector, factor, data frame, or list.}
+\item{x}{The object to anonymize. Can be a character vector, factor, data
+frame, list, de-identification step or environment.}
 
 \item{pattern_list}{A list of patterns to search for and replace. Can include:
 \itemize{
@@ -68,8 +69,11 @@ vectors and columns; a data.table's key and indices follow its column
 names). Default is \code{TRUE}.}
 
 \item{check_labels}{Logical indicating whether to anonymize labels
-(attributes) of columns and data frames: variable and data frame labels,
-comments and other character attributes that aren't structural, haven
+(attributes) of columns, lists and data frames: variable and data frame
+labels, comments and other attributes that aren't structural (text at
+any depth in them, such as lists like SPSS \code{variable.labels} or readr's
+\code{spec}, factors, data frames, their names and their own attributes, and
+the names of these attributes), haven
 value labels (the label names, and the label values when they are text)
 and text user-defined missing values (\code{na_values}, and the ends of a
 text \code{na_range}), on vectors and columns wherever \code{anon()} reaches them
@@ -109,7 +113,9 @@ list column's element, \code{"col[2]"}), for warnings. Default is \code{NULL}.}
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive
 information replaced. For a de-identification step (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}), the step
 itself is returned with its data redacted, the patterns also applied to its log and
-settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}. If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
+settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}.
+For an environment, a new environment (with the same parent) holding
+redacted copies of its objects (see "Environments" below). If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
 If \code{.self} is \code{TRUE}, warnings are attached as an attribute.
 }
 \description{
@@ -127,6 +133,15 @@ anonymization based on variable names or classes and warnings about approximate 
 \item List columns are redacted element by element, nested data frames included, and keep
 their class (\code{AsIs}, vctrs \code{list_of}, whose prototype is redacted like the elements)
 }
+
+Lists, list columns and the classed lists they hold (such as fitted
+models) keep their attributes and class, with their elements and
+attributes redacted. Objects \code{anon()} can't search for text (functions,
+calls and formulas, such as a model's \code{call}, environments held inside
+other objects, S4 objects and pointers) are left as they are, with a
+warning naming where they are: remove them, or rebuild them from redacted
+data, before sharing. Environments, functions and S4 objects held in
+attributes are left as they are, without a warning.
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -146,6 +161,20 @@ Replacement functions can be provided in \code{df_variable_names} and \code{df_c
 The returned object has class \code{anon_context} which allows it to be combined with other
 objects returned by \code{anon()} using \code{c()}.
 }
+\section{Environments}{
+
+For an environment, \code{anon()} returns a new environment, with the same
+parent, holding a redacted copy of each of its objects (hidden ones
+included), named as \code{check_names} says; the environment given and its
+objects are not changed. A de-identification step in it is redacted as
+above, its secrets dropped. Environments held in it are not copied: they
+are left as they are, with a warning, as are functions. Active bindings are
+not copied (reading one would run its function), with a warning. The copy
+is not locked, whether or not the environment given is. Objects whose
+redacted names would be the same are an error, as an environment can't
+hold both.
+}
+
 \section{Global Options}{
 
 The following global options affect function behavior:

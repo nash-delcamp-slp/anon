@@ -2374,8 +2374,12 @@ rewrite_attributes <- function(ctx, x, frame = FALSE, columns = NULL, values = F
       attr(x, name) <- new
     }
   }
+  # Attribute names are text too, except structural and core ones, whose
+  # names R and the packages that read them rely on.
   old <- names(attributes(x))
-  new_names <- rewrite_text(ctx, old, "names")
+  new_names <- old
+  renamable <- !old %in% c(structural, core_attributes)
+  new_names[renamable] <- rewrite_text(ctx, old[renamable], "names")
   if (!identical(new_names, old)) {
     new_names <- unique_rewritten(new_names, old)
     for (k in which(new_names != old)) {

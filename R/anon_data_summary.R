@@ -110,6 +110,38 @@ anon_data_summary <- function(
   df_variable_names = NULL,
   df_classes = NULL
 ) {
+  summarize_objects(
+    normalize_object_source(envir, selection = selection),
+    pattern_list = pattern_list,
+    default_replacement = default_replacement,
+    example_values_n = example_values_n,
+    example_rows = example_rows,
+    check_approximate = check_approximate,
+    max_distance = max_distance,
+    nlp_auto = nlp_auto,
+    df_variable_names = df_variable_names,
+    df_classes = df_classes
+  )$summary
+}
+
+
+# helpers -----------------------------------------------------------------
+
+# The data summary of `objects` (from normalize_object_source()), and the
+# objects' names as the summary shows them (`object_names`, redacted with the
+# same patterns and NLP), in the order of `objects`.
+summarize_objects <- function(
+  objects,
+  pattern_list,
+  default_replacement,
+  example_values_n,
+  example_rows,
+  check_approximate,
+  max_distance,
+  nlp_auto,
+  df_variable_names,
+  df_classes
+) {
   name <- type <- NULL
 
   # Combine user arguments with global options
@@ -123,7 +155,6 @@ anon_data_summary <- function(
   example_values_n <- normalize_example_values_n(example_values_n)
   example_rows <- normalize_example_rows_spec(example_rows)
 
-  objects <- normalize_object_source(envir, selection = selection)
   obj_names <- names(objects)
 
   # Example values and rows are shown from a copy with the column rules
@@ -191,6 +222,10 @@ anon_data_summary <- function(
     )
   )
 
+  # The object names are redacted with the rest of the summary (the same
+  # patterns and NLP entities), then name the tables that are listed by
+  # object; the summary's own names (its fields and columns) are not.
+  result$object_names <- obj_names
   result <- anon(
     result,
     pattern_list = pattern_list,
@@ -202,13 +237,30 @@ anon_data_summary <- function(
     check_names = FALSE,
     nlp_auto = nlp_auto
   )
+  shown <- result$object_names
+  result$object_names <- NULL
+  shown_name <- function(x) {
+    if (!is.null(x)) names(x) <- shown[match(names(x), obj_names)]
+    x
+  }
+  if (!is.null(result$data_frames$variables)) {
+    result$data_frames$variables <- shown_name(result$data_frames$variables)
+  }
+  if (!is.null(result$examples$rows)) {
+    result$examples$rows <- shown_name(result$examples$rows)
+  }
+  if (!is.null(result$examples$scenarios)) {
+    for (i in seq_along(result$examples$scenarios)) {
+      result$examples$scenarios[[i]]$tables <- shown_name(result$examples$scenarios[[i]]$tables)
+    }
+  }
+  if (!is.null(result$examples$scenario)) {
+    result$examples$scenario$tables <- shown_name(result$examples$scenario$tables)
+  }
 
   class(result) <- c("anon_data_summary", "anon_context", "list")
-  result
+  list(summary = result, object_names = shown)
 }
-
-
-# helpers -----------------------------------------------------------------
 
 # Apply df_variable_names and df_classes rules to each object without patterns
 # or NLP; those run once over the finished summary.
@@ -248,7 +300,7 @@ get_object_summary <- function(
       purrr::map_dfr(~ {
         tibble::tibble(
           data_type = class(.x)[1],
-          n_distinct = dplyr::n_distinct(.x, na.rm = TRUE),
+          n_distinct = count_distinct(.x),
           n_missing = sum(is.na(.x)),
           n_total = length(.x),
           pct_missing = round(sum(is.na(.x)) / length(.x) * 100, 2)
@@ -292,7 +344,7 @@ get_object_summary <- function(
       name = obj_name,
       type = class(obj)[1],
       length = length(obj),
-      n_distinct = dplyr::n_distinct(obj, na.rm = TRUE),
+      n_distinct = count_distinct(obj),
       n_missing = sum(is.na(obj)),
       pct_missing = round(sum(is.na(obj)) / length(obj) * 100, 2),
       memory_size = format(utils::object.size(obj), units = "auto")
@@ -316,6 +368,18 @@ get_object_summary <- function(
       memory_size = format(utils::object.size(obj), units = "auto")
     ))
   }
+}
+
+
+# The number of distinct non-missing values. Text marked "bytes" that isn't
+# valid UTF-8 can't be translated by vctrs, so such text is compared byte by
+# byte instead; the redaction of the summary then reports it as text it
+# can't search, where it is shown.
+count_distinct <- function(x) {
+  if (is.character(x) && any(unconvertible_bytes(x))) {
+    return(length(unique(x[!is.na(x)])))
+  }
+  dplyr::n_distinct(x, na.rm = TRUE)
 }
 
 

@@ -890,3 +890,33 @@ test_that("an empty initial selection selects nothing, and an empty step can be 
   empty$data <- list()
   expect_equal(nrow(anon_inventory(list(es = empty, x = data.frame(y = 1)), selection = "es")), 0)
 })
+
+test_that("the app shows objects by their redacted names and selects them by their real names", {
+  objs <- list(Alice_data = data.frame(x = 1), Alice = 1, ALICE = 2)
+  state <- anon_app_initial_state(objs, pattern_list = list(PERSON = "Alice"), initial_selection = c("Alice_data", "ALICE"))
+  expect_identical(names(state$choices), c("PERSON_data", "PERSON", "PERSON"))
+  expect_identical(unname(state$choices), c("PERSON_data", "PERSON", "PERSON 1"))
+  expect_identical(state$selected, c("PERSON_data", "PERSON 1"))
+  expect_identical(app_selected_names(state, state$selected), c("Alice_data", "ALICE"))
+  expect_identical(app_selected_names(state, c("PERSON", "unknown")), "Alice")
+
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  defaults <- anon_runtime_defaults()
+  defaults$pattern_list <- list(PERSON = "Alice")
+  shiny::testServer(
+    app = anon_app_server(envir = objs, runtime_defaults = defaults),
+    {
+      session$flushReact()
+      session$setInputs(pattern_rules = "PERSON = Alice")
+      session$setInputs(selected_objects = "PERSON_data")
+      session$setInputs(scan_environment = 1)
+      session$flushReact()
+      expect_identical(app_selected_names(app_state_data(), "PERSON_data"), "Alice_data")
+      session$setInputs(generate_report = 1)
+      session$flushReact()
+      expect_identical(report_data()$object_names, "PERSON_data")
+      expect_false(any(grepl("Alice", capture.output(print(report_data())))))
+    }
+  )
+})

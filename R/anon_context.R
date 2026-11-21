@@ -7,7 +7,7 @@
 #' @return Object with anon_context class
 #' @keywords internal
 new_anon_context <- function(x, ...) {
-  structure(x, class = c("anon_context", class(x)), ...)
+  structure(x, class = unique(c("anon_context", class(x))), ...)
 }
 
 #' Combine anon_context objects
