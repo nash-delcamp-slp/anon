@@ -1936,7 +1936,7 @@ test_that("ids made only of digits after a number and a separator are fractions,
   expect_equal(
     attr(step$data$X, "label"),
     paste0(
-      "Glucose 10.10005; Lat 45.10007,-73.10002; 1.10001,10002; ", new[["10001"]], ",", new[["10002"]], "; ",
+      "Glucose 10.10005; Lat 45.10007,-73.10002; 1.10001,", new[["10002"]], "; ", new[["10001"]], ",", new[["10002"]], "; ",
       new[["10003"]], ",5; ", new[["10004"]], ".5"
     )
   )
@@ -1985,4 +1985,54 @@ test_that("the log names nested columns with keys rewritten", {
     expect_false(grepl("AB-1001", logged, fixed = TRUE))
     expect_true(any(startsWith(step$log$variable, names(step$data$nest)[2]), na.rm = TRUE))
   }
+})
+
+test_that("log details keep their counts when a count equals a numeric key", {
+  n <- 10005
+  keys <- seq_len(n)
+  d <- list(
+    dm = data.frame(USUBJID = keys, RFSTDTC = "2031-03-06"),
+    lb = data.frame(USUBJID = keys, LBDTC = "2031-03-07")
+  )
+  step <- suppressWarnings(anon_subject_ids(anon_subject_dates(d, seed = 2), seed = 1))
+  log <- step$log
+  expect_true(all(startsWith(log$detail[is.na(log$dataset)][1:2], paste(n, "subject(s)"))))
+  shifted <- log$detail[log$variable %in% "LBDTC"]
+  expect_equal(shifted, paste(n, "value(s) shifted"))
+})
+
+test_that("in a comma list, an id after a number that isn't one is still found", {
+  d <- data.frame(USUBJID = c(9998:10003, 10999), SUBJID = sprintf("S%05d", 1:7), X = 1)
+  attr(d$X, "label") <- "Excluded: 9999,10000,10001; screen failure 10500,10002,10003; ratio 1.10002"
+  step <- anon_subject_ids(d, seed = 1, keep_secrets = TRUE)
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(as.character(ids$pseudonym), ids$key)
+  expect_equal(
+    attr(step$data$X, "label"),
+    paste0(
+      "Excluded: 9999,", new[["10000"]], ",", new[["10001"]], "; screen failure 10500,", new[["10002"]], ",",
+      new[["10003"]], "; ratio 1.10002"
+    )
+  )
+})
+
+test_that("settings naming a nested column under a list column named by key are rewritten", {
+  keys <- c("AB-1001", "AB-1002")
+  lb <- data.frame(USUBJID = rep(keys, each = 2), LBDTC = c("2031-03-07", "2031-03-08", "2031-04-07", "2031-04-08"))
+  nest <- tibble::tibble(USUBJID = keys)
+  nest[["AB-10011"]] <- split(lb, lb$USUBJID)
+  d <- list(dm = data.frame(USUBJID = keys, RFSTDTC = c("2031-03-06", "2031-04-06")), nest = nest)
+  vars <- c("RFSTDTC", "LBDTC", "AB-10011[[]][LBDTC]")
+  step <- suppressWarnings(anon_subject_ids(anon_subject_dates(d, vars = vars, seed = 2), seed = 1))
+  shown <- c(format(step), as.character(step), capture.output(str(unclass(step)$settings)))
+  expect_false(any(grepl("AB-1001", shown, fixed = TRUE)))
+})
+
+test_that("the count of shared related IDs counts only those rewritten", {
+  d <- data.frame(USUBJID = c("A-1", "B-1", "C-1"), SUBJID = c("10001", "10001", "10003"), X = 1:3)
+  attr(d$X, "label") <- "ratio 25.10001"
+  expect_no_warning(step <- anon_subject_ids(d, seed = 1))
+  expect_equal(attr(step$data$X, "label"), "ratio 25.10001")
+  attr(d$X, "label") <- "subject 10001"
+  expect_warning(anon_subject_ids(d, seed = 1), "^1 original value")
 })

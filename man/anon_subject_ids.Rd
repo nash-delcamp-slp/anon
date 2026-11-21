@@ -105,9 +105,10 @@ a number only as a whole number), compared without leading or trailing
 spaces, and next to \code{","} or \code{"."} too (\code{"AB-1001,AB-1002"},
 \code{"AB-1001.1"}, \code{"77010001,5"}: such text is ambiguous and is rewritten).
 Values made only of digits could be part of a number, so two rules apply
-to them: after a digit and \code{"."} or \code{","} (the fraction of \code{"25.701054"} or
-\code{"10.10005"}) they are found only when the number before the separator is
-itself found as a key or \code{also} value (a list such as \code{"10001,10002"});
+to them: after a digit and \code{"."} (the fraction of \code{"25.701054"} or
+\code{"10.10005"}) they are found only when the number before the \code{"."} is
+itself found as a key or \code{also} value (after a digit and \code{","}, as in
+\code{"9999,10000"}, they are found);
 and values of \code{also} columns before \code{"."} or \code{","} and a digit (\code{"10001.5"})
 only when the number after it is found, or, in names, before \code{"."} and
 digits at the end (as \code{make.unique()} names elements). In names, keys and

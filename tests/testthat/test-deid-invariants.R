@@ -672,3 +672,12 @@ test_that("each subject's New York times are on either side of a daylight saving
   dst <- as.POSIXlt(vs$VSNYDTM)$isdst
   expect_true(all(tapply(dst, as.character(vs$USUBJID), function(x) length(unique(x)) == 2)))
 })
+
+test_that("a numeric sentinel is found unless it is part of a longer number", {
+  found <- function(text) deid_found("70004", charToRaw(tolower(text)))
+  expect_true(found("a.70004"))
+  expect_true(found("see 70004, 70005"))
+  expect_false(found("25.70004"))
+  expect_false(found("170004"))
+  expect_false(found("700041"))
+})

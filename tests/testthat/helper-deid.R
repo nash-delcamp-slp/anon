@@ -355,7 +355,10 @@ deid_fixture <- function() {
   # Keys and SUBJIDs in comma-separated lists (numbers in the numeric
   # fixture): each is found.
   attr(relsub, "label") <- paste(
-    "Pairs", paste(deid_keys[1:2], collapse = ","), "and", paste(deid_subjids[1:2], collapse = ",")
+    "Pairs", paste(deid_keys[1:2], collapse = ","), "and", paste(deid_subjids[1:2], collapse = ","),
+    # Lists after a number that isn't an id: each id is still found.
+    "; excluded", paste(c("9999", deid_keys[3:4]), collapse = ","),
+    "; failures", paste(c("10500", deid_subjids[3:4]), collapse = ",")
   )
 
   # A numeric SAS date (days since 1960-01-01), which can't be shifted.
@@ -660,8 +663,9 @@ deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
 # text (kept after the replacement: "<key>1", as unlist() names elements). At
 # each place the longest id that fits is taken, and reading goes on after it.
 # An id made only of digits may be part of a number:
-# - with "<digit>." or "<digit>," just before it, it is replaced only if the
-#   id just before the separator is;
+# - with "<digit>." just before it, it is replaced only if the id just before
+#   the "." is (after "<digit>," it may be a list or a decimal comma, and is
+#   replaced);
 # - if it is a SUBJID (`related`) with ".<digit>" or ",<digit>" just after
 #   it, it is replaced only if the id just after the separator is, or (in
 #   `names`) if "." and digits follow it up to the end.
@@ -714,7 +718,7 @@ deid_scan_ids <- function(text, ids, names = FALSE, related = character(0)) {
       f <- found[[k]]
       if (!replaced[k] || !grepl("^[0-9]+$", f$id)) next
       bad <- FALSE
-      if (f$start > 2 && sep[f$start - 1] && digit[f$start - 2]) {
+      if (f$start > 2 && chars[f$start - 1] == "." && digit[f$start - 2]) {
         before <- which(lasts == f$start - 2)
         bad <- length(before) == 0 || !replaced[before]
       }
@@ -1250,7 +1254,8 @@ deid_lower_bytes <- function(bytes) {
 }
 
 # Whether `sentinel` occurs in `bytes`, ignoring case. A sentinel made only
-# of digits must not be part of a longer number.
+# of digits must not be part of a longer number: digits around it, or
+# "<digit>." before it (a fraction), make it part of one.
 deid_found <- function(sentinel, bytes) {
   pattern <- deid_lower_bytes(charToRaw(sentinel))
   at <- grepRaw(pattern, bytes, fixed = TRUE, all = TRUE)
@@ -1263,7 +1268,7 @@ deid_found <- function(sentinel, bytes) {
     out[ok] <- bytes[i[ok]] >= as.raw(0x30) & bytes[i[ok]] <= as.raw(0x39)
     out
   }
-  dot <- function(i) i >= 1 & i <= length(bytes) & bytes[pmax(i, 1)] == as.raw(0x2e)
+  dot <- function(i) i >= 1 & i <= length(bytes) & bytes[pmax(i, 1)] == as.raw(0x2e) & digit(i - 1)
   before <- at - 1
   after <- at + length(pattern)
   any(!digit(before) & !dot(before) & !digit(after))
