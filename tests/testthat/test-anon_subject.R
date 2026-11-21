@@ -1766,8 +1766,9 @@ test_that("the states of a multi-state Surv column are searched for keys, like f
 })
 
 test_that("keys made only of digits and related IDs are searched for and rewritten from 5 characters", {
-  # Next to "." a long id is found, as a decimal can't be told from a list or
-  # a make.unique() suffix; inside a longer number it isn't.
+  # Before "." a long key is found, as a decimal can't be told from a
+  # make.unique() suffix; after "<digit>." (a fraction) or inside a longer
+  # number it isn't.
   d <- list(
     dm = data.frame(USUBJID = c("12345", "12346"), SUBJID = c("S0001", "S0002"), NOTE = c("x", "y")),
     short = data.frame(USUBJID = c("1234", "1235"), SUBJID = c("S001", "S002"), NOTE = c("x", "y"))
@@ -1780,7 +1781,7 @@ test_that("keys made only of digits and related IDs are searched for and rewritt
   number <- sub("SUBJ-", "", new[["12346"]])
   expect_equal(
     attr(step$data$NOTE, "label"),
-    paste0(new[["12345"]], " and ", number, ", not 123456, ", new[["12345"]], ".5 or 1.", new[["12345"]])
+    paste0(new[["12345"]], " and ", number, ", not 123456, ", new[["12345"]], ".5 or 1.12345")
   )
   expect_equal(attr(anon_subject_ids(d$short, seed = 1)$data$NOTE, "label"), "1234 and S002")
 
@@ -1924,4 +1925,64 @@ test_that("a related ID inside a decimal number isn't found, but in a list or a 
   num <- stats::setNames(sub("SUBJ-", "", anon_secrets(step)$subject_ids$pseudonym), c("10001", "10002"))
   expect_equal(attr(step$data$X, "label"), paste0("25.10001 and 10002.5; ", num[["10001"]], ",", num[["10002"]]))
   expect_true(paste0(num[["10001"]], ".1") %in% names(step$data))
+})
+
+test_that("ids made only of digits after a number and a separator are fractions, not ids", {
+  d <- data.frame(USUBJID = 10001:10007, X = 1)
+  attr(d$X, "label") <- "Glucose 10.10005; Lat 45.10007,-73.10002; 1.10001,10002; 10001,10002; 10003,5; 10004.5"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(as.character(ids$pseudonym), ids$key)
+  expect_equal(
+    attr(step$data$X, "label"),
+    paste0(
+      "Glucose 10.10005; Lat 45.10007,-73.10002; 1.10001,10002; ", new[["10001"]], ",", new[["10002"]], "; ",
+      new[["10003"]], ",5; ", new[["10004"]], ".5"
+    )
+  )
+  # In names too, also followed by digits.
+  v <- stats::setNames(1:3, c("1.100011", "2.10002", "100031"))
+  out <- anon_subject_ids(list(dm = d, x = tibble::tibble(V = v)), keep_secrets = TRUE, seed = 1)$data
+  expect_equal(names(out$x$V), c("1.100011", "2.10002", paste0(new[["10003"]], "1")))
+})
+
+test_that("short keys holding letters aren't taken for decimals", {
+  d <- data.frame(USUBJID = c("AB-1", "AB-2"), X = 1)
+  attr(d$X, "label") <- "AB-1.5 and 2,AB-2"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  expect_equal(attr(step$data$X, "label"), paste0(new[["AB-1"]], ".5 and 2,", new[["AB-2"]]))
+})
+
+test_that("keys in names written by make.names() are rewritten", {
+  for (keys in list(c(77010001, 77010002), c("AB-1001", "AB-1002"))) {
+    vs <- data.frame(USUBJID = rep(keys, each = 2), V = 1:4)
+    wide <- data.frame(split(vs$V, vs$USUBJID))
+    step <- anon_subject_ids(list(dm = data.frame(USUBJID = keys), wide = wide), keep_secrets = TRUE, seed = 1)
+    ids <- anon_secrets(step)$subject_ids
+    expect_equal(names(step$data$wide), make.names(as.character(ids$pseudonym[match(as.character(keys), ids$key)])))
+  }
+})
+
+test_that("a shared value of an also column becomes its column's name in brackets", {
+  d <- data.frame(USUBJID = c("A-1", "B-1"), SITEID = c("S0001", "S0001"), X = 1:2)
+  attr(d$X, "label") <- "site S0001"
+  out <- suppressWarnings(anon_subject_ids(d, also = "SITEID", seed = 1))$data
+  expect_equal(attr(out$X, "label"), "site [SITEID]")
+})
+
+test_that("the log names nested columns with keys rewritten", {
+  keys <- c("AB-1001", "AB-1002")
+  lb <- data.frame(USUBJID = rep(keys, each = 2), LBDTC = c("2031-03-07", "2031-03-08", "2031-04-07", "2031-04-08"))
+  nest <- tibble::tibble(USUBJID = keys)
+  nest[["AB-10011"]] <- split(lb, lb$USUBJID)
+  d <- list(dm = data.frame(USUBJID = keys), nest = nest)
+  for (step in list(
+    anon_subject_dates(anon_subject_ids(d, seed = 1), seed = 2),
+    anon_subject_ids(anon_subject_dates(d, seed = 2), seed = 1)
+  )) {
+    logged <- paste(c(step$log$variable, step$log$detail), collapse = " ")
+    expect_false(grepl("AB-1001", logged, fixed = TRUE))
+    expect_true(any(startsWith(step$log$variable, names(step$data$nest)[2]), na.rm = TRUE))
+  }
 })

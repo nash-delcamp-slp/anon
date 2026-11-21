@@ -53,6 +53,9 @@ deid_numeric_keys <- stats::setNames(
   c(77010001 + 0:6, 770100012, 77010010, 77010009),
   c(deid_all_keys, "ZQ-7701-0009")
 )
+# SUBJIDs of 5 digits for the numeric fixture, by original SUBJID: searched,
+# and could be part of a number (see deid_scan_ids()).
+deid_numeric_subjids <- stats::setNames(sprintf("%05d", 70000 + c(1:8, 99)), c(deid_subjids, "ZQ0099"))
 
 # Seeds used by the pipelines. The step's settings and log say whether a seed
 # was set but not its value, so the values are sentinels too.
@@ -194,6 +197,12 @@ deid_fixture <- function() {
   )
   # A SUBJID in a label: rewritten to the pseudonym's number.
   attr(dm$AGE, "label") <- paste("Age of", deid_subjids[3], "at screening")
+  # SUBJIDs next to "." and "," (numbers in the numeric fixture, where those
+  # after a number and a separator, or before ".5", are parts of numbers).
+  attr(dm$COMM, "label") <- paste0(
+    "Ratio 25.", deid_subjids[6], ", dose ", deid_subjids[6], ".5, list 1.", deid_subjids[7], ",", deid_subjids[8],
+    "; ", deid_subjids[4], ",", deid_subjids[5]
+  )
   attr(dm$USUBJID, "label") <- "Unique Subject Identifier"
   attr(dm$RFSTDTC, "label") <- "Subject Reference Start Date/Time"
   attr(dm$rficdtc, "label") <- "Date/Time of Informed Consent"
@@ -221,6 +230,9 @@ deid_fixture <- function() {
   # Each data frame's own key is another subject's than its row's: its own
   # key wins.
   dm$SUB <- I(lapply(deid_keys[c(2:n, 1)], function(k) tibble::tibble(USUBJID = k, X = 1)))
+  # A list column named with a key followed by a digit, holding data frames
+  # with the key: the log names its columns by path, rewritten.
+  dm[[paste0(deid_keys[1], "1")]] <- I(lapply(deid_keys, function(k) tibble::tibble(USUBJID = k, Y = 2)))
   # Data frames of two shapes, with their own key: the first shape holds rows
   # of the subject found only here; one data frame holds rows of two subjects
   # in an order the keys don't follow.
@@ -398,6 +410,9 @@ deid_fixture <- function() {
   # key followed by digits ("<key>1"), the last key's names starting with the
   # first key.
   vsx <- tibble::tibble(V = unlist(split(vs$VSSTRESN, as.character(vs$USUBJID))))
+  # A data frame with a column per subject, named by make.names() as
+  # data.frame() names them ("ZQ.7701.0001").
+  wide <- data.frame(split(vs$VSSTRESN, as.character(vs$USUBJID)))
 
   # Vital signs nested by subject, as a vctrs list_of (as tidyr::nest()
   # makes it), with a packed column inside: each element belongs to its row's
@@ -501,7 +516,7 @@ deid_fixture <- function() {
 
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, vsx = vsx, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
+    vsum = vsum, vsx = vsx, wide = wide, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
     lz = lz, ln = ln, lr = lr, lk = lk
   )
   # A key column whose missing-value code is another subject's key (when
@@ -520,13 +535,17 @@ deid_fixture <- function() {
 # and names becomes its number, followed by the same digits where it was
 # followed by digits (see deid_rewrite_text()). Factor keys become plain
 # numbers, losing their levels and contrasts; haven-labelled keys stay
-# labelled. SUBJIDs are kept: they are at least 5 characters long.
+# labelled. SUBJIDs become numbers of 5 digits, as text
+# (deid_numeric_subjids).
 deid_numeric_fixture <- function() {
   deid_to_numeric(deid_fixture())
 }
 
 deid_numeric_text <- function(x) {
-  map <- list(new_key = stats::setNames(as.character(deid_numeric_keys), names(deid_numeric_keys)))
+  map <- list(new_key = c(
+    stats::setNames(as.character(deid_numeric_keys), names(deid_numeric_keys)),
+    deid_numeric_subjids
+  ))
   deid_rewrite_text(x, map, names = TRUE, dates = FALSE)
 }
 
@@ -602,7 +621,9 @@ deid_zap_codes <- function(x) {
 # regular expressions: each original key becomes its subject's pseudonym, and
 # each SUBJID (`oracle$new_also`) the pseudonym's number; keys holding only
 # digits, and SUBJIDs, only from 5 characters (a SUBJID equal to a key is
-# left to the key). With `dates`, each ISO 8601 full date becomes "[DATE]".
+# left to the key). In `names`, an id as make.names() writes it ("X77010001",
+# "ZQ.7701.0001") becomes its replacement as make.names() writes it. With
+# `dates`, each ISO 8601 full date becomes "[DATE]".
 deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   # Text is searched in UTF-8 (text marked latin1 converted), with the bytes
   # of text that isn't valid UTF-8 written as "<92>"; that converted text is
@@ -615,11 +636,13 @@ deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   also <- names(oracle$new_also)
   also <- also[nchar(also) >= 5 & !also %in% keys]
   ids <- c(oracle$new_key[keys], oracle$new_also[also])
+  if (names) {
+    variants <- stats::setNames(make.names(unname(ids)), make.names(names(ids)))
+    ids <- c(ids, variants[!names(variants) %in% names(ids)])
+  }
   new <- repaired
-  # SUBJIDs and short keys could be part of a decimal number.
-  guarded <- c(also, keys[nchar(keys) < 5])
   for (i in which(!is.na(repaired))) {
-    new[i] <- deid_scan_ids(repaired[i], ids, names, guarded)
+    new[i] <- deid_scan_ids(repaired[i], ids, names, related = also)
   }
   if (dates) {
     new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
@@ -629,67 +652,90 @@ deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   new
 }
 
-# `text` with each id (the names of `ids`) replaced by its value, read from
-# left to right: an id starts where the character before it, if any, is not a
-# letter or digit, and ends where the character after it, if any, is not one
-# either (so "," and "." separate ids, and a number is found only whole). At
-# each place the longest id that fits is taken. In `names`, an id followed by
-# digits up to the end of the text also fits, and keeps those digits
-# ("<key>1", as unlist() names elements). An id among `guarded` that has "."
-# or "," and a digit on one side (with a digit just before it, or after it)
-# is left, as part of a decimal number, unless an id is there across the
-# separator, or (in `names`) it is followed by "." and digits up to the end.
-deid_scan_ids <- function(text, ids, names = FALSE, guarded = character(0)) {
+# `text` with each id (the names of `ids`) replaced by its value. The text is
+# read from left to right for places where an id fits: where the character
+# before it, if any, is not a letter or digit, and the character after it, if
+# any, is not one either (so "," and "." separate ids, and a number is found
+# only whole), or, in `names`, where digits follow it up to the end of the
+# text (kept after the replacement: "<key>1", as unlist() names elements). At
+# each place the longest id that fits is taken, and reading goes on after it.
+# An id made only of digits may be part of a number:
+# - with "<digit>." or "<digit>," just before it, it is replaced only if the
+#   id just before the separator is;
+# - if it is a SUBJID (`related`) with ".<digit>" or ",<digit>" just after
+#   it, it is replaced only if the id just after the separator is, or (in
+#   `names`) if "." and digits follow it up to the end.
+# The ids replaced are the most that keep both rules.
+deid_scan_ids <- function(text, ids, names = FALSE, related = character(0)) {
   present <- names(ids)[vapply(names(ids), function(id) grepl(id, text, fixed = TRUE), logical(1))]
   if (length(present) == 0) {
     return(text)
   }
   present <- present[order(-nchar(present))]
   chars <- strsplit(text, "")[[1]]
+  n <- length(chars)
   word <- grepl("^[[:alnum:]]$", chars)
   digit <- grepl("^[0-9]$", chars)
   sep <- chars %in% c(".", ",")
-  at <- function(k) k >= 1 & k <= length(chars)
-  # Whether a whole id starts at position k.
-  id_at <- function(k) {
-    any(vapply(present, function(id) {
-      end <- k + nchar(id) - 1
-      end <= length(chars) && paste(chars[k:end], collapse = "") == id && (end == length(chars) || !word[end + 1])
-    }, logical(1)))
-  }
-  out <- character(0)
-  last_end <- -1
+  # The places where an id fits: start, end of the id, end with the digits
+  # that follow it, and the id.
+  found <- list()
   i <- 1
-  while (i <= length(chars)) {
-    taken <- FALSE
+  while (i <= n) {
+    fit <- NULL
     if (i == 1 || !word[i - 1]) {
       for (id in present) {
         end <- i + nchar(id) - 1
-        if (end > length(chars) || paste(chars[i:end], collapse = "") != id) next
-        after <- if (end < length(chars)) chars[(end + 1):length(chars)] else character(0)
-        if ((length(after) == 0 || !word[end + 1]) && id %in% guarded) {
-          decimal_before <- at(i - 2) && sep[i - 1] && digit[i - 2] && last_end != i - 2
-          decimal_after <- at(end + 2) && sep[end + 1] && digit[end + 2] && !id_at(end + 2) &&
-            !(names && grepl("^[.][0-9]+$", paste(after, collapse = "")))
-          if (decimal_before || decimal_after) break
+        if (end > n || paste(chars[i:end], collapse = "") != id) next
+        if (end == n || !word[end + 1]) {
+          fit <- list(start = i, end = end, last = end, id = id)
+        } else if (names && all(digit[(end + 1):n])) {
+          fit <- list(start = i, end = end, last = n, id = id)
         }
-        if (length(after) == 0 || !word[end + 1]) {
-          out <- c(out, ids[[id]])
-          i <- end + 1
-          last_end <- end
-          taken <- TRUE
-        } else if (names && all(grepl("^[0-9]$", after))) {
-          out <- c(out, ids[[id]], after)
-          i <- length(chars) + 1
-          taken <- TRUE
-        }
-        if (taken) break
+        if (!is.null(fit)) break
       }
     }
-    if (!taken) {
-      out <- c(out, chars[i])
+    if (is.null(fit)) {
       i <- i + 1
+    } else {
+      found <- c(found, list(fit))
+      i <- fit$last + 1
     }
+  }
+  if (length(found) == 0) {
+    return(text)
+  }
+  starts <- vapply(found, `[[`, numeric(1), "start")
+  lasts <- vapply(found, `[[`, numeric(1), "last")
+  replaced <- rep(TRUE, length(found))
+  repeat {
+    changed <- FALSE
+    for (k in seq_along(found)) {
+      f <- found[[k]]
+      if (!replaced[k] || !grepl("^[0-9]+$", f$id)) next
+      bad <- FALSE
+      if (f$start > 2 && sep[f$start - 1] && digit[f$start - 2]) {
+        before <- which(lasts == f$start - 2)
+        bad <- length(before) == 0 || !replaced[before]
+      }
+      tail_free <- f$last == f$end
+      if (!bad && f$id %in% related && tail_free && f$end + 2 <= n && sep[f$end + 1] && digit[f$end + 2]) {
+        rest <- paste(chars[(f$end + 1):n], collapse = "")
+        after <- which(starts == f$end + 2)
+        bad <- (length(after) == 0 || !replaced[after]) && !(names && grepl("^[.][0-9]+$", rest))
+      }
+      if (bad) {
+        replaced[k] <- FALSE
+        changed <- TRUE
+      }
+    }
+    if (!changed) break
+  }
+  out <- chars
+  for (k in rev(which(replaced))) {
+    f <- found[[k]]
+    tail <- if (f$last > f$end) chars[(f$end + 1):f$last] else character(0)
+    out <- c(out[seq_len(f$start - 1)], ids[[f$id]], tail, out[-seq_len(f$last)])
   }
   paste(out, collapse = "")
 }
@@ -908,7 +954,9 @@ deid_sentinels <- function(patterns = FALSE) {
   dates <- rep(deid_all_starts, each = length(days)) + days
   # Including the unused factor level planted in vs$USUBJID and the SUBJID of
   # the row of `pr` without a key.
-  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099", as.character(deid_numeric_keys))
+  ids <- c(deid_all_keys, "ZQ-7701-0009", deid_subjids, "ZQ0099", as.character(deid_numeric_keys), deid_numeric_subjids)
+  # As make.names() writes them (data.frame() column names).
+  ids <- c(ids, make.names(ids))
   c(
     unique(c(ids, gsub("[^[:alnum:]]", "", ids))),
     # The unused factor level planted in dm$rficdtc.
@@ -1254,10 +1302,12 @@ deid_oracle <- function(step, other = "rewrite") {
   if (match("subject_ids", steps) < match("subject_dates", steps)) {
     offset_key <- names(new_key)[match(offset_key, new_key)]
   }
-  # The fixture's SUBJIDs belong to deid_keys, or to their numbers in the
-  # numeric fixture.
-  own <- ifelse(deid_keys %in% names(new_key), deid_keys, as.character(deid_numeric_keys[deid_keys]))
+  # The fixture's SUBJIDs belong to deid_keys, or are numbers of their own
+  # in the numeric fixture.
+  numeric <- !all(deid_keys %in% names(new_key))
+  own <- if (numeric) as.character(deid_numeric_keys[deid_keys]) else deid_keys
   numbers <- as.integer(sub(step$settings$subject_ids$prefix, "", new_key[own], fixed = TRUE))
-  new_also <- stats::setNames(formatC(numbers, width = nchar(length(new_key)), flag = "0"), deid_subjids)
+  subjids <- if (numeric) unname(deid_numeric_subjids[deid_subjids]) else deid_subjids
+  new_also <- stats::setNames(formatC(numbers, width = nchar(length(new_key)), flag = "0"), subjids)
   list(new_key = new_key, new_also = new_also, offset = stats::setNames(offsets$offset_days, offset_key), other = other)
 }

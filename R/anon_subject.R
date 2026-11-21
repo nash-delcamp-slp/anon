@@ -68,14 +68,18 @@
 #' the same zero padding), in every dataset (with or without `key`), when they
 #' appear as a whole value or a whole word, not next to a letter or digit (so
 #' a number only as a whole number), compared without leading or trailing
-#' spaces. Keys of at least 5 characters are found next to `","` or `"."` too
-#' (`"AB-1001,AB-1002"`, `"AB-1001.1"`, `"77010001,5"`: such text is
-#' ambiguous and is rewritten). Values of `also` columns and shorter keys
-#' could be part of a decimal number: between a digit and `"."` or `","` on
-#' one side and a digit on the other (`"25.701054"`, `"10001.5"`) they are
-#' found only when the number across is another key or `also` value (a list
-#' such as `"10001,10002"`) or, in names, before `"."` and digits at the end
-#' (as `make.unique()` names elements). They are replaced in the attributes of columns, data
+#' spaces, and next to `","` or `"."` too (`"AB-1001,AB-1002"`,
+#' `"AB-1001.1"`, `"77010001,5"`: such text is ambiguous and is rewritten).
+#' Values made only of digits could be part of a number, so two rules apply
+#' to them: after a digit and `"."` or `","` (the fraction of `"25.701054"` or
+#' `"10.10005"`) they are found only when the number before the separator is
+#' itself found as a key or `also` value (a list such as `"10001,10002"`);
+#' and values of `also` columns before `"."` or `","` and a digit (`"10001.5"`)
+#' only when the number after it is found, or, in names, before `"."` and
+#' digits at the end (as `make.unique()` names elements). In names, keys and
+#' `also` values as `make.names()` writes them (as `data.frame()` names
+#' columns: `"X77010001"`, `"AB.1001"`) are rewritten too, to their
+#' replacement as `make.names()` writes it. They are replaced in the attributes of columns, data
 #' frames and the list of datasets (such as `label`, `comment` or a custom
 #' note), at any depth (text in list or factor attributes, the values of data
 #' frames held in attributes, names of attribute vectors, attributes of
@@ -118,8 +122,9 @@
 #' Keys made only of digits, numeric keys and values of `also` columns are
 #' searched for and rewritten only when at least 5 characters long (digits
 #' count): shorter ones match too many unrelated numbers and codes. A value of
-#' an `also` column that belongs to more than one subject becomes `"[SUBJID]"`
-#' (whose number to give it isn't known), and a warning counts those found. A
+#' an `also` column that belongs to more than one subject becomes the
+#' column's name in brackets, such as `"[SUBJID]"` (whose number to give it
+#' isn't known), and a warning counts those found. A
 #' value found in both a text and a numeric `also` column becomes the text
 #' column's form (the padded number). In
 #' names (column, row and dataset names, vector and list names and dimnames,
@@ -382,9 +387,8 @@ anon_subject_ids <- function(
   ids <- c(searchable$text, related$values)
   replacements <- c(new_ids[searchable$idx], related$new)
   searched <- length(ids) > 0
-  guarded <- guarded_ids(searchable$text, related$values)
-  rewrite <- id_rewriter(ids, replacements, guarded)
-  rewrite_names <- id_rewriter(ids, replacements, guarded, names = TRUE)
+  rewrite <- id_rewriter(ids, replacements, related$values)
+  rewrite_names <- id_rewriter(ids, replacements, related$values, names = TRUE)
   nested_key <- setdiff(datasets_with_key(tables), keyed)
   rewritten <- rewrite_described_text(
     data, rewrite, log, "original keys replaced with pseudonyms",
@@ -639,10 +643,10 @@ anon_subject_dates <- function(
     masked <- searchable_keys(keys, any_numeric_key(frames, key))$text
     subjids <- related_id_map(list(list(value = unlist(lapply(tables, function(tabs) {
       lapply(Filter(function(tb) tb$keyed && "SUBJID" %in% names(tb$df), tabs), function(tb) normalize_keys(tb$df$SUBJID))
-    }), use.names = FALSE), idx = 0L, new = "[SUBJID]", numeric = FALSE)), masked)$values
+    }), use.names = FALSE), column = "SUBJID", idx = 0L, new = "[SUBJID]", numeric = FALSE)), masked)$values
     ids <- c(masked, subjids)
     replacements <- rep(c("[KEY]", "[SUBJID]"), c(length(masked), length(subjids)))
-    path_rewriter(id_rewriter(ids, replacements, guarded_ids(masked, subjids), names = TRUE))
+    path_rewriter(id_rewriter(ids, replacements, subjids, names = TRUE))
   }
   locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
@@ -1411,14 +1415,15 @@ shift_detail <- function(shifted) {
 # equal to a searched key (`key_texts`) is left to the key. A value found in
 # both a text and a numeric column becomes the text column's form (the padded
 # number), whatever the order of the datasets. A value that belongs to more
-# than one subject can't be given one subject's number: it becomes
-# "[SUBJID]". Returns the values to rewrite (`values`, valid UTF-8 and at
+# than one subject can't be given one subject's number: it becomes the name
+# of its column in brackets ("[SUBJID]"). Returns the values to rewrite (`values`, valid UTF-8 and at
 # least `min_searched_id_chars` characters long) with their replacements
 # (`new`), the `ambiguous` ones among them, and the names of the columns they
 # came from (`columns`).
 related_id_map <- function(also_values, key_texts) {
   pull <- function(field) unlist(lapply(also_values, function(a) rep_len(a[[field]], length(a$value))), use.names = FALSE)
   value <- trimws(as_utf8(pull("value")))
+  column <- as.character(pull("column"))
   idx <- as.integer(pull("idx"))
   new <- as.character(pull("new"))
   numeric <- as.logical(pull("numeric"))
@@ -1428,15 +1433,17 @@ related_id_map <- function(also_values, key_texts) {
   value <- value[ok][order]
   idx <- idx[ok][order]
   new <- new[ok][order]
+  column <- column[ok][order]
   subjects <- tapply(idx, value, function(i) length(unique(i)))
   ambiguous <- names(subjects)[subjects > 1]
   first <- !duplicated(value)
-  new[value %in% ambiguous] <- "[SUBJID]"
+  shared <- value %in% ambiguous
+  new[shared] <- paste0("[", column[shared], "]")
   list(values = value[first], new = new[first], ambiguous = ambiguous, columns = columns)
 }
 
 # Warn when original values of `also` columns that belong to more than one
-# subject (rewritten as "[SUBJID]", see related_id_map()) appeared in text
+# subject (rewritten as "[SUBJID]" or the like, see related_id_map()) appeared in text
 # that describes the data (`texts`, as rewrite_described_text() saw it before
 # the rewrite). Only their number is printed: they are identifiers.
 warn_ambiguous_related <- function(related, also, texts) {
@@ -1451,7 +1458,7 @@ warn_ambiguous_related <- function(related, also, texts) {
   n <- sum(vapply(related$ambiguous, function(v) any(stringi::stri_detect_regex(found, key_text_regex(v))), logical(1)))
   warning(
     n, " original value(s) of ", paste0("`", also, "`", collapse = ", "),
-    " belong to more than one subject, so they were replaced with \"[SUBJID]\" in attributes and names, ",
+    " belong to more than one subject, so they were replaced with the column's name in brackets (such as \"[SUBJID]\") in attributes and names, ",
     "not with a subject's number.",
     call. = FALSE
   )
@@ -1493,7 +1500,7 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
   # followed by digits at the end of a value.
   ids <- c(keys, related)
   found <- if (length(distinct) > 0) {
-    id_matcher(ids, guarded_ids(keys, related), glued = TRUE)(distinct)
+    id_matcher(ids, related, glued = TRUE)(distinct)
   } else {
     list(owner = integer(0), idx = integer(0))
   }
@@ -1644,17 +1651,24 @@ is_column_reference <- function(x, name) {
 # searchable_keys() and related_id_map()) in text (valid UTF-8): as whole
 # values or whole words (see key_text_regex()), longest first, and with
 # `glued` also followed by digits at the end of the text ("<key>1", as
-# unlist() names elements). The `guarded` ids (related identifiers, and keys
-# shorter than `min_searched_id_chars`) could be part of a decimal number:
-# one between a digit and "." or "," on one side and a digit on the other
-# (`"25.701054"`, `"10001.5"`) is found only when the number on the other
-# side is another id found there (a list such as `"10001,10002"`), or, with
-# `names`, when it is followed by "." and digits up to the end of the text
-# (as make.unique() names elements). Longer keys are found next to "." or ","
-# in any case: such text is ambiguous, and is rewritten. Returns, for each
-# match, the text it is in (`owner`), its start and end (`at`), the id
-# (`idx`, its position in `ids`) and the digits that follow it (`tail`).
-id_matcher <- function(ids, guarded = character(0), glued = FALSE, names = FALSE) {
+# unlist() names elements). Ids made only of digits could be part of a
+# number, so these are found under two rules, and a match is kept only when
+# the largest set of matches that satisfies both keeps it:
+# - after "<digit>." or "<digit>," (the fraction or digit group of a number,
+#   such as "25.701054", "1,10001", or "1.100011" in a name), only when the
+#   match that ends just before the separator is kept (a list such as
+#   "10001,10002");
+# - for the related identifiers among them (`related`, such as SUBJID values),
+#   before ".<digit>" or ",<digit>" (the integer part of a decimal, such as
+#   "10001.5"), only when the match that starts just after the separator is
+#   kept or, with `names`, when "." and digits follow up to the end of the
+#   text (as make.unique() names elements). A key before ".<digit>" or
+#   ",<digit>" ("77010001,5", "AB-1001.1") is kept: such text is ambiguous,
+#   and is rewritten.
+# Returns, for each match, the text it is in (`owner`), its start and end
+# (`at`), the id (`idx`, its position in `ids`) and the digits that follow it
+# (`tail`).
+id_matcher <- function(ids, related = character(0), glued = FALSE, names = FALSE) {
   # With `glued`, one pattern for both, so that a longer id followed by digits
   # wins over a shorter id followed by a separator ("S-1-21" is "S-1-2" and
   # "1", not "S-1" and "-21").
@@ -1686,24 +1700,28 @@ id_matcher <- function(ids, guarded = character(0), glued = FALSE, names = FALSE
       }
     }
     ok <- !is.na(idx)
-    g <- which(ok & ids[idx] %in% guarded)
+    g <- which(ok & grepl("^[0-9]+$", ids[idx]))
     if (length(g) > 0) {
       char <- function(i, pos) stringi::stri_sub(text[owner[i]], pos, pos)
       digit <- function(x) grepl("^[0-9]$", x)
       sep <- function(x) x %in% c(".", ",")
       start <- at[g, 1]
       end <- at[g, 2] - nchar(tail[g])
-      key <- paste(owner, at[, 1])
-      key_end <- paste(owner, at[, 2])
-      before <- start > 2 & sep(char(g, start - 1)) & digit(char(g, start - 2)) &
-        !paste(owner[g], start - 2) %in% key_end
-      after <- !nzchar(tail[g]) & sep(char(g, end + 1)) & digit(char(g, end + 2)) &
-        !paste(owner[g], end + 2) %in% key
+      before <- start > 2 & sep(char(g, start - 1)) & digit(char(g, start - 2))
+      after <- ids[idx[g]] %in% related & !nzchar(tail[g]) & sep(char(g, end + 1)) & digit(char(g, end + 2))
       if (names) {
         rest <- stringi::stri_sub(text[owner[g]], end + 1)
         after <- after & !grepl("^[.][0-9]+$", rest)
       }
-      ok[g[before | after]] <- FALSE
+      # The neighbouring matches across the separator.
+      kept <- which(ok)
+      prev <- kept[match(paste(owner[g], start - 2), paste(owner[kept], at[kept, 2]))]
+      nxt <- kept[match(paste(owner[g], end + 2), paste(owner[kept], at[kept, 1]))]
+      repeat {
+        drop <- ok[g] & ((before & (is.na(prev) | !ok[prev])) | (after & (is.na(nxt) | !ok[nxt])))
+        if (!any(drop)) break
+        ok[g[drop]] <- FALSE
+      }
     }
     list(owner = owner[ok], at = at[ok, , drop = FALSE], idx = idx[ok], tail = tail[ok])
   }
@@ -1714,12 +1732,20 @@ id_matcher <- function(ids, guarded = character(0), glued = FALSE, names = FALSE
 # replacement (`replacements`) followed by the same digits. A name made of an
 # id followed by digits is ambiguous (a key followed by a position, or
 # another number that starts with a key); it is rewritten, unless the whole
-# name is itself an id.
-id_rewriter <- function(ids, replacements, guarded = character(0), names = FALSE) {
+# name is itself an id. With `names`, an id as make.names() writes it (as
+# data.frame() names columns: "X77010001", "AB.1001") becomes its
+# replacement as make.names() writes it ("X1", "SUBJ.1").
+id_rewriter <- function(ids, replacements, related = character(0), names = FALSE) {
   if (length(ids) == 0) {
     return(identity)
   }
-  find <- id_matcher(ids, guarded, glued = names, names = names)
+  if (names) {
+    variants <- make.names(ids)
+    extra <- variants != ids & !variants %in% ids & !duplicated(variants)
+    ids <- c(ids, variants[extra])
+    replacements <- c(replacements, make.names(replacements)[extra])
+  }
+  find <- id_matcher(ids, related, glued = names, names = names)
   function(x) {
     text <- as_utf8(x)
     hit <- which(searchable_text(text))
@@ -1739,12 +1765,6 @@ id_rewriter <- function(ids, replacements, guarded = character(0), names = FALSE
     }
     x
   }
-}
-
-# The ids that could be part of a decimal number (see id_matcher()): related
-# identifiers, and keys shorter than `min_searched_id_chars`.
-guarded_ids <- function(keys, related) {
-  c(related, keys[nchar(keys) < min_searched_id_chars])
 }
 
 # A rewriter for the parts of printed locations ("col", "col[sub]",
@@ -1850,25 +1870,28 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
   same <- vapply(split(renamed_new, renamed_old), function(v) length(unique(v)) == 1, logical(1))
   first <- !duplicated(renamed_old) & renamed_old %in% names(same)[same]
   setting_map <- stats::setNames(renamed_new[first], renamed_old[first])
+  # Settings, details and logged paths hold names: their parts go through the
+  # names rewriter, so that they read as the renamed data.
+  rewrite_path <- path_rewriter(rewrite_names)
   rename_settings_text <- function(x) {
     known <- !is.na(x) & x %in% names(setting_map)
     x[known] <- unname(setting_map[x[known]])
-    rewrite(x)
+    rewrite_path(x)
   }
   rename_detail <- function(x) {
     for (old in names(setting_map)) {
       x <- gsub(paste0("\"", old, "\""), paste0("\"", setting_map[[old]], "\""), x, fixed = TRUE, useBytes = TRUE)
     }
-    rewrite(x)
+    rewrite_path(x)
   }
-  # Columns inside nested data are logged by path ("col[[]][sub]"), rewritten
-  # as text.
+  # Columns inside nested data are logged by path ("col[[]][sub]"), each name
+  # in it rewritten.
   rename_log <- function(log) {
     for (r in which(!is.na(log$dataset))) {
       log$dataset[r] <- rename(log$dataset[r])
       variable <- log$variable[r]
       log$variable[r] <- if (!is.na(variable) && !variable %in% names(out$columns[[log$dataset[r]]])) {
-        rewrite(variable)
+        rewrite_path(variable)
       } else {
         rename_columns(variable, log$dataset[r])
       }

@@ -102,14 +102,18 @@ subject's pseudonym (a numeric key with its number), and original values of
 the same zero padding), in every dataset (with or without \code{key}), when they
 appear as a whole value or a whole word, not next to a letter or digit (so
 a number only as a whole number), compared without leading or trailing
-spaces. Keys of at least 5 characters are found next to \code{","} or \code{"."} too
-(\code{"AB-1001,AB-1002"}, \code{"AB-1001.1"}, \code{"77010001,5"}: such text is
-ambiguous and is rewritten). Values of \code{also} columns and shorter keys
-could be part of a decimal number: between a digit and \code{"."} or \code{","} on
-one side and a digit on the other (\code{"25.701054"}, \code{"10001.5"}) they are
-found only when the number across is another key or \code{also} value (a list
-such as \code{"10001,10002"}) or, in names, before \code{"."} and digits at the end
-(as \code{make.unique()} names elements). They are replaced in the attributes of columns, data
+spaces, and next to \code{","} or \code{"."} too (\code{"AB-1001,AB-1002"},
+\code{"AB-1001.1"}, \code{"77010001,5"}: such text is ambiguous and is rewritten).
+Values made only of digits could be part of a number, so two rules apply
+to them: after a digit and \code{"."} or \code{","} (the fraction of \code{"25.701054"} or
+\code{"10.10005"}) they are found only when the number before the separator is
+itself found as a key or \code{also} value (a list such as \code{"10001,10002"});
+and values of \code{also} columns before \code{"."} or \code{","} and a digit (\code{"10001.5"})
+only when the number after it is found, or, in names, before \code{"."} and
+digits at the end (as \code{make.unique()} names elements). In names, keys and
+\code{also} values as \code{make.names()} writes them (as \code{data.frame()} names
+columns: \code{"X77010001"}, \code{"AB.1001"}) are rewritten too, to their
+replacement as \code{make.names()} writes it. They are replaced in the attributes of columns, data
 frames and the list of datasets (such as \code{label}, \code{comment} or a custom
 note), at any depth (text in list or factor attributes, the values of data
 frames held in attributes, names of attribute vectors, attributes of
@@ -152,8 +156,9 @@ changes it, its \code{.internal.selfref} is stale (call \code{data.table::setDT(
 Keys made only of digits, numeric keys and values of \code{also} columns are
 searched for and rewritten only when at least 5 characters long (digits
 count): shorter ones match too many unrelated numbers and codes. A value of
-an \code{also} column that belongs to more than one subject becomes \code{"[SUBJID]"}
-(whose number to give it isn't known), and a warning counts those found. A
+an \code{also} column that belongs to more than one subject becomes the
+column's name in brackets, such as \code{"[SUBJID]"} (whose number to give it
+isn't known), and a warning counts those found. A
 value found in both a text and a numeric \code{also} column becomes the text
 column's form (the padded number). In
 names (column, row and dataset names, vector and list names and dimnames,
