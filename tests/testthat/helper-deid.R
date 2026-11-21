@@ -325,6 +325,14 @@ deid_fixture <- function() {
   # A call held in an attribute named with a user-pattern term: anon() can't
   # redact the call, and must name the attribute redacted in its warning.
   attr(vs$VSSTRESN, "DRUGQX_call") <- quote(f(x))
+  # An environment held in an attribute named with a user-pattern term, which
+  # holds a function: anon() copies the environment and names the function
+  # by a path built from the redacted attribute name.
+  held <- new.env(parent = emptyenv())
+  # (Made with as.function(), so that it has no source reference holding
+  # this file's text, which the steps keep.)
+  held$f <- as.function(alist(1), envir = globalenv())
+  attr(vs$VSSTRESN, "DRUGQX_env") <- held
   # Text that isn't valid UTF-8 (a stray Windows-1252 apostrophe) holding a
   # user-pattern term, in values and a label: anon() must still redact it.
   vs$VSCOM <- rep(c("DRUGQX\x92s note", "none"), n)
@@ -910,6 +918,10 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE, structural = deid_
 # A value held in an attribute: its text and its attributes, at any depth.
 # Date and date-time values become "[DATE]".
 deid_rewrite_value <- function(v, oracle) {
+  # Environments are left as they are, as the steps leave them.
+  if (is.environment(v)) {
+    return(v)
+  }
   if (inherits(v, c("Date", "POSIXt"))) {
     return(rep("[DATE]", length(v)))
   }
@@ -1098,8 +1110,9 @@ deid_env_with <- function(step) {
 # environment, redacted with anon(): the copy must be a new environment
 # holding the step (still a step, without secrets), the data frame, the
 # functions and the list, under the expected names, without the secrets;
-# saving it must not save the closure's environment, the source or the
-# nested environment's original; and the environment given must not change.
+# the closure must be on a redacted copy of its environment; saving the copy
+# must not save the original environments or the source; and the
+# environment given must not change.
 deid_anon_env <- function(step) {
   e <- new.env()
   assign("step", step, envir = e)
@@ -1137,8 +1150,9 @@ deid_anon_env <- function(step) {
     stop("anon() returned an environment holding other objects than expected")
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
-  if (!identical(environment(a$own), a) || !identical(environment(a$reader), globalenv())) {
-    stop("anon() didn't replace the closures' environments")
+  reader_env <- environment(a$reader)
+  if (!identical(environment(a$own), a) || identical(reader_env, holder) || !is.null(unclass(reader_env$step)$secrets)) {
+    stop("anon() didn't replace the closures' environments with redacted copies")
   }
   if (identical(a$box$inner, inner) || !identical(a$box$inner$outer, a)) {
     stop("anon() didn't copy the nested environment, mapping its reference to the copy")

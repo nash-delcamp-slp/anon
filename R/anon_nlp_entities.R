@@ -165,7 +165,7 @@ extract_nlp_patterns <- function(x, entity_types) {
 
   # An environment's text is that of the objects anon() copies from it.
   if (is.environment(x)) {
-    x <- nlp_text_source(x, NULL, NULL)
+    x <- nlp_text_source(read_environment(x), NULL, NULL)
   }
   text_to_process <- collect_text(x)
 

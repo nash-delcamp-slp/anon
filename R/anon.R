@@ -95,15 +95,18 @@
 #' their text fields and attributes redacted. Environments held inside other
 #' objects are replaced by redacted copies (see "Environments" below).
 #' Objects `anon()` can't search for text (functions, calls and formulas,
-#' such as a model's `call` or a model frame's `terms` attribute, S4 objects,
-#' and the global, base and package environments and namespaces, which are
-#' kept by reference) are left as they are, and one warning lists where they
+#' such as a model's `call` or a model frame's `terms` attribute, whose code
+#' and the constants in it are kept, S4 and S7 objects (such as ggplot2 4
+#' plots), and the global, base and package environments and namespaces,
+#' which are kept by reference) are left as they are, and one warning lists where they
 #' are (by element name where there is one, as `fit$call`; the first ten, and
 #' how many more): remove them, or rebuild them from redacted data, before
 #' sharing. Functions and calls lose their source references (`srcref`,
 #' which can hold the text of the whole file they were sourced from,
 #' comments included), wherever `anon()` finds them: functions then print as
-#' deparsed code.
+#' deparsed code. A function's own attributes are redacted like any object's.
+#' Reference class objects (made with [methods::setRefClass()]) can't be
+#' copied without breaking them, and are dropped, with a warning.
 #'
 #' Secrets read from a de-identification step with [anon_secrets()], and a
 #' step's secrets environment, are dropped wherever `anon()` finds them
@@ -139,7 +142,9 @@
 #' reference (the global, base or empty environment, a package or a
 #' namespace). Any other parent, such as a function's frame, would be saved
 #' with the copy, and the objects it holds with it, so the copy's parent is
-#' then the global environment, with a warning.
+#' that parent's redacted copy, made the same way (and so on up the chain):
+#' the result can then hold redacted copies of objects that weren't in the
+#' environment given, such as those of the function that called `anon()`.
 #'
 #' A de-identification step in it is redacted as above, its secrets dropped.
 #' Environments held in it, or anywhere `anon()` reaches (lists, list
@@ -147,18 +152,20 @@
 #' each environment copied once per call so that environments that refer to
 #' each other, or that several objects share, map to one copy; such a copy
 #' keeps its class and other attributes (redacted), and its parent is the
-#' parent's copy when there is one. The global, base and empty environments,
-#' packages and namespaces are kept by reference. A closure, formula, terms
-#' object or quosure whose environment was copied gets the copy as its
-#' environment (so it runs on the redacted objects), and one whose
-#' environment is another one R doesn't save by reference (such as a
-#' function's frame) gets the global environment, wherever `anon()` finds it
-#' (in environments, lists, list columns and attributes, such as a model's
-#' `terms`), with a warning naming them, so that saving the copy doesn't save
-#' the original's data. Objects that rely on reference semantics (such as R6
-#' objects) work on their copy, which is no longer linked to the original;
-#' their active bindings are not copied, and nothing in the copy is locked.
-#' Reading the objects forces promises.
+#' parent's copy when the parent isn't kept by reference. The global, base and
+#' empty environments, packages and namespaces are kept by reference. A
+#' closure, formula, terms object or quosure whose environment R doesn't save
+#' by reference (such as a function's frame) gets that environment's redacted
+#' copy as its environment, wherever `anon()` finds it (in environments,
+#' lists, list columns and attributes, such as a model's `terms`), with a
+#' warning naming them: it runs on the redacted objects, and saving the copy
+#' doesn't save the original's data. Objects that rely on reference
+#' semantics (such as R6 objects, their generators and inheritance, and
+#' closures from function factories such as memoised functions) work on
+#' their copy, which is no longer linked to the original; their active
+#' bindings are not copied, and nothing in the copy is locked. Objects nested
+#' several hundred levels deep (such as a long chain of environments) are an
+#' error. Reading the objects forces promises.
 #' Active bindings (reading one would run its function) and objects that
 #' can't be read (a missing argument, or a promise whose code fails) are not
 #' copied, with a warning. The copy is not locked, whether or not the
@@ -261,6 +268,24 @@ anon <- function(
   .compiled = NULL,
   .where = NULL
 ) {
+  # The top-level call runs the redaction under a guard that turns R's
+  # errors for nesting too deep to follow into a clear one.
+  if (!isTRUE(.self) && !isTRUE(copying$guarded)) {
+    copying$guarded <- TRUE
+    on.exit(copying$guarded <- FALSE, add = TRUE)
+    args <- mget(names(formals(sys.function())), envir = environment())
+    return(tryCatch(do.call(anon, args), error = function(e) {
+      if (grepl("nested too deeply|infinite recursion|C stack usage|stack overflow", conditionMessage(e))) {
+        stop(
+          "anon() can't follow objects nested this deeply (environments, lists or attributes nested ",
+          "hundreds of levels deep, such as a long chain of environments): flatten them first.",
+          call. = FALSE
+        )
+      }
+      stop(e)
+    }))
+  }
+
   # Combine user arguments with global options
   if (!.self) {
     option_pattern_list <- getOption("anon.pattern_list", default = list())
@@ -284,8 +309,11 @@ anon <- function(
   unredactable <- character(0)
   rehomed <- character(0)
   secrets_dropped <- character(0)
+  refs_dropped <- character(0)
   foreign <- FALSE
-  recorded <- c("approximate_warnings", "anon_unredactable", "anon_rehomed", "anon_secrets_dropped")
+  recorded <- c(
+    "approximate_warnings", "anon_unredactable", "anon_rehomed", "anon_secrets_dropped", "anon_refs_dropped"
+  )
 
   # Collect what a recursive call recorded, and strip it from its result.
   take <- function(child) {
@@ -293,6 +321,7 @@ anon <- function(
     unredactable <<- c(unredactable, attr(child, "anon_unredactable"))
     rehomed <<- c(rehomed, attr(child, "anon_rehomed"))
     secrets_dropped <<- c(secrets_dropped, attr(child, "anon_secrets_dropped"))
+    refs_dropped <<- c(refs_dropped, attr(child, "anon_refs_dropped"))
     for (name in recorded) {
       if (!is.null(attr(child, name, exact = TRUE))) attr(child, name) <- NULL
     }
@@ -310,17 +339,25 @@ anon <- function(
       secrets_dropped <<- c(secrets_dropped, shown_location(where))
       return(list(value = NULL))
     }
+    if (is_reference_object(element)) {
+      refs_dropped <<- c(refs_dropped, shown_location(where))
+      return(list(value = NULL))
+    }
     if (is.environment(element) && !is_shared_environment(element)) {
       return(list(value = copy_env(element, where)))
     }
     if (is_unredactable(element)) {
-      moved <- rehome_environment(element)
+      moved <- rehome_environment(element, function(env) copy_env(env, paste0("environment(", where, ")")))
       if (!is.null(moved)) {
         rehomed <<- c(rehomed, shown_location(where))
         element <- moved
       }
       unredactable <<- c(unredactable, shown_location(where))
-      return(list(value = without_source(element)))
+      element <- without_source(element)
+      # A function's own attributes (such as those of a memoised or partial
+      # function) are cleaned and redacted like any object's.
+      if (is.function(element)) element <- redact_attributes(element, where)
+      return(list(value = element))
     }
     NULL
   }
@@ -329,12 +366,10 @@ anon <- function(
   # environment given to anon(), `top`), made once per environment in a call
   # to anon() (see `copying$memo`), so that environments that refer to each
   # other, or that several objects share, map to one copy. It holds redacted
-  # copies of the objects, named as `check_names` says, environments among
-  # them copied first (so that closures referring to them are given their
-  # copy). Its parent is the parent's copy, or the parent itself when R saves
-  # it by reference; otherwise the global environment, with a warning. A
-  # nested environment keeps its class and other attributes (cleaned and
-  # redacted); the environment given doesn't. `read` is the environment as
+  # copies of the objects, named as `check_names` says. Its parent is the parent itself when R saves it by reference, and
+  # otherwise the parent's redacted copy, made the same way. A nested
+  # environment keeps its class and other attributes (cleaned and redacted);
+  # the environment given doesn't. `read` is the environment as
   # read_environment() read it.
   copy_env <- function(env, where = NULL, read = NULL, top = FALSE) {
     hit <- memo_copy(env)
@@ -371,21 +406,16 @@ anon <- function(
     # Saving an environment saves its parent too, unless the parent is one R
     # saves by reference (the global, base or empty environment, a package or
     # a namespace); another parent (such as a function's frame) could hold
-    # unredacted objects.
+    # unredacted objects, so it is copied too.
+    # The copy is registered before its parent is copied, as the parent may
+    # refer back to it (a function's frame held in the frame that called it).
+    result <- new.env(parent = emptyenv())
+    memo_add(env, result)
     parent <- if (identical(env, emptyenv())) emptyenv() else parent.env(env)
-    parent_copy <- memo_copy(parent)
-    if (!is.null(parent_copy)) {
-      parent <- parent_copy
-    } else if (!is_shared_environment(parent)) {
-      approximate_warnings <<- c(approximate_warnings, paste0(
-        "The parent of ", if (is.null(where)) "the environment" else paste0("`", where, "`"),
-        " wasn't kept, as saving the copy would save it and the objects it holds: ",
-        "the copy's parent is the global environment."
-      ))
-      parent <- globalenv()
+    if (!is_shared_environment(parent)) {
+      parent <- copy_env(parent, paste0("parent.env(", if (is.null(where)) "the environment" else where, ")"))
     }
-    result <- new.env(parent = parent)
-    copying$memo <- c(copying$memo, list(list(from = env, to = result)))
+    parent.env(result) <- parent
     if (!top && !is.null(attributes(env))) {
       attributes(result) <- attributes(env)
       result <- redact_attributes(result, where)
@@ -430,7 +460,8 @@ anon <- function(
       switch(kind,
         unredactable = unredactable <<- c(unredactable, location),
         rehomed = rehomed <<- c(rehomed, location),
-        secrets = secrets_dropped <<- c(secrets_dropped, location)
+        secrets = secrets_dropped <<- c(secrets_dropped, location),
+        refs = refs_dropped <<- c(refs_dropped, location)
       )
     }
   }
@@ -445,7 +476,8 @@ anon <- function(
       redact <- function(text) apply_patterns(text, compiled, check_approximate, max_distance)
     }
     v <- clean_attributes(v, found_in_attribute(where), function(env, name) {
-      copy_env(env, paste0(if (is.null(where)) "" else where, "@", name))
+      shown_name <- if (name %in% core_attributes) name else apply_patterns(name, compiled, FALSE, max_distance)
+      copy_env(env, paste0(if (is.null(where)) "" else where, "@", shown_name))
     })
     if (isTRUE(check_labels) && has_text_attributes(v)) {
       v <- redact_text_attributes(v, redact, where = where)
@@ -563,7 +595,7 @@ anon <- function(
   # top-level call returns.
   if (!isTRUE(.self)) {
     previous_memo <- copying$memo
-    copying$memo <- list()
+    copying$memo <- new.env(hash = TRUE, parent = emptyenv())
     on.exit(copying$memo <- previous_memo, add = TRUE)
   }
 
@@ -603,6 +635,10 @@ anon <- function(
   if (is_secrets(x)) {
     # Secrets read from a step (or its secrets environment) are dropped.
     secrets_dropped <- shown_location(.where)
+    result <- NULL
+    foreign <- TRUE
+  } else if (is_reference_object(x)) {
+    refs_dropped <- shown_location(.where)
     result <- NULL
     foreign <- TRUE
   } else if (inherits(x, "anon_deid_step")) {
@@ -830,13 +866,19 @@ anon <- function(
         paste0("[[", i, "]]")
       }
     }
+    # Missing arguments (as in a list of formals) are kept as they are; they
+    # can't be held in a variable.
+    absent <- vapply(seq_along(x), function(i) identical(x[[i]], quote(expr = )), logical(1))
     # The text of the list's vectors is redacted in one pass, then looked up.
     redact_vectors <- batch_redactor(
-      x,
+      .subset(x, !absent),
       function(text) apply_patterns(text, compiled, check_approximate, max_distance),
       with_labels = isTRUE(check_labels), with_names = isTRUE(check_names)
     )
     result <- lapply(seq_along(x), function(i) {
+        if (absent[i]) {
+          return(quote(expr = ))
+        }
         element <- x[[i]]
         # Elements with nothing to redact are returned as they are, and
         # vectors are redacted here rather than by a call to anon() each.
@@ -941,13 +983,15 @@ anon <- function(
       if (length(unredactable) > 0) attr(result, "anon_unredactable") <- unique(unredactable)
       if (length(rehomed) > 0) attr(result, "anon_rehomed") <- unique(rehomed)
       if (length(secrets_dropped) > 0) attr(result, "anon_secrets_dropped") <- unique(secrets_dropped)
+      if (length(refs_dropped) > 0) attr(result, "anon_refs_dropped") <- unique(refs_dropped)
     }
   } else {
     messages <- c(
       unique(approximate_warnings),
       if (length(unredactable) > 0) unredactable_message(unredactable),
       if (length(rehomed) > 0) rehomed_message(rehomed),
-      if (length(secrets_dropped) > 0) secrets_message(secrets_dropped)
+      if (length(secrets_dropped) > 0) secrets_message(secrets_dropped),
+      if (length(refs_dropped) > 0) refs_message(refs_dropped)
     )
     if (length(messages) > 0) {
       rlang::warn(messages)
@@ -1134,21 +1178,33 @@ is_unredactable <- function(x) {
   if (typeof(x) %in% c("externalptr", "weakref")) {
     return(FALSE)
   }
-  is.function(x) || is.language(x) || is.environment(x) || isS4(x) || typeof(x) == "bytecode"
+  # S7 objects (such as ggplot2 4 plots) have their own type.
+  is.function(x) || is.language(x) || is.environment(x) || isS4(x) || typeof(x) %in% c("bytecode", "object")
+}
+
+# Reference class objects (made with setRefClass()), which anon() can't copy
+# without breaking them (their fields are typed active bindings and their
+# methods are bound to the object), and so drops.
+is_reference_object <- function(x) {
+  isS4(x) && inherits(x, "envRefClass")
 }
 
 # The environments copied in a call to anon() and their copies (`memo`, a
-# list of `from`/`to` pairs), while it runs (see copy_env()).
+# hashed environment of `from`/`to` pairs by the address of `from`), while
+# it runs (see copy_env()); and whether the top-level call's guard is on.
 copying <- new.env(parent = emptyenv())
 
 # The copy made of `env` in the current call to anon(), or NULL.
 memo_copy <- function(env) {
-  for (pair in copying$memo) {
-    if (identical(pair$from, env)) {
-      return(pair$to)
-    }
+  if (is.null(copying$memo)) {
+    return(NULL)
   }
-  NULL
+  pair <- copying$memo[[rlang::obj_address(env)]]
+  if (!is.null(pair) && identical(pair$from, env)) pair$to
+}
+
+memo_add <- function(env, copy) {
+  assign(rlang::obj_address(env), list(from = env, to = copy), envir = copying$memo)
 }
 
 # Attributes that hold source code: a function's or a parsed expression's
@@ -1164,11 +1220,11 @@ without_source <- function(x) {
 
 # A closure, or a formula, terms object or quosure (which hold their
 # environment in `.Environment`), with its environment replaced when saving
-# it would save an environment's data: an environment anon() copied is
-# replaced by its copy, and any other environment R doesn't save by
-# reference (see is_shared_environment()), such as a function's frame, by the
-# global environment. NULL when it is kept.
-rehome_environment <- function(x) {
+# it would save an environment's data: an environment R doesn't save by
+# reference (see is_shared_environment()), such as a function's frame, is
+# replaced by its redacted copy, `copy(env)` (see copy_env(), which makes
+# one copy per environment). NULL when it is kept.
+rehome_environment <- function(x, copy) {
   env <- if (is.function(x)) {
     if (is.primitive(x)) NULL else environment(x)
   } else if (is.language(x)) {
@@ -1177,13 +1233,10 @@ rehome_environment <- function(x) {
   if (!is.environment(env)) {
     return(NULL)
   }
-  new <- if (!is.null(memo_copy(env))) {
-    memo_copy(env)
-  } else if (is_shared_environment(env)) {
+  if (is_shared_environment(env)) {
     return(NULL)
-  } else {
-    globalenv()
   }
+  new <- copy(env)
   if (is.function(x)) environment(x) <- new else attr(x, ".Environment") <- new
   x
 }
@@ -1195,8 +1248,9 @@ rehome_environment <- function(x) {
 # environment R doesn't save by reference is replaced by the copy
 # `copy_env(env, name)` makes; closures and formulas get their environment
 # replaced (see rehome_environment()) and lose their source references.
-# `found(name, kind)` is told, by attribute, what was found: "secrets",
-# "rehomed", or "unredactable" (see is_unredactable(), which are not
+# Reference class objects are dropped. `found(name, kind)` is told, by
+# attribute, what was found: "secrets", "rehomed", "refs" (reference class
+# objects), or "unredactable" (see is_unredactable(), which are not
 # entered).
 clean_attributes <- function(x, found, copy_env) {
   attrs <- attributes(x)
@@ -1206,13 +1260,13 @@ clean_attributes <- function(x, found, copy_env) {
       next
     }
     state <- new.env(parent = emptyenv())
-    state$secrets <- state$rehomed <- state$unredactable <- FALSE
+    state$secrets <- state$rehomed <- state$unredactable <- state$refs <- FALSE
     state$copy_env <- function(env) copy_env(env, name)
     new <- clean_value(attrs[[name]], state)
     if (!identical(new, attrs[[name]], ignore.srcref = FALSE)) {
       attr(x, name) <- new
     }
-    for (kind in c("secrets", "rehomed", "unredactable")) {
+    for (kind in c("secrets", "rehomed", "unredactable", "refs")) {
       if (state[[kind]]) found(name, kind)
     }
   }
@@ -1228,10 +1282,14 @@ clean_value <- function(v, state) {
     state$secrets <- TRUE
     v["secrets"] <- list(NULL)
   }
+  if (is_reference_object(v)) {
+    state$refs <- TRUE
+    return(NULL)
+  }
   if (is.environment(v) && !is_secrets(v) && !is_shared_environment(v)) {
     return(state$copy_env(v))
   }
-  moved <- rehome_environment(v)
+  moved <- rehome_environment(v, state$copy_env)
   if (!is.null(moved)) {
     state$rehomed <- TRUE
     v <- moved
@@ -1282,7 +1340,7 @@ read_environment <- function(x) {
   })
   unreadable <- !active & vapply(values, inherits, logical(1), "anon_unread")
   structure(
-    list(names = object_names, active = active, values = values, unreadable = unreadable),
+    list(env = x, names = object_names, active = active, values = values, unreadable = unreadable),
     class = "anon_env_read"
   )
 }
@@ -1320,8 +1378,15 @@ unredactable_message <- function(locations) {
 
 rehomed_message <- function(locations) {
   paste0(
-    "These functions, formulas or quosures had their environment replaced, so that saving the result doesn't ",
-    "save the original's data: ", shown_locations(locations), "."
+    "These functions, formulas or quosures now refer to a redacted copy of their environment, so that saving ",
+    "the result doesn't save the original's data: ", shown_locations(locations), "."
+  )
+}
+
+refs_message <- function(locations) {
+  paste0(
+    "anon() dropped these reference class objects (setRefClass()), which it can't copy without breaking them: ",
+    shown_locations(locations), ". Rebuild them from redacted data."
   )
 }
 
@@ -1551,30 +1616,40 @@ redact_names <- function(x, redact) {
 }
 
 # The part of `x` whose text is searched for NLP entities: data frame columns
-# that are replaced wholesale are dropped, recursively through lists. For an
-# environment (`top`, the one given to anon()), the names and the objects
-# anon() copies from it: active bindings, objects that can't be read, secrets
-# and objects anon() can't redact (environments held in it included) are
-# left out, so nothing else is entered.
-nlp_text_source <- function(x, df_variable_names, df_classes, top = TRUE) {
+# that are replaced wholesale are dropped, recursively through lists. The
+# environments anon() copies are entered too, each once (`visited`, by
+# address): their names and the objects anon() copies from them (active
+# bindings, objects that can't be read and secrets are left out), and the
+# environments of closures and formulas. Environments R saves by reference
+# (see is_shared_environment()) are not entered.
+nlp_text_source <- function(x, df_variable_names, df_classes, visited = new.env(hash = TRUE, parent = emptyenv())) {
+  recurse <- function(v) nlp_text_source(v, df_variable_names, df_classes, visited)
   if (inherits(x, "anon_deid_step")) {
-    return(nlp_text_source(x$data, df_variable_names, df_classes, top = FALSE))
+    return(recurse(x$data))
+  }
+  if (is.function(x) || is.language(x)) {
+    env <- if (is.function(x)) {
+      if (!is.primitive(x)) environment(x)
+    } else {
+      attr(x, ".Environment", exact = TRUE)
+    }
+    return(if (is.environment(env)) recurse(env))
   }
   if (is.environment(x)) {
-    if (!top) {
+    if (is_shared_environment(x) || is_secrets(x) || is_reference_object(x)) {
       return(NULL)
     }
     x <- read_environment(x)
   }
   if (inherits(x, "anon_env_read")) {
+    key <- rlang::obj_address(x$env)
+    if (exists(key, envir = visited, inherits = FALSE)) {
+      return(NULL)
+    }
+    assign(key, TRUE, envir = visited)
     read <- !x$active & !x$unreadable
-    objects <- lapply(x$values[read], function(value) {
-      if (is_secrets(value) || is_unredactable(value)) NULL else value
-    })
-    return(c(
-      list(x$names),
-      lapply(objects, nlp_text_source, df_variable_names, df_classes, top = FALSE)
-    ))
+    objects <- lapply(x$values[read], function(value) if (!is_secrets(value)) value)
+    return(c(list(x$names), lapply(objects, recurse)))
   }
   if (is.data.frame(x)) {
     keep <- !vapply(
@@ -1587,7 +1662,9 @@ nlp_text_source <- function(x, df_variable_names, df_classes, top = TRUE) {
     return(x[keep])
   }
   if (is_container_list(x)) {
-    return(lapply(x, nlp_text_source, df_variable_names, df_classes, top = FALSE))
+    out <- lapply(seq_along(x), function(i) if (!identical(x[[i]], quote(expr = ))) recurse(x[[i]]))
+    names(out) <- names(x)
+    return(out)
   }
   x
 }

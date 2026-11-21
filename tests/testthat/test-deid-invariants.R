@@ -381,14 +381,19 @@ for (pipeline_name in names(deid_pipelines)) {
   if (isTRUE(pipeline$keep_secrets)) {
     test_that(paste0(pipeline_name, ": redacted copies made with anon() carry no secrets"), {
       step <- deid_run(pipeline, pipeline$fixture())$step
-      # The S4 object and the call the fixture holds in attributes are named
-      # in a warning, which must name nothing else.
+      # The S4 object, the call and the function the fixture holds in
+      # attributes are named in one warning, which must name nothing else.
       s4_only <- function(expr) {
-        s4 <- "`[^`]*` \\(attribute `note`\\)"
-        call <- "`VSSTRESN` \\(attribute `DRUGQX_call`\\)"
-        expected <- paste0("^anon\\(\\) can't redact [^\n:]*: (", s4, ", ", call, "|", call, ", ", s4, ")\\. Remove [^\n]*$")
+        expected <- c("`VSSTRESN` (attribute `DRUGQX_call`)", "`VSSTRESN@DRUGQX_env$f`")
         withCallingHandlers(expr, warning = function(w) {
-          if (grepl(expected, conditionMessage(w))) invokeRestart("muffleWarning")
+          m <- conditionMessage(w)
+          listed <- sub("\\. Remove .*$", "", sub("^anon\\(\\) can't redact [^:]*: ", "", m))
+          locations <- strsplit(listed, ", ", fixed = TRUE)[[1]]
+          s4 <- grepl("^`[^`]*` \\(attribute `note`\\)$", locations)
+          if (!grepl("\n", m) && startsWith(m, "anon() can't redact") && sum(s4) == 1 &&
+            setequal(locations[!s4], expected)) {
+            invokeRestart("muffleWarning")
+          }
         })
       }
       expect_null(s4_only(anon(step))$secrets)

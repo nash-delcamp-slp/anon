@@ -140,15 +140,18 @@ attributes redacted. Records (vctrs \code{rcrd}) and \code{POSIXlt} date-times h
 their text fields and attributes redacted. Environments held inside other
 objects are replaced by redacted copies (see "Environments" below).
 Objects \code{anon()} can't search for text (functions, calls and formulas,
-such as a model's \code{call} or a model frame's \code{terms} attribute, S4 objects,
-and the global, base and package environments and namespaces, which are
-kept by reference) are left as they are, and one warning lists where they
+such as a model's \code{call} or a model frame's \code{terms} attribute, whose code
+and the constants in it are kept, S4 and S7 objects (such as ggplot2 4
+plots), and the global, base and package environments and namespaces,
+which are kept by reference) are left as they are, and one warning lists where they
 are (by element name where there is one, as \code{fit$call}; the first ten, and
 how many more): remove them, or rebuild them from redacted data, before
 sharing. Functions and calls lose their source references (\code{srcref},
 which can hold the text of the whole file they were sourced from,
 comments included), wherever \code{anon()} finds them: functions then print as
-deparsed code.
+deparsed code. A function's own attributes are redacted like any object's.
+Reference class objects (made with \code{\link[methods:refClass]{methods::setRefClass()}}) can't be
+copied without breaking them, and are dropped, with a warning.
 
 Secrets read from a de-identification step with \code{\link[=anon_secrets]{anon_secrets()}}, and a
 step's secrets environment, are dropped wherever \code{anon()} finds them
@@ -187,7 +190,9 @@ The copy's parent is the environment's parent when R saves that parent by
 reference (the global, base or empty environment, a package or a
 namespace). Any other parent, such as a function's frame, would be saved
 with the copy, and the objects it holds with it, so the copy's parent is
-then the global environment, with a warning.
+that parent's redacted copy, made the same way (and so on up the chain):
+the result can then hold redacted copies of objects that weren't in the
+environment given, such as those of the function that called \code{anon()}.
 
 A de-identification step in it is redacted as above, its secrets dropped.
 Environments held in it, or anywhere \code{anon()} reaches (lists, list
@@ -195,18 +200,20 @@ columns, attributes), are replaced by redacted copies made the same way,
 each environment copied once per call so that environments that refer to
 each other, or that several objects share, map to one copy; such a copy
 keeps its class and other attributes (redacted), and its parent is the
-parent's copy when there is one. The global, base and empty environments,
-packages and namespaces are kept by reference. A closure, formula, terms
-object or quosure whose environment was copied gets the copy as its
-environment (so it runs on the redacted objects), and one whose
-environment is another one R doesn't save by reference (such as a
-function's frame) gets the global environment, wherever \code{anon()} finds it
-(in environments, lists, list columns and attributes, such as a model's
-\code{terms}), with a warning naming them, so that saving the copy doesn't save
-the original's data. Objects that rely on reference semantics (such as R6
-objects) work on their copy, which is no longer linked to the original;
-their active bindings are not copied, and nothing in the copy is locked.
-Reading the objects forces promises.
+parent's copy when the parent isn't kept by reference. The global, base and
+empty environments, packages and namespaces are kept by reference. A
+closure, formula, terms object or quosure whose environment R doesn't save
+by reference (such as a function's frame) gets that environment's redacted
+copy as its environment, wherever \code{anon()} finds it (in environments,
+lists, list columns and attributes, such as a model's \code{terms}), with a
+warning naming them: it runs on the redacted objects, and saving the copy
+doesn't save the original's data. Objects that rely on reference
+semantics (such as R6 objects, their generators and inheritance, and
+closures from function factories such as memoised functions) work on
+their copy, which is no longer linked to the original; their active
+bindings are not copied, and nothing in the copy is locked. Objects nested
+several hundred levels deep (such as a long chain of environments) are an
+error. Reading the objects forces promises.
 Active bindings (reading one would run its function) and objects that
 can't be read (a missing argument, or a promise whose code fails) are not
 copied, with a warning. The copy is not locked, whether or not the

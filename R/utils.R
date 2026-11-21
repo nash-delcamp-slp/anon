@@ -43,7 +43,7 @@ collect_text <- function(x) {
   } else if (is_container_list(x)) {
     # Recursively extract text from list elements
     text <- unique(unlist(
-      lapply(x, collect_text),
+      lapply(seq_along(x), function(i) if (!identical(x[[i]], quote(expr = ))) collect_text(x[[i]])),
       use.names = FALSE
     ))
   } else {
