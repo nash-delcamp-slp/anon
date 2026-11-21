@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>anon Benchmark History</title>
+<style>
+body{font-family:ui-sans-serif,system-ui,sans-serif;margin:2rem auto;max-width:1100px;padding:0 1rem;color:#1f2937;background:#f8fafc;}h1,h2{color:#0f172a;}.card{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:1rem 1.25rem;margin:1rem 0;box-shadow:0 1px 2px rgba(15,23,42,.04);}table{width:100%;border-collapse:collapse;font-size:.95rem;}th,td{padding:.55rem .65rem;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;overflow-wrap:anywhere;word-break:break-all;}th{background:#f1f5f9;font-weight:600;}code{background:#eef2ff;padding:.15rem .3rem;border-radius:4px;word-break:break-all;}.muted{color:#64748b;}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.75rem;}.stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:.75rem;overflow-wrap:anywhere;word-break:break-word;}
+</style>
+</head>
+<body>
+<h1>anon Benchmark History</h1>
+<p class='muted'>Non-blocking benchmark history for manual review over time.</p>
+<div class='card'><div class='grid'>
+<div class='stat'><strong>Latest run</strong><br><code>20261121T043917Z-4804055</code></div>
+<div class='stat'><strong>Timestamp</strong><br>2026-11-21T04:39:17Z</div>
+<div class='stat'><strong>Machine</strong><br>github-actions | ubuntu-latest</div>
+<div class='stat'><strong>Git</strong><br><code>main</code> <code>4804055</code></div>
+<div class='stat'><strong>R</strong><br>4.6.2 on Linux 7.0.0-1020-azure</div>
+<div class='stat'><strong>CPU</strong><br>INTEL(R) XEON(R) PLATINUM 8573C</div>
+</div></div>
+<div class='card'><h2>Performance Over Time</h2><img src='history.png' alt='Benchmark history chart' style='width:100%;height:auto;border-radius:8px;'></div>
+<div class='card'><h2>Latest Results</h2><table><thead><tr><th>Benchmark</th><th>Median</th><th>Itr/sec</th><th>Mem alloc</th><th>GC/sec</th><th>Delta vs previous</th></tr></thead><tbody>
+<tr><td>anon_auto_nlp_core</td><td>0.015 s</td><td>65.378</td><td>0.29 MB</td><td>0.000</td><td>+44.9%</td></tr>
+<tr><td>anon_data_frame_approx</td><td>1.011 s</td><td>0.990</td><td>5.72 MB</td><td>0.330</td><td>+71.2%</td></tr>
+<tr><td>anon_data_frame_exact</td><td>0.056 s</td><td>17.797</td><td>3.06 MB</td><td>0.000</td><td>+57.6%</td></tr>
+<tr><td>anon_nested_mixed</td><td>0.360 s</td><td>2.791</td><td>1.87 MB</td><td>1.861</td><td>+16.1%</td></tr>
+<tr><td>anon_nested_option_auto_nlp</td><td>0.151 s</td><td>6.626</td><td>0.38 MB</td><td>0.000</td><td>+46.9%</td></tr>
+<tr><td>anon_nlp_entities_people_org_place</td><td>0.016 s</td><td>60.825</td><td>0.25 MB</td><td>0.000</td><td>+49.2%</td></tr>
+<tr><td>anon_starwars_exact</td><td>0.094 s</td><td>10.685</td><td>1.21 MB</td><td>7.123</td><td>+208.7%</td></tr>
+<tr><td>anon_starwars_mixed</td><td>0.113 s</td><td>8.187</td><td>2.97 MB</td><td>8.187</td><td>-40.9%</td></tr>
+<tr><td>anon_vector_approx</td><td>0.867 s</td><td>1.149</td><td>4.73 MB</td><td>0.383</td><td>+70.2%</td></tr>
+<tr><td>anon_vector_exact</td><td>0.043 s</td><td>23.289</td><td>2.15 MB</td><td>0.000</td><td>+49.5%</td></tr>
+</tbody></table></div>
+<div class='card'><h2>Recent Runs</h2><table><thead><tr><th>Timestamp</th><th>Machine</th><th>Ref</th><th>SHA</th><th>R</th><th>CPU</th></tr></thead><tbody>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>4804055</td><td>4.6.2</td><td>INTEL(R) XEON(R) PLATINUM 8573C</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>efb5809</td><td>4.6.2</td><td>AMD EPYC 7763 64-Core Processor</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>1ed9436</td><td>4.6.2</td><td>AMD EPYC 9V45 96-Core Processor</td></tr>
+<tr><td>2026-11-06T15:28:07Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>2dd806b</td><td>4.6.2</td><td>AMD EPYC 7763 64-Core Processor</td></tr>
+<tr><td>2026-11-06T16:16:04Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>e9988f6</td><td>4.6.2</td><td>Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz</td></tr>
+<tr><td>2026-11-06T16:27:58Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>9f5f30a</td><td>4.6.2</td><td>AMD EPYC 9V45 96-Core Processor</td></tr>
+<tr><td>2026-11-06T18:43:06Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>2234c82</td><td>4.6.2</td><td>AMD EPYC 9V74 80-Core Processor</td></tr>
+<tr><td>2026-11-06T19:30:26Z</td><td>github-actions | ubuntu-latest</td><td>main</td><td>f699893</td><td>4.6.2</td><td>AMD EPYC 9V74 80-Core Processor</td></tr>
+</tbody></table></div>
+<div class='card'><h2>Recent Measurements</h2><table><thead><tr><th>Timestamp</th><th>Machine</th><th>Benchmark</th><th>Median (sec)</th><th>Itr/sec</th></tr></thead><tbody>
+<tr><td>2026-11-06T15:28:07Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>1.00811589</td><td> 0.9889116</td></tr>
+<tr><td>2026-11-06T16:16:04Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.89529168</td><td> 1.1138730</td></tr>
+<tr><td>2026-11-06T16:27:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.54656896</td><td> 1.8209777</td></tr>
+<tr><td>2026-11-06T18:43:06Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.75177547</td><td> 1.3130888</td></tr>
+<tr><td>2026-11-06T19:30:26Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.75090194</td><td> 1.3305844</td></tr>
+<tr><td>2026-11-06T15:28:07Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.05056134</td><td>19.7870387</td></tr>
+<tr><td>2026-11-06T16:16:04Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.04497531</td><td>22.2321058</td></tr>
+<tr><td>2026-11-06T16:27:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.03139592</td><td>31.9473214</td></tr>
+<tr><td>2026-11-06T18:43:06Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.03736949</td><td>26.5237278</td></tr>
+<tr><td>2026-11-06T19:30:26Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.03758481</td><td>26.4029388</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_auto_nlp_core</td><td>0.01866047</td><td>53.6556898</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_auto_nlp_core</td><td>0.01045721</td><td>95.4353558</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_approx</td><td>1.17650577</td><td> 0.8463296</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_approx</td><td>0.59054441</td><td> 1.6910415</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_exact</td><td>0.06404091</td><td>15.6678984</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_exact</td><td>0.03537511</td><td>28.0707789</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_mixed</td><td>0.61217556</td><td> 1.6140074</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_mixed</td><td>0.31001142</td><td> 3.2333644</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_option_auto_nlp</td><td>0.18991807</td><td> 5.2553048</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_option_auto_nlp</td><td>0.10291172</td><td> 9.0885380</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_nlp_entities_people_org_place</td><td>0.01884731</td><td>51.9276430</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_nlp_entities_people_org_place</td><td>0.01102763</td><td>88.7350159</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_exact</td><td>0.06971108</td><td>14.1355914</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_exact</td><td>0.03032597</td><td>32.0800474</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_mixed</td><td>0.41842580</td><td> 2.3787058</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_mixed</td><td>0.19035262</td><td> 5.2115272</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>1.00327674</td><td> 0.9967334</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.50933032</td><td> 1.9603414</td></tr>
+<tr><td>2026-11-07T00:57:09Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.05009334</td><td>19.9752018</td></tr>
+<tr><td>2026-11-07T02:42:58Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.02859681</td><td>34.9210750</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_auto_nlp_core</td><td>0.01515077</td><td>65.3779065</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_approx</td><td>1.01100976</td><td> 0.9898152</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_data_frame_exact</td><td>0.05575415</td><td>17.7973055</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_mixed</td><td>0.36002591</td><td> 2.7909865</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_nested_option_auto_nlp</td><td>0.15119277</td><td> 6.6260590</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_nlp_entities_people_org_place</td><td>0.01644865</td><td>60.8253705</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_exact</td><td>0.09362492</td><td>10.6847385</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_starwars_mixed</td><td>0.11255747</td><td> 8.1865606</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_approx</td><td>0.86692665</td><td> 1.1486577</td></tr>
+<tr><td>2026-11-21T04:39:17Z</td><td>github-actions | ubuntu-latest</td><td>anon_vector_exact</td><td>0.04276010</td><td>23.2894904</td></tr>
+</tbody></table></div>
+<p class='muted'>Raw CSV: <a href='history.csv'>history.csv</a></p>
+</body></html>
