@@ -100,8 +100,16 @@ Original keys in text that describes the data are replaced with the
 subject's pseudonym (a numeric key with its number), and original values of
 \code{also} columns with the pseudonym's number as their column gets it (with
 the same zero padding), in every dataset (with or without \code{key}), when they
-appear as a whole value or a whole word (a number as a whole number, not
-inside a longer number or a decimal): in the attributes of columns, data
+appear as a whole value or a whole word, not next to a letter or digit (so
+a number only as a whole number), compared without leading or trailing
+spaces. Keys of at least 5 characters are found next to \code{","} or \code{"."} too
+(\code{"AB-1001,AB-1002"}, \code{"AB-1001.1"}, \code{"77010001,5"}: such text is
+ambiguous and is rewritten). Values of \code{also} columns and shorter keys
+could be part of a decimal number: between a digit and \code{"."} or \code{","} on
+one side and a digit on the other (\code{"25.701054"}, \code{"10001.5"}) they are
+found only when the number across is another key or \code{also} value (a list
+such as \code{"10001,10002"}) or, in names, before \code{"."} and digits at the end
+(as \code{make.unique()} names elements). They are replaced in the attributes of columns, data
 frames and the list of datasets (such as \code{label}, \code{comment} or a custom
 note), at any depth (text in list or factor attributes, the values of data
 frames held in attributes, names of attribute vectors, attributes of
@@ -144,16 +152,18 @@ changes it, its \code{.internal.selfref} is stale (call \code{data.table::setDT(
 Keys made only of digits, numeric keys and values of \code{also} columns are
 searched for and rewritten only when at least 5 characters long (digits
 count): shorter ones match too many unrelated numbers and codes. A value of
-an \code{also} column that belongs to more than one subject is not rewritten
-(whose number to give it isn't known), and a warning counts those found. In
+an \code{also} column that belongs to more than one subject becomes \code{"[SUBJID]"}
+(whose number to give it isn't known), and a warning counts those found. A
+value found in both a text and a numeric \code{also} column becomes the text
+column's form (the padded number). In
 names (column, row and dataset names, vector and list names and dimnames,
-at any depth), a key followed by digits at the end of the name, as
-\code{unlist()} names the elements of a list named by key (\code{"AB-1001"} gives
-\code{"AB-10011"}, \code{"AB-10012"}), becomes the pseudonym followed by the same
-digits, unless the whole name is itself a key (the longest key wins). This
-can't tell such a suffix from a name that happens to continue a key with
-digits, and it doesn't apply to keys made only of digits, which can't be
-told apart from a longer number. The log has one row per dataset
+at any depth), a key or \code{also} value followed by digits at the end of the
+name, as \code{unlist()} names the elements of a list named by key (\code{"AB-1001"}
+gives \code{"AB-10011"}, \code{"AB-10012"}), becomes its replacement followed by the
+same digits, unless the whole name is itself a key (the longest key wins).
+This can't tell such a suffix from a name that happens to continue a key
+with digits (for a numeric key, a longer number): such names are rewritten
+all the same. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;
 this and earlier steps' logs and settings are renamed and rewritten to
 match. The same text is rewritten inside nested data (packed data frame
@@ -219,10 +229,10 @@ and factor levels, at any depth), or column of a nested data frame (named as
 column \code{sub} of the data frames in list column \code{column}, and deeper as
 \code{dataset.column[sub][[]][subsub]}), in any dataset, that still contains
 original key values as whole
-values or as whole words inside text, or, for keys not made only of digits,
-followed by digits at the end of a value (searched for under the length rule
-above; values are not rewritten), and, in a second warning, original values
-of \code{also} columns (such as \code{SUBJID}) as whole values or whole words; and
+values or as whole words inside text, or followed by digits at the end of a
+value (searched for as described above; values are not rewritten), and, in
+a second warning, original values of \code{also} columns (such as \code{SUBJID}) the
+same way; and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or
 \code{key_cols} in any case. In datasets with \code{key}, and in nested data frames
 with a subject, a column named like one of them in another case (such as

@@ -182,7 +182,9 @@ texts and name the columns, or datasets (\code{"(list)"} for attributes of the
 list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
-step shows original keys as \code{"[KEY]"}. It names the columns inside nested
+step shows original keys as \code{"[KEY]"} and the original values of \code{SUBJID}
+columns in data with subjects as \code{"[SUBJID]"} (other \code{also} columns of
+\code{\link[=anon_subject_ids]{anon_subject_ids()}} are known only to that step). It names the columns inside nested
 data by position (\code{dataset.column[2]}, \code{dataset.column[[]][2]}), in
 warnings and in the log, so that a column is named the same way whether or
 not \code{\link[=anon_subject_ids]{anon_subject_ids()}}, which rewrites keys in nested names, ran first.

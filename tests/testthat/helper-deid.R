@@ -340,6 +340,11 @@ deid_fixture <- function() {
     stringsAsFactors = FALSE
   )
   relsub <- data.frame(USUBJID = deid_keys, RSUBJID = deid_keys[c(2:n, 1)])
+  # Keys and SUBJIDs in comma-separated lists (numbers in the numeric
+  # fixture): each is found.
+  attr(relsub, "label") <- paste(
+    "Pairs", paste(deid_keys[1:2], collapse = ","), "and", paste(deid_subjids[1:2], collapse = ",")
+  )
 
   # A numeric SAS date (days since 1960-01-01), which can't be shifted.
   ad <- data.frame(USUBJID = deid_keys)
@@ -373,8 +378,10 @@ deid_fixture <- function() {
   # A time series column, whose `tsp` is structural (in a dataset without the
   # key: sorting rows drops a time series' class).
   ta$TSV <- stats::ts(c(1, 2))
-  # A column named with a SUBJID.
+  # A column named with a SUBJID, and columns named with a key made unique
+  # by make.unique() ("<key>.1").
   ta[[deid_subjids[5]]] <- c(1, 2)
+  ta[make.unique(rep(deid_keys[6], 2))] <- list(1:2, 3:4)
   # A rowwise tibble, whose `groups` is structural.
   tw <- dplyr::rowwise(tibble::tibble(ARM = c("A", "B"), N = 1:2))
   named <- data.frame(X = 1)
@@ -591,14 +598,11 @@ deid_zap_codes <- function(x) {
 }
 
 # Text that describes the data (attributes and names) as the pipelines should
-# leave it: each original key, as a whole word (a number as a whole number,
-# not inside a longer number or a decimal), becomes its subject's pseudonym,
-# and each SUBJID (`oracle$new_also`) the pseudonym's number (longer ones
-# first, as one key starts another); keys and SUBJIDs made only of digits only
-# from 5 characters. In `names`, a key holding a non-digit followed by digits
-# at the end of the name (as unlist() names elements) becomes the pseudonym
-# followed by the same digits. With `dates`, each ISO 8601 full date becomes
-# "[DATE]".
+# leave it. Ids are found by deid_scan_ids(), kept apart from the package's
+# regular expressions: each original key becomes its subject's pseudonym, and
+# each SUBJID (`oracle$new_also`) the pseudonym's number; keys holding only
+# digits, and SUBJIDs, only from 5 characters (a SUBJID equal to a key is
+# left to the key). With `dates`, each ISO 8601 full date becomes "[DATE]".
 deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   # Text is searched in UTF-8 (text marked latin1 converted), with the bytes
   # of text that isn't valid UTF-8 written as "<92>"; that converted text is
@@ -606,17 +610,16 @@ deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   repaired <- enc2utf8(x)
   invalid <- !is.na(repaired) & !validUTF8(repaired)
   repaired[invalid] <- iconv(repaired[invalid], "UTF-8", "UTF-8", sub = "byte")
-  new <- repaired
-  before <- "(?<![[:alnum:]])(?<![0-9][.,])"
-  after <- "(?![[:alnum:]])(?![.,][0-9])"
   keys <- names(oracle$new_key)
   keys <- keys[grepl("[^0-9]", keys) | nchar(keys) >= 5]
   also <- names(oracle$new_also)
-  also <- also[nchar(also) >= 5 & !also %in% names(oracle$new_key)]
-  new_ids <- c(oracle$new_key[keys], oracle$new_also[also])
-  for (k in names(new_ids)[order(-nchar(names(new_ids)))]) {
-    ending <- if (names && k %in% keys && grepl("[^0-9]", k)) paste0("(?:", after, "|(?=[0-9]+$))") else after
-    new <- gsub(paste0(before, "\\Q", k, "\\E", ending), new_ids[[k]], new, perl = TRUE)
+  also <- also[nchar(also) >= 5 & !also %in% keys]
+  ids <- c(oracle$new_key[keys], oracle$new_also[also])
+  new <- repaired
+  # SUBJIDs and short keys could be part of a decimal number.
+  guarded <- c(also, keys[nchar(keys) < 5])
+  for (i in which(!is.na(repaired))) {
+    new[i] <- deid_scan_ids(repaired[i], ids, names, guarded)
   }
   if (dates) {
     new <- gsub("[0-9]{4}-[0-9]{2}-[0-9]{2}", "[DATE]", new)
@@ -624,6 +627,71 @@ deid_rewrite_text <- function(x, oracle, names = FALSE, dates = TRUE) {
   keep <- !is.na(new) & new == repaired
   new[keep] <- x[keep]
   new
+}
+
+# `text` with each id (the names of `ids`) replaced by its value, read from
+# left to right: an id starts where the character before it, if any, is not a
+# letter or digit, and ends where the character after it, if any, is not one
+# either (so "," and "." separate ids, and a number is found only whole). At
+# each place the longest id that fits is taken. In `names`, an id followed by
+# digits up to the end of the text also fits, and keeps those digits
+# ("<key>1", as unlist() names elements). An id among `guarded` that has "."
+# or "," and a digit on one side (with a digit just before it, or after it)
+# is left, as part of a decimal number, unless an id is there across the
+# separator, or (in `names`) it is followed by "." and digits up to the end.
+deid_scan_ids <- function(text, ids, names = FALSE, guarded = character(0)) {
+  present <- names(ids)[vapply(names(ids), function(id) grepl(id, text, fixed = TRUE), logical(1))]
+  if (length(present) == 0) {
+    return(text)
+  }
+  present <- present[order(-nchar(present))]
+  chars <- strsplit(text, "")[[1]]
+  word <- grepl("^[[:alnum:]]$", chars)
+  digit <- grepl("^[0-9]$", chars)
+  sep <- chars %in% c(".", ",")
+  at <- function(k) k >= 1 & k <= length(chars)
+  # Whether a whole id starts at position k.
+  id_at <- function(k) {
+    any(vapply(present, function(id) {
+      end <- k + nchar(id) - 1
+      end <= length(chars) && paste(chars[k:end], collapse = "") == id && (end == length(chars) || !word[end + 1])
+    }, logical(1)))
+  }
+  out <- character(0)
+  last_end <- -1
+  i <- 1
+  while (i <= length(chars)) {
+    taken <- FALSE
+    if (i == 1 || !word[i - 1]) {
+      for (id in present) {
+        end <- i + nchar(id) - 1
+        if (end > length(chars) || paste(chars[i:end], collapse = "") != id) next
+        after <- if (end < length(chars)) chars[(end + 1):length(chars)] else character(0)
+        if ((length(after) == 0 || !word[end + 1]) && id %in% guarded) {
+          decimal_before <- at(i - 2) && sep[i - 1] && digit[i - 2] && last_end != i - 2
+          decimal_after <- at(end + 2) && sep[end + 1] && digit[end + 2] && !id_at(end + 2) &&
+            !(names && grepl("^[.][0-9]+$", paste(after, collapse = "")))
+          if (decimal_before || decimal_after) break
+        }
+        if (length(after) == 0 || !word[end + 1]) {
+          out <- c(out, ids[[id]])
+          i <- end + 1
+          last_end <- end
+          taken <- TRUE
+        } else if (names && all(grepl("^[0-9]$", after))) {
+          out <- c(out, ids[[id]], after)
+          i <- length(chars) + 1
+          taken <- TRUE
+        }
+        if (taken) break
+      }
+    }
+    if (!taken) {
+      out <- c(out, chars[i])
+      i <- i + 1
+    }
+  }
+  paste(out, collapse = "")
 }
 
 # Attributes the pipelines always keep (structural ones, and the grouping of
@@ -913,9 +981,7 @@ deid_pipelines <- list(
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365, other_attributes = "drop",
     flagged = deid_flagged_with(drop = "s4_attribute")
   ),
-  # Numeric keys get numbers as pseudonyms, also in text. A key made only of
-  # digits followed by digits can't be told from a longer number, so the
-  # comment holding one isn't named for keys (it is for its SUBJID).
+  # Numeric keys get numbers as pseudonyms, also in text.
   ids_then_dates_numeric = list(
     run = function(data) {
       anon_subject_dates(
@@ -925,7 +991,7 @@ deid_pipelines <- list(
     },
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     fixture = deid_numeric_fixture, keys = as.character(deid_numeric_keys[deid_all_keys]),
-    flagged = lapply(deid_flagged_with(drop = "comm_glued_key"), function(f) {
+    flagged = lapply(deid_flagged, function(f) {
       if (!is.null(f$column)) f$column <- deid_numeric_text(f$column)
       if (identical(f$id, "s4_attribute")) f$pattern <- sub("SUBJ-[0-9]+", "[0-9]+", f$pattern, fixed = TRUE)
       f

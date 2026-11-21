@@ -1766,6 +1766,8 @@ test_that("the states of a multi-state Surv column are searched for keys, like f
 })
 
 test_that("keys made only of digits and related IDs are searched for and rewritten from 5 characters", {
+  # Next to "." a long id is found, as a decimal can't be told from a list or
+  # a make.unique() suffix; inside a longer number it isn't.
   d <- list(
     dm = data.frame(USUBJID = c("12345", "12346"), SUBJID = c("S0001", "S0002"), NOTE = c("x", "y")),
     short = data.frame(USUBJID = c("1234", "1235"), SUBJID = c("S001", "S002"), NOTE = c("x", "y"))
@@ -1778,7 +1780,7 @@ test_that("keys made only of digits and related IDs are searched for and rewritt
   number <- sub("SUBJ-", "", new[["12346"]])
   expect_equal(
     attr(step$data$NOTE, "label"),
-    paste0(new[["12345"]], " and ", number, ", not 123456, 12345.5 or 1.12345")
+    paste0(new[["12345"]], " and ", number, ", not 123456, ", new[["12345"]], ".5 or 1.", new[["12345"]])
   )
   expect_equal(attr(anon_subject_ids(d$short, seed = 1)$data$NOTE, "label"), "1234 and S002")
 
@@ -1799,12 +1801,16 @@ test_that("numeric keys are searched for and rewritten to their numbers as whole
   expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "inside text: data.N77010001\\.")
   ids <- anon_secrets(step)$subject_ids
   new <- stats::setNames(as.character(ids$pseudonym), ids$key)
-  expect_equal(attr(step$data$N77010001, "label"), paste0(new[["77010001"]], ", not 770100015 or 77010001.5"))
+  expect_equal(attr(step$data$N77010001, "label"), paste0(new[["77010001"]], ", not 770100015 or ", new[["77010001"]], ".5"))
   expect_true(new[["770100012"]] %in% names(step$data))
-  # Followed by digits, a numeric key can't be told from a longer number.
-  v <- stats::setNames(1:2, c("770100011", "770100013"))
-  d2 <- list(dm = data.frame(USUBJID = c(77010001, 77010002)), x = tibble::tibble(V = v))
-  expect_equal(names(anon_subject_ids(d2, seed = 1)$data$x$V), names(v))
+  # In names, a numeric key followed by digits is rewritten too (it may be a
+  # key and a position), unless the whole name is a key.
+  v <- stats::setNames(1:3, c("770100011", "770100013", "770100012"))
+  d2 <- list(dm = data.frame(USUBJID = c(77010001, 770100012)), x = tibble::tibble(V = v))
+  step <- anon_subject_ids(d2, keep_secrets = TRUE, seed = 1)
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(as.character(ids$pseudonym), ids$key)
+  expect_equal(names(step$data$x$V), c(paste0(new[["77010001"]], c("1", "3")), new[["770100012"]]))
 })
 
 test_that("keys followed by digits are rewritten in names and found at the end of values", {
@@ -1833,7 +1839,7 @@ test_that("the dates step masks keys followed by digits in the locations it prin
   expect_warning(anon_subject_dates(d, seed = 1), "dates that were not shifted: data.\\[KEY\\]2\\.")
 })
 
-test_that("related IDs of more than one subject are not rewritten, and are counted when found", {
+test_that("related IDs of more than one subject become [SUBJID], and are counted when found", {
   d <- list(
     dm = data.frame(USUBJID = c("A-1", "B-1"), SUBJID = c("S0001", "S0002"), X = 1:2),
     other = data.frame(USUBJID = c("A-1", "B-1"), SUBJID = c("S0001", "S0001"), X = 1:2)
@@ -1842,7 +1848,7 @@ test_that("related IDs of more than one subject are not rewritten, and are count
   expect_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1), "^1 original value\\(s\\) of `SUBJID` belong to more than one subject")
   ids <- anon_secrets(step)$subject_ids
   number <- sub("SUBJ-", "", ids$pseudonym[ids$key == "B-1"])
-  expect_equal(attr(step$data$dm$X, "label"), paste("S0001 and", number))
+  expect_equal(attr(step$data$dm$X, "label"), paste("[SUBJID] and", number))
 })
 
 test_that("a missing-value code of an identifier column that is a key elsewhere is named in a warning", {
@@ -1877,4 +1883,45 @@ test_that("a related ID in text becomes the number its column gets", {
   number <- sub("SUBJ-", "", anon_secrets(step)$subject_ids$pseudonym[3])
   expect_equal(attr(step$data$X, "label"), paste("for", number))
   expect_equal(nchar(number), 2)
+})
+
+test_that("ids are found in lists and before a dot, padded SUBJIDs trimmed, and shared forms are stable", {
+  d <- data.frame(USUBJID = c("AB-1001", "AB-1002"), SUBJID = c("ZQ0001  ", " ZQ0002"), X = 1:2)
+  attr(d$X, "label") <- "AB-1001,AB-1002; ZQ0001,ZQ0002"
+  d[["AB-1001.1"]] <- 1:2
+  d[["ZQ00021"]] <- 1:2
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1)
+  ids <- anon_secrets(step)$subject_ids
+  new <- stats::setNames(ids$pseudonym, ids$key)
+  num <- sub("SUBJ-", "", new)
+  expect_equal(attr(step$data$X, "label"), paste0(new[["AB-1001"]], ",", new[["AB-1002"]], "; ", num[["AB-1001"]], ",", num[["AB-1002"]]))
+  expect_true(all(c(paste0(new[["AB-1001"]], ".1"), paste0(num[["AB-1002"]], "1")) %in% names(step$data)))
+  # A SUBJID in a text column and a numeric one becomes the text form, in any
+  # dataset order.
+  keys <- sprintf("AB-%04d", 1:12)
+  dm <- data.frame(USUBJID = keys, SUBJID = sprintf("%05d", 10000 + 1:12))
+  ex <- data.frame(USUBJID = keys, SUBJID = 10000 + 1:12, X = 1)
+  attr(ex$X, "label") <- "Dose for 10001"
+  labels <- vapply(list(c("dm", "ex"), c("ex", "dm")), function(o) {
+    attr(anon_subject_ids(list(dm = dm, ex = ex)[o], seed = 1)$data$ex$X, "label")
+  }, character(1))
+  expect_equal(labels[[1]], labels[[2]])
+  expect_match(labels[[1]], "^Dose for [0-9]{2}$")
+})
+
+test_that("the dates step masks SUBJIDs in the locations it prints", {
+  dm <- data.frame(USUBJID = c("AB-1001", "AB-1002"), SUBJID = c("ZQ0001", "ZQ0002"), RFSTDTC = c("2020-01-01", "2020-02-01"))
+  dm[["ZQ0001"]] <- c("seen 2020-01-03", "x")
+  expect_warning(anon_subject_dates(dm, seed = 1), "dates that were not shifted: data.\\[SUBJID\\]\\.")
+})
+
+test_that("a related ID inside a decimal number isn't found, but in a list or a make.unique() name it is", {
+  d <- data.frame(USUBJID = c("AB-1001", "AB-1002"), SUBJID = c("10001", "10002"), X = 1:2)
+  attr(d$X, "label") <- "25.10001 and 10002.5; 10001,10002"
+  d[["10001.1"]] <- 1:2
+  d$R <- c("25.10001", "x")
+  expect_no_warning(step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 1))
+  num <- stats::setNames(sub("SUBJ-", "", anon_secrets(step)$subject_ids$pseudonym), c("10001", "10002"))
+  expect_equal(attr(step$data$X, "label"), paste0("25.10001 and 10002.5; ", num[["10001"]], ",", num[["10002"]]))
+  expect_true(paste0(num[["10001"]], ".1") %in% names(step$data))
 })
