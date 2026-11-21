@@ -181,14 +181,19 @@ anon_subject_ids <- function(
 
   input <- as_dataset_list(data)
   data <- input$data
-  local_text_cache()
-  keyed <- keyed_datasets(data, key)
-  for (ds in keyed) {
-    for (col in intersect(c(key, also, key_cols), names(data[[ds]]))) {
-      data[[ds]][[col]] <- zap_user_missing(data[[ds]][[col]])
+  check_key_name(key)
+  local_text_cache(key = key)
+  tables <- lapply(data, nested_tables, key = key)
+  keyed <- keyed_datasets(data, key, tables)
+  for (ds in names(tables)) {
+    for (t in seq_along(tables[[ds]])) {
+      if (tables[[ds]][[t]]$keyed) {
+        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, also, key_cols))
+      }
     }
   }
-  keys <- subject_keys(data[keyed], key)
+  frames <- key_frames(tables, key)
+  keys <- subject_keys(frames, key)
 
   numbers <- sample_int_with_seed(length(keys), length(keys), seed = seed)
   width <- nchar(as.character(length(keys)))
@@ -204,38 +209,70 @@ anon_subject_ids <- function(
   )
   removed_also <- 0
   removed_key_cols <- 0
+  details <- c(key = "replaced with pseudonyms", also = "replaced with the pseudonym number", key_cols = "replaced with pseudonyms")
 
-  for (ds in keyed) {
-    df <- data[[ds]]
-    idx <- match(normalize_keys(df[[key]]), keys)
+  for (ds in names(tables)) {
+    tabs <- tables[[ds]]
+    tally <- log_tally()
+    for (t in seq_along(tabs)) {
+      tb <- tabs[[t]]
+      if (!tb$keyed) {
+        next
+      }
+      idx <- table_owner(tabs, t, keys, key)
+      tabs[[t]]$idx <- idx
+      df <- tb$df
+      cols <- names(df)
+      replaced <- integer(0)
 
-    df[[key]] <- replace_ids(df[[key]], idx, pseudonyms, numbers)
-    log <- deid_log_add(log, ds, key, "replaced with pseudonyms", sum(!is.na(idx)))
+      if (tb$has_key) {
+        df[[key]] <- replace_ids(df[[key]], idx, pseudonyms, numbers)
+        replaced <- c(replaced, match(key, cols))
+        tally$add(table_column_path(tb, match(key, cols)), "key", list(changed = sum(!is.na(idx)), removed = 0))
+      }
 
-    for (col in intersect(also, names(df))) {
-      check_one_value_per_subject(df[[col]], idx, col)
-      present <- !is.na(blank_to_na(df[[col]]))
-      unmapped <- is.na(idx) & present
-      also_idx <- ifelse(present, idx, NA_integer_)
-      removed_also <- removed_also + sum(unmapped)
-      df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped)
-      log <- deid_log_add(log, ds, col, "replaced with the pseudonym number", sum(!is.na(also_idx)), sum(unmapped))
+      for (col in intersect(also, cols)) {
+        check_one_value_per_subject(df[[col]], idx, col)
+        present <- !is.na(blank_to_na(df[[col]]))
+        unmapped <- is.na(idx) & present
+        also_idx <- ifelse(present, idx, NA_integer_)
+        removed_also <- removed_also + sum(unmapped)
+        df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped)
+        replaced <- c(replaced, match(col, cols))
+        tally$add(table_column_path(tb, match(col, cols)), "also", list(changed = sum(!is.na(also_idx)), removed = sum(unmapped)))
+      }
+
+      for (col in setdiff(intersect(key_cols, cols), c(key, also))) {
+        col_idx <- match(normalize_keys(df[[col]]), keys)
+        unmapped <- is.na(col_idx) & !is.na(normalize_keys(df[[col]]))
+        removed_key_cols <- removed_key_cols + sum(unmapped)
+        df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped)
+        replaced <- c(replaced, match(col, cols))
+        tally$add(table_column_path(tb, match(col, cols)), "key_cols", list(changed = sum(!is.na(col_idx)), removed = sum(unmapped)))
+      }
+      tabs[[t]]$df <- df
+      tabs[[t]]$changed <- union(tb$changed, replaced)
     }
-
-    for (col in setdiff(intersect(key_cols, names(df)), c(key, also))) {
-      col_idx <- match(normalize_keys(df[[col]]), keys)
-      unmapped <- is.na(col_idx) & !is.na(normalize_keys(df[[col]]))
-      removed_key_cols <- removed_key_cols + sum(unmapped)
-      df[[col]] <- replace_ids(df[[col]], col_idx, pseudonyms, numbers, remove = unmapped)
-      log <- deid_log_add(log, ds, col, "replaced with pseudonyms", sum(!is.na(col_idx)), sum(unmapped))
+    for (row in tally$rows()) {
+      log <- deid_log_add(log, ds, row$variable, details[[row$kind]], row$counts$changed, row$counts$removed)
     }
-
-    data[[ds]] <- sort_by_new_key(df, idx, numbers)
+    # Data frames in list columns with their own key are sorted by it, as
+    # datasets are; those that belong to their outer row keep their order.
+    data[[ds]] <- assemble_tables(tabs, function(df, tb, m) {
+      if (!tb$has_key) {
+        return(df)
+      }
+      sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers)
+    })
+    if (ds %in% keyed) {
+      data[[ds]] <- sort_by_new_key(data[[ds]], tabs[[1]]$idx, numbers)
+    }
   }
   # Keys made only of digits, and numeric keys, match too much to be searched
   # for in text; other attributes are still dropped when asked.
-  searched <- !any_numeric_key(data[keyed], key) && length(searchable_keys(keys)) > 0
+  searched <- !any_numeric_key(frames, key) && length(searchable_keys(keys)) > 0
   rewrite <- if (searched) key_rewriter(keys, pseudonyms) else identity
+  with_key <- datasets_with_key(tables)
   rewritten <- rewrite_described_text(
     data, rewrite, log, "original keys replaced with pseudonyms", other = other_attributes
   )
@@ -243,7 +280,7 @@ anon_subject_ids <- function(
   log <- rewritten$log
   keyed <- rewritten$rename(keyed)
   input$previous <- rewrite_previous_step(input$previous, rewritten)
-  log <- deid_log_unkeyed(log, data, keyed, key)
+  log <- deid_log_unkeyed(log, data, rewritten$rename(with_key), key)
   # Warnings print locations, whose names can hold keys and dates (which this
   # step doesn't rewrite in data but must not print).
   locate <- function(x) format_locations(x, function(text) date_rewriter(rewrite(text)))
@@ -262,20 +299,21 @@ anon_subject_ids <- function(
       call. = FALSE
     )
   }
-  if (!all(vapply(data[keyed], function(df) is.numeric(df[[key]]), logical(1)))) {
-    warn_leftover_keys(data, keyed, key, keys, skip = c(also, key_cols), locate = locate)
+  if (!all(vapply(frames, function(df) is.numeric(df[[key]]), logical(1)))) {
+    warn_leftover_keys(data, key, keys, skip = c(also, key_cols), locate = locate)
   }
-  warn_id_name_variants(data, keyed, c(key, also, key_cols), locate = locate)
-  warn_unkeyed_identifiers(data, keyed, key, c(also, key_cols), check_dates = FALSE, locate = locate)
+  warn_id_name_variants(data, c(key, also, key_cols), locate = locate)
+  warn_unkeyed_identifiers(data, key, c(also, key_cols), check_dates = FALSE, locate = locate)
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
   warn_s4_columns(data, paste0("original `", key, "` values"), rewritten$s4, locate = locate)
+  warn_opaque_columns(data, locate = locate)
   if (searched) {
     warn_kept_codes(rewritten$kept, paste0("original `", key, "` values"), locate = locate)
     warn_invalid_utf8(data, rewritten$invalid, locate = locate)
   }
 
   secrets <- if (isTRUE(keep_secrets)) {
-    new_ids <- if (any_numeric_key(data[keyed], key)) numbers else pseudonyms
+    new_ids <- if (any_numeric_key(frames, key)) numbers else pseudonyms
     list(subject_ids = tibble::tibble(key = keys, pseudonym = new_ids))
   }
   settings <- list(subject_ids = list(
@@ -441,38 +479,53 @@ anon_subject_dates <- function(
 
   input <- as_dataset_list(data)
   data <- input$data
-  # Original keys left in names inside packed columns (data, which the IDs
-  # step doesn't rewrite) can't be recognised when the IDs step ran first, so
-  # this step always names such columns by position.
   ids_done <- !is.null(input$previous) && any(startsWith(names(input$previous$settings), "subject_ids"))
-  local_text_cache(positional = TRUE)
-  keyed <- keyed_datasets(data, key)
-  for (ds in keyed) {
-    for (col in intersect(c(key, vars), names(data[[ds]]))) {
-      data[[ds]][[col]] <- zap_user_missing(data[[ds]][[col]])
+  # Columns inside nested data are named by position, so that a column is
+  # named the same way whether or not the IDs step, which rewrites original
+  # keys in nested names, ran first.
+  check_key_name(key)
+  local_text_cache(key = key, positional = TRUE)
+  tables <- lapply(data, nested_tables, key = key, positional = TRUE)
+  keyed <- keyed_datasets(data, key, tables)
+  for (ds in names(tables)) {
+    for (t in seq_along(tables[[ds]])) {
+      if (tables[[ds]][[t]]$keyed) {
+        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, vars))
+      }
     }
   }
-  keys <- subject_keys(data[keyed], key)
+  frames <- key_frames(tables, key)
+  keys <- subject_keys(frames, key)
   # Warnings and errors print locations, whose names can hold dates and,
   # unless the IDs step already ran, original keys: these are shown as
   # "[KEY]".
   mask_keys <- if (ids_done) identity else key_rewriter(keys, rep("[KEY]", length(keys)))
   locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
-  date_vars <- lapply(keyed, function(ds) dataset_date_vars(data[[ds]], vars, key, ds, locate))
-  names(date_vars) <- keyed
-  if (!is.null(vars) && length(unlist(date_vars)) == 0) {
-    stop("None of `vars` were found in a dataset with `", key, "`.", call. = FALSE)
-  }
-  for (ds in keyed) {
-    for (col in date_vars[[ds]]) {
-      data[[ds]][[col]] <- zap_user_missing(data[[ds]][[col]])
+  # Date columns of every table in keyed data, the datasets' own by name.
+  for (ds in names(tables)) {
+    for (t in seq_along(tables[[ds]])) {
+      tb <- tables[[ds]][[t]]
+      if (tb$keyed) {
+        where <- if (nzchar(tb$path)) paste0(ds, ".", tb$path) else ds
+        tb$date_vars <- dataset_date_vars(tb$df, vars, key, where, locate, list_dates = tb$list_dates)
+        tables[[ds]][[t]] <- zap_table_user_missing(tb, tb$date_vars)
+      }
     }
   }
+  date_vars <- lapply(stats::setNames(keyed, keyed), function(ds) tables[[ds]][[1]]$date_vars)
+  keyed_tables <- unlist(lapply(tables, function(tabs) Filter(function(tb) tb$keyed, tabs)), recursive = FALSE)
+  if (!is.null(vars) && length(unlist(lapply(keyed_tables, `[[`, "date_vars"))) == 0) {
+    stop("None of `vars` were found in a dataset with `", key, "`.", call. = FALSE)
+  }
   # In mixed columns, bare years are kept as numbers unless the column holds
-  # only years in every dataset.
-  mixed_cols <- unique(grep("DTC$", unlist(date_vars), ignore.case = TRUE, value = TRUE, invert = TRUE, useBytes = TRUE))
-  years_only_cols <- Filter(function(col) holds_only_years(data[keyed], col), mixed_cols)
+  # only years in every dataset. List columns hold Date and date-time values.
+  mixed_cols <- unique(unlist(lapply(keyed_tables, function(tb) {
+    cols <- tb$date_vars[!tb$list_dates[match(tb$date_vars, names(tb$df))]]
+    grep("DTC$", cols, ignore.case = TRUE, value = TRUE, invert = TRUE, useBytes = TRUE)
+  })))
+  keyed_dfs <- lapply(keyed_tables, `[[`, "df")
+  years_only_cols <- Filter(function(col) holds_only_years(keyed_dfs, col), mixed_cols)
   kept_years <- character(0)
   kept_qval_years <- character(0)
 
@@ -486,45 +539,69 @@ anon_subject_dates <- function(
     )
   )
   totals <- c(no_key = 0, invalid = 0)
+  shift_counts <- c("shifted", "no_key", "invalid", "partial")
 
-  for (ds in keyed) {
-    df <- data[[ds]]
-    subject_offset <- offsets[match(normalize_keys(df[[key]]), keys)]
-
-    for (col in date_vars[[ds]]) {
-      keep_non_dates <- col %in% mixed_cols
-      shifted <- shift_dates_by_subject(
-        df[[col]], subject_offset, partial, keep_non_dates,
-        keep_years = keep_non_dates && !col %in% years_only_cols
-      )
-      if (shifted$kept_years > 0) {
-        kept_years <- c(kept_years, paste0(ds, ".", col))
+  for (ds in names(tables)) {
+    tabs <- tables[[ds]]
+    tally <- log_tally()
+    for (t in seq_along(tabs)) {
+      tb <- tabs[[t]]
+      if (!tb$keyed) {
+        next
       }
-      df[[col]] <- shifted$values
-      totals <- totals + c(shifted$no_key, shifted$invalid)
-      log <- deid_log_add(
-        log, ds, col, shift_detail(shifted), shifted$shifted,
-        shifted$no_key + shifted$invalid + shifted$partial
-      )
+      tabs[[t]]$idx <- table_owner(tabs, t, keys, key)
+      subject_offset <- offsets[tabs[[t]]$idx]
+      df <- tb$df
+      shifted_cols <- integer(0)
+      where <- function(col) paste0(ds, ".", table_column_path(tb, match(col, names(df)), positional = TRUE))
+
+      for (col in tb$date_vars) {
+        j <- match(col, names(df))
+        if (tb$list_dates[j]) {
+          shifted <- shift_list_dates(df[[col]], tb$lists[[j]], subject_offset, partial)
+        } else {
+          keep_non_dates <- col %in% mixed_cols
+          shifted <- shift_dates_by_subject(
+            df[[col]], subject_offset, partial, keep_non_dates,
+            keep_years = keep_non_dates && !col %in% years_only_cols
+          )
+        }
+        if (shifted$kept_years > 0) {
+          kept_years <- c(kept_years, where(col))
+        }
+        df[[col]] <- shifted$values
+        shifted_cols <- c(shifted_cols, j)
+        totals <- totals + c(shifted$no_key, shifted$invalid)
+        tally$add(table_column_path(tb, j, positional = TRUE), "date", shifted[shift_counts])
+      }
+
+      if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
+        shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
+        if (shifted$kept_years > 0) {
+          kept_qval_years <- c(kept_qval_years, where("QVAL"))
+        }
+        df$QVAL <- shifted$values
+        shifted_cols <- c(shifted_cols, match("QVAL", names(df)))
+        totals <- totals + c(shifted$no_key, shifted$invalid)
+        tally$add(table_column_path(tb, match("QVAL", names(df)), positional = TRUE), "qval", shifted[shift_counts])
+      }
+      tabs[[t]]$df <- df
+      tabs[[t]]$changed <- union(tb$changed, shifted_cols)
     }
-
-    if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
-      shifted <- shift_qval_dates(df$QVAL, subject_offset, partial)
-      if (shifted$kept_years > 0) {
-        kept_qval_years <- c(kept_qval_years, paste0(ds, ".QVAL"))
-      }
-      df$QVAL <- shifted$values
-      totals <- totals + c(shifted$no_key, shifted$invalid)
-      if (shifted$shifted + shifted$no_key + shifted$invalid + shifted$partial > 0) {
+    for (row in tally$rows()) {
+      counts <- row$counts
+      removed <- counts$no_key + counts$invalid + counts$partial
+      if (row$kind == "date") {
+        log <- deid_log_add(log, ds, row$variable, shift_detail(counts), counts$shifted, removed)
+      } else if (counts$shifted + removed > 0) {
         log <- deid_log_add(
-          log, ds, "QVAL", paste0(shift_detail(shifted), " (date values only)"),
-          shifted$shifted, shifted$no_key + shifted$invalid + shifted$partial
+          log, ds, row$variable, paste0(shift_detail(counts), " (date values only)"), counts$shifted, removed
         )
       }
     }
-
-    data[[ds]] <- df
+    data[[ds]] <- assemble_tables(tabs)
   }
+  with_key <- datasets_with_key(tables)
   rewritten <- rewrite_described_text(
     data, date_rewriter, log, "dates replaced with [DATE]", dates = TRUE, other = other_attributes
   )
@@ -536,7 +613,7 @@ anon_subject_dates <- function(
   }
   keyed <- rewritten$rename(keyed)
   input$previous <- rewrite_previous_step(input$previous, rewritten)
-  log <- deid_log_unkeyed(log, data, keyed, key)
+  log <- deid_log_unkeyed(log, data, rewritten$rename(with_key), key)
 
   if (totals[["no_key"]] > 0) {
     warning(totals[["no_key"]], " date value(s) in rows without a `", key, "` were removed.", call. = FALSE)
@@ -563,11 +640,12 @@ anon_subject_dates <- function(
       call. = FALSE
     )
   }
-  warn_unshifted_iso_dates(data, keyed, date_vars, key, qval_processed = is.null(vars), locate = locate)
-  warn_unkeyed_identifiers(data, keyed, key, character(0), check_dates = TRUE, locate = locate)
+  warn_unshifted_iso_dates(data, date_vars, key, vars, locate = locate)
+  warn_unkeyed_identifiers(data, key, character(0), check_dates = TRUE, locate = locate)
   warn_kept_codes(rewritten$kept, "dates", locate = locate)
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
   warn_s4_columns(data, "dates", rewritten$s4, locate = locate)
+  warn_opaque_columns(data, locate = locate)
   warn_invalid_utf8(data, rewritten$invalid, locate = locate)
 
   secrets <- if (isTRUE(keep_secrets)) {
@@ -757,15 +835,25 @@ check_unique_columns <- function(data) {
   }
 }
 
-keyed_datasets <- function(data, key) {
+check_key_name <- function(key) {
   if (!is.character(key) || length(key) != 1 || is.na(key) || !nzchar(key)) {
     stop("`key` must be a single column name.", call. = FALSE)
   }
+}
+
+# The datasets with the key column. The key may also be found only in nested
+# data frames (see nested_tables()).
+keyed_datasets <- function(data, key, tables) {
   keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
-  if (length(keyed) == 0) {
+  if (length(keyed) == 0 && length(datasets_with_key(tables)) == 0) {
     stop("Key column `", key, "` not found in any dataset.", call. = FALSE)
   }
   keyed
+}
+
+# The datasets that hold the key column, at the top or in nested data.
+datasets_with_key <- function(tables) {
+  names(tables)[vapply(tables, function(tabs) any(vapply(tabs, function(tb) tb$keyed, logical(1))), logical(1))]
 }
 
 subject_keys <- function(data, key) {
@@ -811,6 +899,19 @@ zap_user_missing <- function(x) {
   attrs[c("na_values", "na_range")] <- NULL
   attributes(values) <- attrs
   values
+}
+
+# zap_user_missing() on the columns of a table named in `cols`, recording
+# them as changed.
+zap_table_user_missing <- function(tb, cols) {
+  for (j in which(names(tb$df) %in% cols)) {
+    x <- .subset2(tb$df, j)
+    if (inherits(x, "haven_labelled_spss")) {
+      tb$df[[j]] <- zap_user_missing(x)
+      tb$changed <- union(tb$changed, j)
+    }
+  }
+  tb
 }
 
 # Value labels (haven "labels") describe the original values, so they are
@@ -867,12 +968,17 @@ validate_offset_range <- function(max_days, min_days) {
   }
 }
 
-dataset_date_vars <- function(df, vars, key, dataset, locate = identity) {
+# The date columns of a data frame: `vars` if given, otherwise Date and
+# POSIXct columns and text columns named *DTC. `list_dates` marks, by
+# position, the list columns that hold Date or date-time values (see
+# list_column_content()), which count as date columns. With `check`, columns
+# in `vars` that aren't dates are an error.
+dataset_date_vars <- function(df, vars, key, dataset, locate = identity, list_dates = logical(length(df)), check = TRUE) {
   if (!is.null(vars)) {
     selected <- setdiff(intersect(vars, names(df)), key)
-    for (col in selected) {
+    for (col in if (check) selected else character(0)) {
       x <- df[[col]]
-      not_dates <- if (inherits(x, c("Date", "POSIXct"))) {
+      not_dates <- if (inherits(x, c("Date", "POSIXct")) || isTRUE(list_dates[match(col, names(df))])) {
         FALSE
       } else if (is.character(x) || is.factor(x)) {
         kinds <- parse_iso8601_dates(as.character(x))$kind
@@ -886,7 +992,7 @@ dataset_date_vars <- function(df, vars, key, dataset, locate = identity) {
     }
     return(selected)
   }
-  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct")), logical(1))
+  is_date <- vapply(df, function(col) inherits(col, c("Date", "POSIXct")), logical(1)) | list_dates
   is_text <- vapply(df, function(col) is.character(col) || is.factor(col), logical(1))
   # useBytes: a name marked "bytes" can't be translated.
   is_dtc <- grepl("DTC$", names(df), ignore.case = TRUE, useBytes = TRUE) & is_text
@@ -1093,10 +1199,9 @@ shift_detail <- function(shifted) {
 # `skip` columns, in any case, are not checked: they were just replaced, or
 # warn_id_name_variants() or warn_unkeyed_identifiers() names them. Keys made
 # only of digits are not searched for, as they match many unrelated numbers.
-# List columns and packed data frame columns are searched too, in all the text
-# they hold (see column_leaves()). `locate` rewrites the printed locations,
-# which can hold names inside packed columns.
-warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0), locate = identity) {
+# List columns and columns of nested data frames are searched too (see
+# dataset_tables()). `locate` rewrites the printed locations.
+warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = identity) {
   keys <- searchable_keys(keys)
   if (length(keys) == 0) {
     return(invisible())
@@ -1106,7 +1211,7 @@ warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0), loca
   nested <- FALSE
   for (ds in names(data)) {
     for (leaf in dataset_leaves(data[[ds]])) {
-      if (name_key(leaf$top) %in% name_key(c(key, skip))) {
+      if (name_key(leaf$name) %in% name_key(c(key, skip))) {
         next
       }
       values <- valid_utf8_text(leaf$text)
@@ -1120,7 +1225,8 @@ warn_leftover_keys <- function(data, keyed, key, keys, skip = character(0), loca
     advice <- if (nested) {
       paste0(
         ". Add text or factor columns to `key_cols` if they hold only keys; redact or remove the others, ",
-        "including list columns, packed data frame columns and the columns inside them (shown as `ds.col[sub]`)."
+        "including list columns and the columns of nested data frames (shown as `ds.col[sub]` in packed ",
+        "columns and `ds.col[[]][sub]` in list columns)."
       )
     } else {
       ". Add them to `key_cols` if they hold only keys; otherwise redact or remove them."
@@ -1243,7 +1349,7 @@ key_rewriter <- function(keys, pseudonyms) {
   }
 }
 
-# Replaces each date that has_dates_in_text() would find, and SDTM partial
+# Replaces each date that has_dates_in_values() would find, and SDTM partial
 # dates inside text, with "[DATE]", the package's default replacement for
 # dates.
 date_rewriter <- function(x) {
@@ -1327,10 +1433,17 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
     }
     rewrite(x)
   }
+  # Columns inside nested data are logged by path ("col[[]][sub]"), rewritten
+  # as text.
   rename_log <- function(log) {
     for (r in which(!is.na(log$dataset))) {
       log$dataset[r] <- rename(log$dataset[r])
-      log$variable[r] <- rename_columns(log$variable[r], log$dataset[r])
+      variable <- log$variable[r]
+      log$variable[r] <- if (!is.na(variable) && !variable %in% names(out$columns[[log$dataset[r]]])) {
+        rewrite(variable)
+      } else {
+        rename_columns(variable, log$dataset[r])
+      }
     }
     log$detail <- rename_detail(log$detail)
     log
@@ -1440,12 +1553,15 @@ rewrite_datasets <- function(ctx, data) {
 # Rewrite a data frame's text: the attributes of each column, column names,
 # character row names, and the data frame's own attributes (renaming the
 # columns in those that refer to them). Values are data and are not rewritten,
-# nor are list-column elements or packed data frame columns (warnings name
-# what they hold), unless `values` is TRUE: a data frame held in an attribute
-# is text about the data, so its character values and factor levels are
-# rewritten too. Attributes are set directly, so that methods such as those of
-# grouped tibbles don't drop the others.
-rewrite_frame <- function(ctx, df, values = FALSE) {
+# but nested data is entered: packed data frame columns are rewritten like
+# data frames, and in list columns the attributes and names of what the
+# elements hold (see rewrite_list_column()). With `values` TRUE (a data frame
+# held in an attribute, which is text about the data), its character values
+# and factor levels are rewritten too. `nested` names the columns of nested
+# data frames in locations as "where[col]" (by position in the dates step).
+# Attributes are set directly, so that methods such as those of grouped
+# tibbles don't drop the others.
+rewrite_frame <- function(ctx, df, values = FALSE, nested = FALSE) {
   where <- ctx$where
   old_cols <- names(df)
   new_cols <- unique_rewritten(rewrite_text(ctx, old_cols, "names"), old_cols)
@@ -1453,12 +1569,20 @@ rewrite_frame <- function(ctx, df, values = FALSE) {
   cls <- oldClass(df)
   x <- unclass(df)
   for (j in seq_along(x)) {
-    ctx$where <- paste0(where, ".", new_cols[j])
+    ctx$where <- if (nested) {
+      column_path(where, new_cols[j], j, isTRUE(text_cache$.positional))
+    } else {
+      paste0(where, ".", new_cols[j])
+    }
     column <- x[[j]]
     new <- if (values) {
       rewrite_value(ctx, column)
-    } else if (is.data.frame(column) || isS4(column)) {
+    } else if (isS4(column)) {
       column
+    } else if (is.data.frame(column)) {
+      rewrite_frame(ctx, column, nested = TRUE)
+    } else if (is.list(column)) {
+      rewrite_list_column(ctx, column)
     } else {
       rewrite_attributes(ctx, column)
     }
@@ -1481,6 +1605,49 @@ rewrite_frame <- function(ctx, df, values = FALSE) {
   # When nothing changed, the data frame itself is returned, so that what
   # refers to it (such as a data.table's .internal.selfref) stays valid.
   if (identical(x, df)) df else x
+}
+
+# Rewrite a list column: its own attributes, and the attributes and names of
+# what its elements hold, at any depth through plain lists (see
+# is_plain_list()), with data frames rewritten as in rewrite_frame() and
+# located as "where[[]]". Text values are data and are not rewritten. Objects
+# that can't be de-identified (models, environments, S4 objects and similar)
+# are not entered; a list column of another class is left as it is.
+rewrite_list_column <- function(ctx, column) {
+  if (!is_plain_list(column)) {
+    return(column)
+  }
+  column <- rewrite_attributes(ctx, column)
+  where <- ctx$where
+  element <- function(e) {
+    if (is.data.frame(e)) {
+      ctx$where <- paste0(where, "[[]]")
+      out <- rewrite_frame(ctx, e, nested = TRUE)
+      ctx$where <- where
+      return(out)
+    }
+    if (is.atomic(e) && !isS4(e)) {
+      return(rewrite_attributes(ctx, e))
+    }
+    if (!is_plain_list(e)) {
+      return(e)
+    }
+    rewrite_attributes(ctx, elements(e))
+  }
+  elements <- function(l) {
+    cls <- oldClass(l)
+    x <- unclass(l)
+    for (i in seq_along(x)) {
+      e <- x[[i]]
+      if (!is.null(e)) {
+        new <- element(e)
+        if (!identical(new, e)) x[[i]] <- new
+      }
+    }
+    class(x) <- cls
+    x
+  }
+  elements(column)
 }
 
 # Rewrite the attributes of `x` (a column, a data frame, the list of datasets,
@@ -1825,10 +1992,10 @@ warn_merged_codes <- function(merged, deduplicated = character(0), locate = iden
 
 # Warn about text, anywhere in the data, that can't be searched (marked as
 # "bytes"; other text that isn't valid UTF-8 is searched repaired), counting
-# distinct texts by location: values
-# by column (see column_leaves()), and texts found while rewriting attributes
-# and names (`invalid`, a list of texts by location). `locate` rewrites the
-# printed locations, which can hold names inside packed columns.
+# distinct texts by location: values by column (see dataset_tables()), and
+# texts found while rewriting attributes and names (`invalid`, a list of texts
+# by location). `locate` rewrites the printed locations, which can hold names
+# inside nested data.
 warn_invalid_utf8 <- function(data, invalid = list(), locate = identity) {
   texts <- invalid
   for (ds in names(data)) {
@@ -1879,6 +2046,27 @@ warn_s4_columns <- function(data, what, in_attributes = character(0), locate = i
   }
 }
 
+# Warn about list columns holding objects that can't be de-identified (see
+# is_plain_list()), which the steps don't enter.
+warn_opaque_columns <- function(data, locate = identity) {
+  hits <- character(0)
+  for (ds in names(data)) {
+    for (leaf in dataset_leaves(data[[ds]])) {
+      if (isTRUE(leaf$opaque)) {
+        hits <- c(hits, paste0(ds, ".", leaf$path))
+      }
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These list columns hold objects that can't be de-identified (models, recipes, resampling splits, ",
+      "environments, functions or similar): ", paste(locate(hits), collapse = ", "),
+      ". They may hold original data; de-identify the data before building them, and remove these columns.",
+      call. = FALSE
+    )
+  }
+}
+
 # Locations (such as "ds.col" or "ds.col[sub]") as a step's warnings print
 # them. Text marked "bytes" or not valid UTF-8 can't be printed, so its bytes
 # are shown escaped ("<e9>"); then names, which can hold keys or dates, go
@@ -1900,132 +2088,93 @@ format_locations <- function(x, rewrite = identity) {
 
 # Text held in the data, searched by the warnings ---------------------------
 
-# The text each column of a data frame holds, for the warnings that search
-# it: a list of leaves with `path` (the column, or "column[subcolumn]" inside
-# a packed data frame column, at any depth), `top` (the column), `text` (the
-# distinct texts, including those that can't be searched), `date` (TRUE for a
-# Date or date-time column), `nested` (TRUE for list columns, packed columns
-# and what they hold, which can't be given in `key_cols`) and `s4` (TRUE for
-# a column of S4 objects, which isn't searched). A character column holds its values, a factor its
-# levels, a list column all the text its elements hold (see list_text()). A
-# packed data frame column is data like a list column: each of its columns is
-# a leaf, with the text in its attributes, and the packed column itself is a
-# leaf holding its column names and attributes. Cached while a step runs, as
-# several warnings search the same data frame.
-dataset_leaves <- function(df) {
+# The tables of a data frame (see nested_tables()), each with `leaves`: what
+# each of its columns holds, for the warnings that search it. A leaf has
+# `path` (where the column is printed: "column", or inside nested data
+# "column[sub]" and "column[[]][sub]", see column_path()), `name` (its own
+# name), `top` (the dataset's column it is in), `text` (the distinct text
+# values, including those that can't be searched), `date` (TRUE for a Date or
+# date-time column, or a list column holding such values), `sas` (TRUE for a
+# number with a SAS date format), `s4` (TRUE for a column of S4 objects,
+# which isn't searched), `opaque` (TRUE for a list column holding objects
+# that can't be de-identified), `frame` (TRUE for a packed data frame column,
+# whose columns are leaves of its own table), `nested` (TRUE inside nested
+# data and for list columns, which can't be given in `key_cols`) and `keyed`
+# (its table is in keyed data). A character column holds its values, a factor
+# its levels, a list column the text values its elements hold (see
+# list_column_content()); attributes and names are rewritten by the steps and
+# not searched here. Cached while a step runs, as several warnings search the
+# same data frame.
+dataset_tables <- function(df) {
   id <- rlang::obj_address(df)
   cached <- text_cache[[id]]
   if (!is.null(cached)) {
     return(cached)
   }
-  leaves <- column_leaves(df, "", inside = FALSE)
+  positional <- isTRUE(text_cache$.positional)
+  tables <- nested_tables(df, text_cache$.key %||% NA_character_, positional)
+  for (t in seq_along(tables)) {
+    tables[[t]]$leaves <- table_leaves(tables[[t]], t, positional)
+  }
   if (isTRUE(text_cache$.active)) {
-    assign(id, leaves, envir = text_cache)
+    assign(id, tables, envir = text_cache)
   }
-  leaves
+  tables
 }
 
-column_leaves <- function(df, prefix, inside, top = NULL) {
-  leaves <- list()
-  # Columns are taken by position: a name marked "bytes" can't be looked up.
-  for (j in seq_along(df)) {
-    col <- names(df)[j]
+# The leaves of every table of a data frame (see dataset_tables()).
+dataset_leaves <- function(df) {
+  unlist(lapply(dataset_tables(df), `[[`, "leaves"), recursive = FALSE)
+}
+
+table_leaves <- function(tb, t, positional = FALSE) {
+  df <- tb$df
+  lapply(seq_along(df), function(j) {
     x <- .subset2(df, j)
-    path <- if (!inside) {
-      col
-    } else if (isTRUE(text_cache$.positional)) {
-      paste0(prefix, "[", j, "]")
-    } else {
-      paste0(prefix, "[", col, "]")
-    }
-    top_col <- if (is.null(top)) col else top
+    name <- names(df)[j]
+    leaf <- list(
+      path = column_path(tb$path, name, j, positional), name = name, top = if (t == 1) name else tb$top,
+      text = NULL, date = FALSE, sas = FALSE, s4 = FALSE, opaque = FALSE, frame = FALSE,
+      nested = t > 1, keyed = tb$keyed
+    )
     if (isS4(x)) {
-      leaves <- c(leaves, list(list(path = path, top = top_col, text = NULL, date = FALSE, s4 = TRUE, nested = inside)))
-      next
-    }
-    if (is.data.frame(x)) {
-      header <- c(names(x), list_text(list(attributes(x)[setdiff(names(attributes(x)), c("names", "row.names", "class"))])))
-      leaves <- c(leaves, list(list(path = path, top = top_col, text = unique(header), date = FALSE, nested = TRUE)))
-      leaves <- c(leaves, column_leaves(x, path, inside = TRUE, top = top_col))
-      next
-    }
-    text <- if (is.factor(x)) {
-      levels(x)
-    } else if (is.character(x)) {
-      as.character(x)
+      leaf$s4 <- TRUE
+    } else if (is.data.frame(x)) {
+      leaf$frame <- TRUE
     } else if (is.list(x)) {
-      list_text(x)
-    } else if (inherits(x, "Surv")) {
-      # A multi-state Surv's states are its values' labels, like factor levels.
-      attr(x, "states", exact = TRUE)
+      content <- tb$lists[[j]]
+      leaf$text <- content$text
+      leaf$date <- isTRUE(content$has_dates)
+      leaf$opaque <- isTRUE(content$opaque)
+      leaf$nested <- TRUE
+    } else {
+      leaf$text <- if (is.factor(x)) {
+        levels(x)
+      } else if (is.character(x)) {
+        unique(as.character(x))
+      } else if (inherits(x, "Surv")) {
+        # A multi-state Surv's states are its values' labels, like factor levels.
+        attr(x, "states", exact = TRUE)
+      }
+      leaf$date <- inherits(x, c("Date", "POSIXct"))
+      leaf$sas <- is.numeric(x) &&
+        grepl(sas_date_format_pattern, attr(x, "format.sas", exact = TRUE) %||% "", ignore.case = TRUE)
     }
-    if (inside) {
-      text <- c(text, list_text(list(attributes(x)[setdiff(names(attributes(x)), c("class", "levels"))])))
-    }
-    text <- unique(text)
-    leaves <- c(leaves, list(list(
-      path = path, top = top_col, text = text, date = inherits(x, c("Date", "POSIXct")),
-      nested = inside || is.list(x)
-    )))
-  }
-  leaves
+    leaf
+  })
 }
 
-# Leaves are cached here while a step runs; see local_text_cache().
+# Leaves and tables are cached here while a step runs; see local_text_cache().
 text_cache <- new.env(parent = emptyenv())
 
-# Turn on the cache of dataset_leaves() until `envir` (the step) exits.
-# With `positional`, columns inside packed columns are named by position
-# ("col[2]") in the leaves' paths, for a step that can't recognise original
-# keys in their names.
-local_text_cache <- function(envir = parent.frame(), positional = FALSE) {
+# Turn on the cache of dataset_tables() until `envir` (the step) exits. `key`
+# is the step's key column, which makes nested tables keyed. With
+# `positional`, columns inside nested data are named by position ("col[2]").
+local_text_cache <- function(envir = parent.frame(), key = NA_character_, positional = FALSE) {
   assign(".active", TRUE, envir = text_cache)
+  assign(".key", key, envir = text_cache)
   assign(".positional", positional, envir = text_cache)
   do.call(on.exit, list(quote(rm(list = ls(text_cache, all.names = TRUE), envir = text_cache)), add = TRUE), envir = envir)
-}
-
-# Distinct text values of a character column, the levels of a factor
-# (including unused levels), or the text held in a list column (see
-# list_text()), as UTF-8; NULL for other columns.
-text_values <- function(x) {
-  values <- if (is.factor(x)) {
-    levels(x)
-  } else if (is.character(x)) {
-    unique(as.character(x))
-  } else if (is.list(x) && !is.data.frame(x)) {
-    unique(list_text(x))
-  }
-  if (is.null(values)) {
-    return(NULL)
-  }
-  valid_utf8_text(values)
-}
-
-# All text held in the elements of a list, at any depth: character values,
-# factor levels, names, and the text in their attributes (except class).
-# Environments, functions and other objects that aren't vectors are not
-# entered. Walks one depth at a time over all elements together.
-list_text <- function(x) {
-  out <- list()
-  level <- unclass(x)
-  while (length(level) > 0) {
-    types <- vapply(level, typeof, character(1))
-    keep <- types %in% c("list", "character", "integer", "double", "logical", "complex", "raw")
-    keep[keep] <- !vapply(level[keep], isS4, logical(1))
-    level <- level[keep]
-    types <- types[keep]
-    is_list <- types == "list"
-    is_text <- types == "character"
-    is_factor <- types == "integer"
-    is_factor[is_factor] <- vapply(level[is_factor], is.factor, logical(1))
-    out[[length(out) + 1]] <- unlist(lapply(level[is_factor], levels), use.names = FALSE)
-    out[[length(out) + 1]] <- unlist(level[is_text], use.names = FALSE)
-    attrs <- lapply(level, attributes)
-    attrs <- unlist(attrs[lengths(attrs) > 0], recursive = FALSE)
-    attrs <- unname(attrs[!names(attrs) %in% c("class", "levels")])
-    level <- c(unlist(lapply(level[is_list], unclass), recursive = FALSE, use.names = FALSE), attrs)
-  }
-  as.character(unlist(out, use.names = FALSE))
 }
 
 # Text converted to UTF-8 from its declared encoding (such as latin1). Text
@@ -2074,27 +2223,50 @@ valid_utf8_text <- function(x) {
   x[searchable_text(x)]
 }
 
-# Warn about columns in keyed datasets that hold dates but were not shifted:
+# Warn about columns in keyed data that hold dates but were not shifted:
 # unselected date columns, and dates kept as text in the mixed columns that
-# were shifted (`vars` columns not named *DTC, and QVAL).
-warn_unshifted_iso_dates <- function(data, keyed, date_vars, key, qval_processed, locate = identity) {
+# were shifted (`vars` columns not named *DTC, and QVAL when `vars` is NULL).
+# `date_vars` gives the shifted columns of each keyed dataset; those of nested
+# data frames in keyed data are selected again by the same rule.
+warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identity) {
   hits <- character(0)
   sas_hits <- character(0)
-  for (ds in keyed) {
-    df <- data[[ds]]
-    is_supp <- all(c("QNAM", "QVAL") %in% names(df))
-    mixed <- c(
-      date_vars[[ds]][!grepl("DTC$", date_vars[[ds]], ignore.case = TRUE, useBytes = TRUE)],
-      if (is_supp && qval_processed) "QVAL"
-    )
-    others <- setdiff(names(df), c(key, date_vars[[ds]], mixed))
-    sas <- sas_date_columns(df, others)
-    hits <- c(
-      hits,
-      qualify(ds, iso_date_columns(df, setdiff(others, sas))),
-      qualify(ds, Filter(function(col) has_dates_in_text(df[[col]], only_non_dates = TRUE), mixed))
-    )
-    sas_hits <- c(sas_hits, qualify(ds, sas))
+  for (ds in names(data)) {
+    tabs <- dataset_tables(data[[ds]])
+    for (t in seq_along(tabs)) {
+      tb <- tabs[[t]]
+      if (!tb$keyed) {
+        next
+      }
+      df <- tb$df
+      selected <- if (t == 1) {
+        date_vars[[ds]]
+      } else {
+        dataset_date_vars(df, vars, key, ds, list_dates = tb$list_dates, check = FALSE)
+      }
+      text_dates <- selected[!tb$list_dates[match(selected, names(df))]]
+      mixed <- c(
+        text_dates[!grepl("DTC$", text_dates, ignore.case = TRUE, useBytes = TRUE)],
+        if (all(c("QNAM", "QVAL") %in% names(df)) && is.null(vars)) "QVAL"
+      )
+      for (leaf in tb$leaves) {
+        where <- paste0(ds, ".", leaf$path)
+        if (leaf$name %in% c(key, selected, mixed)) {
+          # List columns' text isn't shifted, only their Date and date-time
+          # values.
+          unshifted <- if (leaf$name %in% mixed || is.list(df[[leaf$name]])) {
+            has_dates_in_values(non_date_values(leaf$text, only_non_dates = leaf$name %in% mixed))
+          } else {
+            FALSE
+          }
+          if (unshifted) hits <- c(hits, where)
+        } else if (leaf$sas) {
+          sas_hits <- c(sas_hits, where)
+        } else if (leaf$date || has_dates_in_values(valid_utf8_text(leaf$text))) {
+          hits <- c(hits, where)
+        }
+      }
+    }
   }
   if (length(hits) > 0) {
     warning(
@@ -2116,20 +2288,28 @@ warn_unshifted_iso_dates <- function(data, keyed, date_vars, key, qval_processed
   }
 }
 
-# Columns, among `cols`, that hold dates: Date or POSIXct columns, numeric
-# columns with a SAS date or datetime format, and text, factor or list columns
-# with dates as whole values or inside text, and inside packed data frame
-# columns the columns that do ("column.subcolumn", see column_leaves()).
-iso_date_columns <- function(df, cols) {
+# Text values that can be searched, without those recognised as ISO 8601
+# dates (which were shifted) when `only_non_dates` is TRUE.
+non_date_values <- function(text, only_non_dates = FALSE) {
+  values <- valid_utf8_text(text)
+  if (only_non_dates && length(values) > 0) {
+    values <- values[parse_iso8601_dates(values)$kind == "invalid"]
+  }
+  values
+}
+
+# Paths of the columns of a table (see dataset_tables()), among `cols`, that
+# hold dates: Date or POSIXct columns, list columns holding such values,
+# numeric columns with a SAS date or datetime format, and text, factor or list
+# columns with dates as whole values or inside text.
+iso_date_columns <- function(tb, cols) {
   hits <- character(0)
-  hit_cols <- character(0)
-  for (leaf in dataset_leaves(df)) {
-    if (leaf$top %in% cols && (leaf$date || has_dates_in_values(valid_utf8_text(leaf$text)))) {
+  for (leaf in tb$leaves) {
+    if (leaf$name %in% cols && (leaf$date || leaf$sas || has_dates_in_values(valid_utf8_text(leaf$text)))) {
       hits <- c(hits, leaf$path)
-      hit_cols <- c(hit_cols, leaf$top)
     }
   }
-  c(hits, sas_date_columns(df, setdiff(cols, hit_cols)))
+  hits
 }
 
 # "dataset.column" names; empty when there are no columns.
@@ -2137,28 +2317,10 @@ qualify <- function(dataset, cols) {
   if (length(cols) == 0) character(0) else paste0(dataset, ".", cols)
 }
 
-# Numeric columns, among `cols`, with a SAS date or datetime display format.
-sas_date_columns <- function(df, cols) {
-  is_sas <- vapply(cols, function(col) {
-    x <- .subset2(df, match(col, names(df)))
-    is.numeric(x) && grepl(sas_date_format_pattern, attr(x, "format.sas", exact = TRUE) %||% "", ignore.case = TRUE)
-  }, logical(1))
-  cols[is_sas]
-}
-
-# Whether a text or factor column holds ISO 8601-like dates as whole values, or
-# dates inside text: ISO 8601, with a month name (05JAN2014, 5 Jan 2014,
-# Jan 5, 2014, JAN2014) or numeric with separators (01/05/2014, 01.05.2014,
-# 2014/01/05). With `only_non_dates`, values recognised as ISO 8601 dates
-# (which were shifted) are not checked.
-has_dates_in_text <- function(x, only_non_dates = FALSE) {
-  values <- text_values(x)
-  if (only_non_dates && length(values) > 0) {
-    values <- values[parse_iso8601_dates(values)$kind == "invalid"]
-  }
-  has_dates_in_values(values)
-}
-
+# Whether text values hold ISO 8601-like dates as whole values, or dates
+# inside text: ISO 8601, with a month name (05JAN2014, 5 Jan 2014, Jan 5,
+# 2014, JAN2014) or numeric with separators (01/05/2014, 01.05.2014,
+# 2014/01/05).
 has_dates_in_values <- function(values) {
   length(values) > 0 && any(
     grepl(iso_date_like_pattern, values, useBytes = TRUE) |
@@ -2207,7 +2369,7 @@ slash_date_core <- paste0(
 )
 slash_date_pattern <- paste0("(^|[^0-9/.-])(", slash_date_core, ")([^0-9/.-]|$)")
 
-# The dates found by has_dates_in_text() (ISO 8601 full and year-month dates,
+# The dates found by has_dates_in_values() (ISO 8601 full and year-month dates,
 # SDTM partial dates, month-name and numeric forms), anywhere in text, as one
 # ICU regular expression whose boundaries are lookarounds, so that a
 # replacement keeps the text around each date. Used case-insensitively, for
@@ -2234,17 +2396,28 @@ sas_date_format_pattern <- paste0(
 )
 
 # Warn about datasets without the key that hold identifiers or dates, which
-# pass through unchanged.
-warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates, locate = identity) {
+# pass through unchanged: their columns named like the key or `id_cols` in any
+# case, and with `check_dates` their columns holding dates. Inside them,
+# nested data frames with the key are de-identified, and only the others are
+# checked.
+warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = identity) {
   hits <- character(0)
-  for (ds in setdiff(names(data), keyed)) {
-    df <- data[[ds]]
-    cols <- names(df)
-    flagged <- c(
-      cols[name_key(cols) %in% name_key(c(key, id_cols))],
-      if (check_dates) dataset_date_vars(df, NULL, key, ds),
-      if (check_dates) iso_date_columns(df, cols)
-    )
+  for (ds in names(data)) {
+    flagged <- character(0)
+    for (tb in dataset_tables(data[[ds]])) {
+      if (tb$keyed) {
+        next
+      }
+      names_ <- vapply(tb$leaves, `[[`, character(1), "name")
+      paths <- vapply(tb$leaves, `[[`, character(1), "path")
+      cols <- if (check_dates) dataset_date_vars(tb$df, NULL, key, ds, list_dates = tb$list_dates) else character(0)
+      flagged <- c(
+        flagged,
+        paths[name_key(names_) %in% name_key(c(key, id_cols))],
+        paths[match(cols, names_)],
+        if (check_dates) iso_date_columns(tb, names_)
+      )
+    }
     if (length(flagged) > 0) {
       hits <- c(hits, paste0(locate(ds), " (", paste(locate(unique(flagged)), collapse = ", "), ")"))
     }
@@ -2258,14 +2431,16 @@ warn_unkeyed_identifiers <- function(data, keyed, key, id_cols, check_dates, loc
   }
 }
 
-# Warn about columns in keyed datasets named like `key`, `also` or `key_cols`
-# in another case (such as `usubjid` beside `USUBJID`), which were not
-# replaced.
-warn_id_name_variants <- function(data, keyed, id_cols, locate = identity) {
+# Warn about columns in keyed data named like `key`, `also` or `key_cols` in
+# another case (such as `usubjid` beside `USUBJID`), which were not replaced.
+warn_id_name_variants <- function(data, id_cols, locate = identity) {
   hits <- character(0)
-  for (ds in keyed) {
-    cols <- names(data[[ds]])
-    hits <- c(hits, qualify(ds, cols[name_key(cols) %in% name_key(id_cols) & !cols %in% id_cols]))
+  for (ds in names(data)) {
+    for (leaf in dataset_leaves(data[[ds]])) {
+      if (leaf$keyed && name_key(leaf$name) %in% name_key(id_cols) && !leaf$name %in% id_cols) {
+        hits <- c(hits, paste0(ds, ".", leaf$path))
+      }
+    }
   }
   if (length(hits) > 0) {
     warning(

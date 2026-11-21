@@ -13,7 +13,9 @@
 # the column's missing value).
 deid_date_cols <- c(
   "RFSTDTC", "rficdtc", "RFSTDT", "VSDTC", "VSDTM", "VSNYDTM", "EXSTDTC", "EXENDTC", "QVAL",
-  "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC"
+  "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC",
+  # Inside nested data.
+  "DT", "VSTM", "LBDTC", "RPDT"
 )
 
 # The missing value a text column already uses: "" if it has blank strings,
@@ -44,6 +46,9 @@ deid_shift_text <- function(x, off) {
 }
 
 deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
+  if (is.list(x)) {
+    return(deid_expected_nested(x, keys, oracle, prefix, key, keyed = TRUE))
+  }
   off <- unname(oracle$offset[keys])
   if (col %in% c(key, "RSUBJID")) {
     k <- as.character(x)
@@ -57,15 +62,8 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   if (!col %in% deid_date_cols) {
     return(x)
   }
-  if (inherits(x, "Date")) {
-    return(x + off)
-  }
-  if (inherits(x, "POSIXct")) {
-    tz <- attr(x, "tzone")
-    lt <- as.POSIXlt(x, tz = tz)
-    lt$mday <- lt$mday + off
-    lt$isdst <- -1L
-    return(as.POSIXct(lt, tz = tz))
+  if (inherits(x, c("Date", "POSIXct"))) {
+    return(deid_shift_value(x, off))
   }
   x <- as.character(x)
   present <- !is.na(x) & nzchar(x)
@@ -74,6 +72,100 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   out[!no_key] <- vapply(which(!no_key), function(i) deid_shift_text(x[i], off[i]), character(1))
   out[no_key & present] <- deid_missing_like(x)
   out
+}
+
+# A Date or POSIXct value moved by `off` days (POSIXct by calendar days,
+# keeping the clock time); missing without an offset.
+deid_shift_value <- function(x, off) {
+  if (inherits(x, "Date")) {
+    return(x + off)
+  }
+  tz <- attr(x, "tzone")
+  lt <- as.POSIXlt(x, tz = tz)
+  lt$mday <- lt$mday + off
+  lt$isdst <- -1L
+  as.POSIXct(lt, tz = tz)
+}
+
+# Nested data, as each pipeline should leave it: a packed data frame column's
+# rows belong to their outer rows' subjects (`keys`), each element of a list
+# column to its row's subject, and a data frame with its own key column to the
+# subjects in it, whose rows are then sorted by the new key, as in a dataset.
+# Values are expected as at the top level (in a keyed context; unchanged
+# otherwise), with their type and attributes, and the text that describes the
+# data rewritten (see deid_rewrite_frame()). Date and date-time vectors in
+# list columns move by their row's subject's offset. Objects that can't be
+# de-identified are left as they are.
+deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
+  if (is.data.frame(x)) {
+    return(deid_expected_frame(x, keys, oracle, prefix, key, keyed))
+  }
+  if (!deid_plain_list(x)) {
+    return(x)
+  }
+  cls <- oldClass(x)
+  out <- unclass(x)
+  for (i in seq_along(out)) {
+    if (!is.null(out[[i]])) out[[i]] <- deid_expected_element(out[[i]], keys[i], oracle, prefix, key, keyed)
+  }
+  class(out) <- cls
+  deid_rewrite_attributes(out, oracle)
+}
+
+deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
+  if (is.data.frame(e)) {
+    return(deid_expected_frame(e, rep(owner, nrow(e)), oracle, prefix, key, keyed, element = TRUE))
+  }
+  if (isS4(e)) {
+    return(e)
+  }
+  if (inherits(e, c("Date", "POSIXct")) && keyed) {
+    e[] <- deid_shift_value(e, unname(oracle$offset[owner]))
+  }
+  if (is.atomic(e)) {
+    return(deid_rewrite_attributes(e, oracle))
+  }
+  if (!deid_plain_list(e)) {
+    return(e)
+  }
+  cls <- oldClass(e)
+  out <- unclass(e)
+  for (i in seq_along(out)) {
+    if (!is.null(out[[i]])) out[[i]] <- deid_expected_element(out[[i]], owner, oracle, prefix, key, keyed)
+  }
+  class(out) <- cls
+  deid_rewrite_attributes(out, oracle)
+}
+
+# A data frame as each pipeline should leave it, its rows belonging to `keys`
+# (NA: no subject) unless it has its own key column; `element` for a data
+# frame held in a list column, sorted by its own key.
+deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, element = FALSE) {
+  own <- key %in% names(df)
+  if (own) {
+    keys <- as.character(df[[key]])
+  }
+  keyed <- keyed || own
+  cls <- oldClass(df)
+  x <- unclass(df)
+  for (j in seq_along(x)) {
+    v <- x[[j]]
+    x[[j]] <- if (is.list(v)) {
+      deid_expected_nested(v, keys, oracle, prefix, key, keyed)
+    } else if (keyed) {
+      values <- deid_expected_column(v, names(x)[j], keys, oracle, prefix, key)
+      if (!identical(values, v)) v[] <- values
+      deid_rewrite_attributes(v, oracle)
+    } else {
+      deid_rewrite_attributes(v, oracle)
+    }
+  }
+  x <- deid_rewrite_frame_text(x, df, cls, oracle)
+  if (element && own && nrow(x) > 1) {
+    x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
+    if (!tibble::is_tibble(x)) rownames(x) <- NULL
+  }
+  x
 }
 
 # The oracle for text in attributes and names: the step's own, or, for a
@@ -181,9 +273,11 @@ for (pipeline_name in names(deid_pipelines)) {
         out <- step$data[[deid_rewrite_text(ds, oracle)]]
         original <- data[[ds]]
         # Documented as left unchanged, apart from keys and dates in its
-        # attributes and names.
+        # attributes and names, and nested data frames with the key, which are
+        # de-identified.
         if (!key %in% names(original) || ds %in% flagged_datasets) {
-          expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
+          no_key <- rep(NA_character_, nrow(original))
+          expect_identical(out, deid_expected_frame(original, no_key, oracle, pipeline$prefix, key, FALSE), info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
@@ -212,6 +306,15 @@ for (pipeline_name in names(deid_pipelines)) {
             expect_identical(got, vctrs::vec_slice(expected, which(keep)[ord]), info = id)
           } else if (is.factor(got) || is.character(got)) {
             expect_identical(as.character(got), as.character(expected)[keep][ord], info = id)
+          } else if (is.list(got)) {
+            # A list column: its elements (its own attributes are checked
+            # with the shape of the data).
+            elements <- function(x) {
+              x <- unclass(x)
+              attributes(x) <- NULL
+              x
+            }
+            expect_identical(elements(got), elements(expected)[keep][ord], info = id)
           } else {
             expect_identical(as.vector(unclass(got)), as.vector(unclass(expected))[keep][ord], info = id)
           }
@@ -281,9 +384,9 @@ for (pipeline_name in names(deid_pipelines)) {
         }
         expect_identical(keep(x, c(also, "names")), keep(want, c(also, "names")), info = id)
         # Names of a vector column follow its values (in any row order),
-        # rewritten; a packed data frame column is data and keeps its names.
+        # rewritten; a packed data frame column's names are rewritten.
         if (is.data.frame(x)) {
-          expect_identical(names(x), names(data[[ds]][[col]]), info = id)
+          expect_identical(names(x), rewrite(names(data[[ds]][[col]])), info = id)
         } else if (is.null(names(data[[ds]][[col]]))) {
           expect_null(names(x), info = id)
         } else {
@@ -327,6 +430,27 @@ for (pipeline_name in names(deid_pipelines)) {
       expect_identical(format(out$vs[[col]], "%H:%M:%S", tz = tz), rep("08:30:00", nrow(out$vs)), info = col)
     }
     expect_match(out$ex$EXENDTC, "^[0-9]{4}-[0-9]{2}$")
+
+    # Inside nested data too: study days, clock times, and dates of a subject
+    # at every depth.
+    vsn <- out$vsn
+    ref <- as.Date(out$dm$RFSTDTC[match(as.character(vsn[[key]]), keys)])
+    for (i in seq_len(nrow(vsn))) {
+      rows <- vsn$data[[i]]
+      expect_identical(deid_study_day(as.Date(rows$VSDTC), ref[i]), rows$VSDY)
+      expect_identical(format(rows$P$VSTM, "%Y-%m-%d %H:%M"), paste(rows$VSDTC, "08:30"))
+      expect_identical(as.numeric(out$dm$WHEN[[match(as.character(vsn[[key]][i]), keys)]]), as.numeric(ref[i]))
+    }
+    expect_s3_class(vsn$data, "vctrs_list_of")
+    for (rows in out$lbn$data) {
+      k <- as.character(rows[[key]])
+      present <- k != ""
+      expect_false(is.unsorted(k[present]))
+      day <- as.Date(substr(rows$LBDTC[present], 1, 10))
+      expect_identical(deid_study_day(day, as.Date(out$dm$RFSTDTC[match(k[present], keys)])), rows$LBDY[present])
+      expect_identical(do.call(c, lapply(rows$REPS[present], `[[`, "RPDT")), day + 1)
+      expect_true(all(is.na(rows$LBDTC[!present]) | rows$LBDTC[!present] == ""))
+    }
   })
 
   for (gap_name in names(deid_known_gaps)) {

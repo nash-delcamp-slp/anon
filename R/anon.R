@@ -593,6 +593,32 @@ anon <- function(
         max_distance
       )
     }
+
+    # A list column keeps its class (AsIs, vctrs list_of); a list_of's
+    # prototype is redacted like its elements, so that they still match it.
+    if (is_plain_list(x) && !is.null(oldClass(x))) {
+      ptype <- attr(x, "ptype", exact = TRUE)
+      if (inherits(x, "vctrs_list_of") && !is.null(ptype)) {
+        ptype <- anon(
+          ptype,
+          pattern_list = pattern_list,
+          default_replacement = default_replacement,
+          check_approximate = FALSE,
+          max_distance = max_distance,
+          df_variable_names = df_variable_names,
+          df_classes = df_classes,
+          check_names = check_names,
+          check_labels = check_labels,
+          .self = TRUE,
+          .pattern_replacements = pattern_replacements,
+          .compiled = compiled,
+          .where = .where
+        )
+        attr(ptype, "approximate_warnings") <- NULL
+        attr(result, "ptype") <- ptype
+      }
+      class(result) <- oldClass(x)
+    }
   } else {
     result <- x
   }
