@@ -99,10 +99,8 @@ test_that("data frames with their own key are sorted by it; others keep their ro
     expect_identical(got$USUBJID, unname(new[original$USUBJID][ord]))
     expect_identical(got$LBDTC, original$LBDTC[ord])
   }
-  # Its row names are text, kept with their rows.
-  original <- nested$data[[1]]
-  ord <- order(new[original$USUBJID], seq_len(nrow(original)))
-  expect_identical(rownames(step$data$lb$data[[1]]), rownames(original)[ord])
+  # It was sorted, so its row names are reset, though they were text.
+  expect_identical(rownames(step$data$lb$data[[1]]), as.character(seq_len(nrow(nested$data[[1]]))))
   # Nested by subject: each element keeps its rows in order.
   by_subject <- nest_base(lb, "USUBJID")
   step <- anon_subject_ids(by_subject, keep_secrets = TRUE, seed = 5)
@@ -506,11 +504,11 @@ test_that("subjects from nested data that disagree are named in a warning", {
   x$A <- tibble::tibble(USUBJID = c("S-01", "S-02"))
   x$B <- tibble::tibble(USUBJID = c("S-02", "S-03"))
   r <- step_warnings(anon_subject_ids(list(dm = nested_dm(), x = x), seed = 1))
-  expect_match(r$warnings, "keys disagree; .*: x\\. Check", all = FALSE)
+  expect_match(r$warnings, "keys disagree: x\\. Subjects were taken from the first packed column", all = FALSE)
   x$B <- NULL
   x$data <- list(tibble::tibble(USUBJID = "S-03"), tibble::tibble(USUBJID = "S-02"))
   r <- step_warnings(anon_subject_dates(list(dm = nested_dm(), x = x), seed = 1))
-  expect_match(r$warnings, "keys disagree; .*: x\\. Check", all = FALSE)
+  expect_match(r$warnings, "keys disagree: x\\. Subjects were taken from the first packed column", all = FALSE)
 })
 
 test_that("a POSIXlt keeps its time zone attribute", {
@@ -518,4 +516,43 @@ test_that("a POSIXlt keeps its time zone attribute", {
   x$LT <- as.POSIXlt(c("2020-03-07 08:00:00", "2020-10-30 08:30:00"), tz = "America/New_York")
   out <- anon_subject_dates(x, seed = 3)$data
   expect_identical(attr(out$LT, "tzone"), attr(x$LT, "tzone"))
+})
+
+test_that("a list_of's prototype holds no keys or dates when its elements give it none", {
+  keys <- c("S-01", "S-02", "S-03")
+  mk <- function(i) tibble::tibble(USUBJID = factor(keys[i]), LBDTC = factor("2014-01-05"), NOTE = factor(keys[i]))
+  pt <- vctrs::vec_ptype(vctrs::vec_rbind(mk(1), mk(2), mk(3)))
+  data <- list(
+    dm = nested_dm(),
+    zero = tibble::tibble(ID = character(0), data = vctrs::new_list_of(list(), ptype = pt)),
+    nulls = tibble::tibble(ID = c("a", "b"), data = vctrs::new_list_of(list(NULL, NULL), ptype = pt)),
+    rows0 = tibble::tibble(ID = c("a", "b"), data = vctrs::new_list_of(lapply(1:2, function(i) vctrs::vec_slice(mk(i), 0)), ptype = pt))
+  )
+  r <- step_warnings(anon_subject_dates(anon_subject_ids(data, seed = 1), seed = 2))
+  for (ds in c("zero", "nulls", "rows0")) {
+    p <- attr(r$value$data[[ds]]$data, "ptype")
+    expect_identical(levels(p$USUBJID), character(0), info = ds)
+    expect_identical(levels(p$LBDTC), character(0), info = ds)
+  }
+  # A factor that isn't the key, holding keys, is data: named, as in elements.
+  expect_match(r$warnings, "still contain original `USUBJID` values.*zero.data\\[\\[\\]\\]\\[NOTE\\]", all = FALSE)
+})
+
+test_that("a dataset name ending in a digit doesn't hide a key starting a column name", {
+  x <- data.frame(USUBJID = c("S-01", "S-02"))
+  x[["S-01 when"]] <- c("2020-01-03", "2020-02-03")
+  data <- list(dm = nested_dm())
+  data[["S-02"]] <- x
+  r <- step_warnings(anon_subject_dates(data, seed = 1))
+  expect_match(r$warnings, "not shifted: \\[KEY\\]\\.\\[KEY\\] when\\.", all = FALSE)
+  expect_false(any(grepl("S-0", r$warnings)))
+})
+
+test_that("a list_of's prototype doesn't keep factor levels its elements lack", {
+  e <- list(tibble::tibble(USUBJID = "S-01", NOTE = factor("x")), tibble::tibble(USUBJID = "S-02", NOTE = factor("x")))
+  pt <- vctrs::vec_ptype(tibble::tibble(USUBJID = "S-01", NOTE = factor("x", levels = c("S-03", "x"))))
+  d <- tibble::tibble(T = c("a", "b"))
+  d$data <- vctrs::new_list_of(e, ptype = pt)
+  out <- suppressWarnings(anon_subject_ids(list(dm = nested_dm(), d = d), seed = 1))$data$d
+  expect_identical(levels(attr(out$data, "ptype")$NOTE), "x")
 })

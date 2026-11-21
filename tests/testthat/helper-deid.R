@@ -195,6 +195,8 @@ deid_fixture <- function() {
   }))
   dm$WHEN <- I(as.list(deid_start))
   dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
+  # Numbers alike but for the key in a note: each is rewritten with its own.
+  dm$NOTED <- I(lapply(seq_len(n), function(i) structure(i, note = paste("for", deid_keys[i]))))
   # Each data frame's own key is another subject's than its row's: its own
   # key wins.
   dm$SUB <- I(lapply(deid_keys[c(2:n, 1)], function(k) tibble::tibble(USUBJID = k, X = 1)))
@@ -214,8 +216,9 @@ deid_fixture <- function() {
   # Tables of model coefficients, named by term: their row names are text
   # and are kept.
   dm$COEF <- I(lapply(seq_len(n), function(i) data.frame(Estimate = c(1, i), row.names = c("(Intercept)", "TIME"))))
-  # Date-times held in a list column as POSIXlt values.
-  dm$LT <- I(lapply(seq_len(n), function(i) as.POSIXlt(paste(format(deid_start[i] + 1), "09:00"), tz = "UTC")))
+  # Date-times held in a list column as POSIXlt values, in a zone whose
+  # `tzone` names its standard and daylight saving abbreviations too.
+  dm$LT <- I(lapply(seq_len(n), function(i) as.POSIXlt(paste(format(deid_start[i] + 1), "09:00"), tz = "America/New_York")))
   # A list column holding objects that can't be de-identified (a resampling
   # split holding keys, as rsample makes them, and a fitted model).
   dm$FIT <- I(c(
@@ -379,10 +382,10 @@ deid_fixture <- function() {
   # A dataset of data frames split by subject (each holding one subject), in
   # an order the keys don't follow: each row has its data frame's subject.
   spl <- tibble::tibble(SPDTC = format(deid_start[c(5, 2, 7)] + 2))
-  # They are plain data frames with the row names of the rows they were split
-  # from, which the IDs step resets.
+  # They are plain data frames with text row names naming the rows they were
+  # split from, which the IDs step resets as it sorts them.
   spl$data <- lapply(c(5, 2, 7), function(i) {
-    data.frame(USUBJID = deid_keys[i], SPDT = deid_start[i] + c(3, 4), row.names = 2 * i + 0:1)
+    data.frame(USUBJID = deid_keys[i], SPDT = deid_start[i] + c(3, 4), row.names = paste0("obs", 2 * i + 0:1))
   })
 
   # Labs nested by test, in a dataset without the key: the nested data frames
@@ -423,9 +426,24 @@ deid_fixture <- function() {
   lof_rows <- lapply(1:2, function(i) tibble::tibble(V = factor(deid_keys[i])))
   lof$data <- vctrs::new_list_of(lof_rows, ptype = vctrs::vec_ptype(vctrs::vec_rbind(lof_rows[[1]], lof_rows[[2]])))
 
+  # list_of columns whose elements give their prototype nothing to follow (no
+  # element, only NULL, only data frames without rows): the prototype's key
+  # and date factors hold the keys and a real date as levels, which must go.
+  lab_ptype <- function(k) {
+    tibble::tibble(USUBJID = factor(k, levels = deid_keys[1:3]), LBDTC = factor(format(deid_start[1] + 2)))
+  }
+  ptype0 <- vctrs::vec_ptype(lab_ptype(deid_keys[1]))
+  lz <- tibble::tibble(ID = character(0))
+  lz$data <- vctrs::new_list_of(list(), ptype = ptype0)
+  ln <- tibble::tibble(ID = c("a", "b"))
+  ln$data <- vctrs::new_list_of(list(NULL, NULL), ptype = ptype0)
+  lr <- tibble::tibble(ID = c("a", "b"))
+  lr$data <- vctrs::new_list_of(lapply(deid_keys[2:3], function(k) vctrs::vec_slice(lab_ptype(k), 0)), ptype = ptype0)
+
   out <- list(
     dm = dm, vs = vs, ex = ex, suppdm = suppdm, relsub = relsub, ad = ad, notes = notes, pr = pr, ta = ta, te = te,
-    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof
+    vsum = vsum, tw = tw, vsn = vsn, lbn = lbn, pk = pk, spl = spl, qc = qc, lof = lof,
+    lz = lz, ln = ln, lr = lr
   )
   out[[deid_keys[4]]] <- named
   out

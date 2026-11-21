@@ -126,9 +126,11 @@
 #' and `key_cols` columns are replaced as in a dataset, subjects found only in
 #' nested data get pseudonyms too, and a data frame with its own key has its
 #' rows sorted by the new key (row names reset); others keep their rows in
-#' order. Row names of nested data frames that are row positions (integer,
-#' or made of digits) are reset; other row names, such as the terms of a table
-#' of model coefficients, are kept and rewritten as text. A dataset (or nested
+#' order. Row names of nested data frames are reset when their rows are
+#' sorted; in those that belong to their outer row, only row names that are
+#' row positions (integer, or made of digits) are reset, and other row names,
+#' such as the terms of a table of model coefficients, are kept and rewritten
+#' as text. A dataset (or nested
 #' data frame) without the `key` column whose rows still get one subject each
 #' from nested data is de-identified as if it had the key, each row having
 #' that subject: its rows are sorted by the new key and its own dates shifted.
@@ -310,13 +312,14 @@ anon_subject_ids <- function(
     }
     # Data frames in list columns that own their rows are sorted by the new
     # key, as datasets are; those that belong to their outer row keep their
-    # order. Row positions as row names (integer, or text made of digits),
-    # which can reveal the original order, are reset; other row names (such
-    # as the terms of a table of model coefficients) are text, rewritten with
-    # the other names, and kept.
+    # order. Row names are reset when the rows are sorted, as at the top level
+    # (they could link pseudonyms to the original rows); in data frames that
+    # belong to their outer row, only row positions (integer, or text made of
+    # digits) are reset, and other row names (such as the terms of a table of
+    # model coefficients) are text, rewritten with the other names, and kept.
     data[[ds]] <- assemble_tables(tabs, function(df, tb, m) {
       if (tb$owns && tb$kind == "list") {
-        df <- sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers, keep_text_names = TRUE)
+        return(sort_by_new_key(df, if (is.null(m$rows)) tb$idx else tb$idx[m$rows], numbers))
       }
       if (!tibble::is_tibble(df) && !has_text_row_names(df)) {
         rownames(df) <- NULL
@@ -579,7 +582,7 @@ anon_subject_dates <- function(
     for (t in seq_along(tables[[ds]])) {
       tb <- tables[[ds]][[t]]
       if (tb$keyed) {
-        where <- if (nzchar(tb$path)) paste0(ds, ".", tb$path) else ds
+        where <- if (nzchar(tb$path)) location(ds, tb$path) else ds
         tb$date_vars <- dataset_date_vars(tb$df, vars, key, where, locate, list_dates = tb$list_dates)
         tables[[ds]][[t]] <- zap_table_user_missing(tb, tb$date_vars)
       }
@@ -625,7 +628,7 @@ anon_subject_dates <- function(
       subject_offset <- offsets[tabs[[t]]$idx]
       df <- tb$df
       shifted_cols <- integer(0)
-      where <- function(col) paste0(ds, ".", table_column_path(tb, match(col, names(df)), positional = TRUE))
+      where <- function(col) location(ds, table_column_path(tb, match(col, names(df)), positional = TRUE))
 
       for (col in tb$date_vars) {
         j <- match(col, names(df))
@@ -1169,7 +1172,8 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
     tz <- if (is.null(tz) || length(tz) == 0) "" else tz[[1]]
     lt <- as.POSIXlt(x, tz = tz)
     lt$mday <- lt$mday + use
-    lt$isdst <- -1L
+    # One per value: a single -1 breaks a POSIXlt of no values.
+    lt$isdst <- rep(-1L, length(x))
     out[] <- as.POSIXct(lt, tz = tz)
     invalid <- present & !no_offset & !year_in_range(out)
     out[no_offset | invalid] <- NA
@@ -1318,7 +1322,7 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
       if (name_key(leaf$name) %in% name_key(c(key, skip)) || length(leaf$text) == 0) {
         next
       }
-      where <- c(where, paste0(ds, ".", leaf$path))
+      where <- c(where, location(ds, leaf$path))
       is_nested <- c(is_nested, isTRUE(leaf$nested))
       texts <- c(texts, list(leaf$text))
     }
@@ -1388,7 +1392,9 @@ key_text_regex <- function(keys) {
 #   names a function (other text is ordinary);
 # - date-times: `tzone`; difftime and units objects: `units`; time series:
 #   `tsp`; survival::Surv: `type` and `states`;
-# - vctrs objects: `ptype` (never dropped, but its content is rewritten);
+# - vctrs objects: `ptype` (never dropped; its text is rewritten, its values
+#   too when it is held in an attribute, and only its attributes and names
+#   on a list column of data, whose elements' values aren't rewritten);
 # - grouped and rowwise tibbles: `groups`; data.tables: `sorted`, `index`
 #   (column references, renamed with the columns) and `.internal.selfref`;
 # - atomic vectors: SAS, SPSS and Stata formats, and a numeric
@@ -1681,7 +1687,7 @@ rewrite_frame <- function(ctx, df, values = FALSE, nested = FALSE) {
     ctx$where <- if (nested) {
       column_path(where, new_cols[j], j, isTRUE(text_cache$.positional))
     } else {
-      paste0(where, ".", new_cols[j])
+      location(where, new_cols[j])
     }
     column <- x[[j]]
     new <- if (values) {
@@ -1751,13 +1757,30 @@ rewrite_list_column <- function(ctx, column) {
       }
       return(out)
     }
-    if (is.atomic(e) && !isS4(e)) {
-      return(rewrite_attributes(ctx, e))
-    }
-    if (!is_plain_list(e)) {
+    if (is.atomic(e) && !isS4(e) && is.null(attributes(e))) {
       return(e)
     }
-    rewrite_attributes(ctx, elements(e))
+    # Vectors and plain lists alike in their attributes and names are
+    # rewritten once, like data frames.
+    skeleton <- text_skeleton(e)
+    id <- if (!isFALSE(skeleton)) rlang::hash(skeleton)
+    if (!is.null(id) && !is.null(done[[id]])) {
+      hit <- done[[id]]
+      ctx$counts <- ctx$counts + hit$counts
+      return(with_text_skeleton(e, hit$skeleton))
+    }
+    before <- ctx$counts
+    out <- if (is.atomic(e) && !isS4(e)) {
+      rewrite_attributes(ctx, e)
+    } else if (is_plain_list(e)) {
+      rewrite_attributes(ctx, elements(e))
+    } else {
+      e
+    }
+    if (!is.null(id)) {
+      assign(id, list(counts = ctx$counts - before, skeleton = text_skeleton(out)), envir = done)
+    }
+    out
   }
   elements <- function(l) {
     cls <- oldClass(l)
@@ -1775,6 +1798,53 @@ rewrite_list_column <- function(ctx, column) {
   # A list_of's prototype follows its rewritten elements (names, labels), so
   # that they still match it.
   with_elements_ptype(elements(column))
+}
+
+# The attributes (names included) of a vector, or of a plain list and what it
+# holds at any depth, which are all its rewrite in a list column depends on;
+# FALSE when it also depends on values (data frames, value labels and
+# missing-value codes compared with the values). Other objects aren't
+# entered.
+text_skeleton <- function(e) {
+  if (is.null(e)) {
+    return(list())
+  }
+  if (is.data.frame(e)) {
+    return(FALSE)
+  }
+  if (is.atomic(e) && !isS4(e)) {
+    a <- attributes(e)
+    if (any(c("labels", "na_values", "na_range") %in% names(a))) {
+      return(FALSE)
+    }
+    return(list(a))
+  }
+  if (!is_plain_list(e)) {
+    return(list("not entered"))
+  }
+  kids <- lapply(unclass(e), text_skeleton)
+  if (any(vapply(kids, isFALSE, logical(1)))) {
+    return(FALSE)
+  }
+  list(attributes(e), kids)
+}
+
+# A vector or plain list given the attributes of another with the same
+# text_skeleton() (`skeleton`, that of its rewrite).
+with_text_skeleton <- function(e, skeleton) {
+  if (is.null(e) || identical(skeleton, list("not entered"))) {
+    return(e)
+  }
+  if (is.atomic(e)) {
+    attributes(e) <- skeleton[[1]]
+    return(e)
+  }
+  x <- unclass(e)
+  for (i in seq_along(x)) {
+    if (!is.null(x[[i]])) x[[i]] <- with_text_skeleton(x[[i]], skeleton[[2]][[i]])
+  }
+  attributes(x) <- skeleton[[1]]
+  x
 }
 
 # An id for the text a data frame's rewrite depends on, when that is only its
@@ -2168,7 +2238,7 @@ warn_invalid_utf8 <- function(data, invalid = list(), locate = identity) {
     for (leaf in dataset_leaves(data[[ds]])) {
       bad <- unsearchable_texts(leaf$text)
       if (length(bad) > 0) {
-        where <- paste0(ds, ".", leaf$path)
+        where <- location(ds, leaf$path)
         texts[[where]] <- unique(c(texts[[where]], bad))
       }
     }
@@ -2191,7 +2261,7 @@ warn_s4_columns <- function(data, what, in_attributes = character(0), locate = i
   for (ds in names(data)) {
     for (leaf in dataset_leaves(data[[ds]])) {
       if (isTRUE(leaf$s4)) {
-        hits <- c(hits, paste0(ds, ".", leaf$path))
+        hits <- c(hits, location(ds, leaf$path))
       }
     }
   }
@@ -2220,7 +2290,7 @@ warn_opaque_columns <- function(data, locate = identity) {
   for (ds in names(data)) {
     for (leaf in dataset_leaves(data[[ds]])) {
       if (isTRUE(leaf$opaque)) {
-        hits <- c(hits, paste0(ds, ".", leaf$path))
+        hits <- c(hits, location(ds, leaf$path))
       }
     }
   }
@@ -2244,19 +2314,24 @@ warn_owner_conflicts <- function(tables, locate = identity) {
   for (ds in names(tables)) {
     for (tb in tables[[ds]]) {
       if (isTRUE(tb$owner_conflict)) {
-        hits <- c(hits, if (nzchar(tb$path)) paste0(ds, ".", tb$path) else ds)
+        hits <- c(hits, if (nzchar(tb$path)) location(ds, tb$path) else ds)
       }
     }
   }
   if (length(hits) > 0) {
     warning(
-      "These data frames get their rows' subjects from nested data whose keys disagree; the first ",
-      "packed column with the key was used, or else the first list column: ",
-      paste(unique(locate(hits)), collapse = ", "), ". Check which subject each row belongs to.",
+      "These data frames get their rows' subjects from nested data whose keys disagree: ",
+      paste(unique(locate(hits)), collapse = ", "), ". Subjects were taken from the first packed column ",
+      "with the key, or without one, the first list column.",
       call. = FALSE
     )
   }
 }
+
+# A location: a dataset (or "dataset.column", as rewrite_frame() builds them)
+# and a column inside it, printed "dataset.column" by format_locations().
+location_sep <- "\x1f"
+location <- function(dataset, path) paste0(dataset, location_sep, path)
 
 # Locations (such as "ds.col" or "ds.col[sub]") as a step's warnings print
 # them. Text marked "bytes" or not valid UTF-8 can't be printed, so its bytes
@@ -2274,7 +2349,16 @@ format_locations <- function(x, rewrite = identity) {
   x <- enc2utf8(x)
   bad <- !is.na(x) & !validUTF8(x)
   x[bad] <- iconv(x[bad], "UTF-8", "UTF-8", sub = "byte")
-  rewrite(x)
+  # The parts of a location (see location()) are rewritten apart, so that the
+  # end of a dataset name doesn't hide a key at the start of a column name.
+  parts <- strsplit(x, location_sep, fixed = TRUE)
+  parts[lengths(parts) == 0] <- list("")
+  n <- lengths(parts)
+  if (all(n <= 1)) {
+    return(rewrite(x))
+  }
+  flat <- rewrite(unlist(parts, use.names = FALSE))
+  vapply(split(flat, rep(seq_along(x), n)), paste, character(1), collapse = ".", USE.NAMES = FALSE)
 }
 
 # Text held in the data, searched by the warnings ---------------------------
@@ -2443,7 +2527,7 @@ warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identi
         if (all(c("QNAM", "QVAL") %in% names(df)) && is.null(vars)) "QVAL"
       )
       for (leaf in tb$leaves) {
-        where <- paste0(ds, ".", leaf$path)
+        where <- location(ds, leaf$path)
         if (leaf$name %in% c(key, selected, mixed)) {
           # List columns' text isn't shifted, only their Date and date-time
           # values.
@@ -2507,10 +2591,6 @@ iso_date_columns <- function(tb, cols) {
   hits
 }
 
-# "dataset.column" names; empty when there are no columns.
-qualify <- function(dataset, cols) {
-  if (length(cols) == 0) character(0) else paste0(dataset, ".", cols)
-}
 
 # Whether text values hold ISO 8601-like dates as whole values, or dates
 # inside text: ISO 8601, with a month name (05JAN2014, 5 Jan 2014, Jan 5,
@@ -2638,7 +2718,7 @@ warn_id_name_variants <- function(data, id_cols, locate = identity) {
   for (ds in names(data)) {
     for (leaf in dataset_leaves(data[[ds]])) {
       if (leaf$keyed && name_key(leaf$name) %in% name_key(id_cols) && !leaf$name %in% id_cols) {
-        hits <- c(hits, paste0(ds, ".", leaf$path))
+        hits <- c(hits, location(ds, leaf$path))
       }
     }
   }
@@ -2684,10 +2764,9 @@ any_numeric_key <- function(data, key) {
 
 # Sort rows by the new key so row order no longer follows the original keys.
 # The order of rows within a subject, and of rows without a key, is kept. Row
-# names are reset, except text ones with `keep_text_names` (see
-# has_text_row_names()).
-sort_by_new_key <- function(df, idx, numbers, keep_text_names = FALSE) {
-  reset <- !tibble::is_tibble(df) && !(keep_text_names && has_text_row_names(df))
+# names are reset.
+sort_by_new_key <- function(df, idx, numbers) {
+  reset <- !tibble::is_tibble(df)
   if (nrow(df) < 2) {
     if (reset) rownames(df) <- NULL
     return(df)

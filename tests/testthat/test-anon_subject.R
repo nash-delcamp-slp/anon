@@ -1388,10 +1388,13 @@ test_that("a factor held in an attribute whose levels now read the same becomes 
 })
 
 test_that("text held in list columns is searched quickly", {
+  # A timing, with a generous limit (about 2 s on a laptop) so that a busy
+  # machine doesn't fail it.
+  skip_on_cran()
   n <- 20000
   d <- tibble::tibble(USUBJID = sprintf("S-%05d", seq_len(n)))
   d$L <- lapply(seq_len(n), function(i) list(a = "x", b = structure(i, note = "n")))
-  expect_lt(system.time(anon_subject_ids(d, seed = 1))[["elapsed"]], 5)
+  expect_lt(system.time(anon_subject_ids(d, seed = 1))[["elapsed"]], 20)
 })
 
 test_that("other_attributes = \"drop\" drops attributes beyond the core ones, and counts them", {

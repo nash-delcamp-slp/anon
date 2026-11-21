@@ -45,7 +45,10 @@ list_column_content <- function(x) {
   level <- unclass(x)
   attributes(level) <- NULL
   row <- seq_along(level)
-  slot <- rep(list(integer(0)), length(level))
+  # Positions inside an element as text ("2.1"), turned into integers only for
+  # what is recorded.
+  slot <- rep("", length(level))
+  as_slot <- function(x) lapply(strsplit(x, ".", fixed = TRUE), as.integer)
   out <- list(
     frames = list(), frame_row = integer(0), frame_slot = list(),
     dates = list(), date_row = integer(0), date_slot = list(), opaque = FALSE
@@ -68,10 +71,10 @@ list_column_content <- function(x) {
     is_date <- (atomic & vapply(level, inherits, logical(1), what = c("Date", "POSIXct"))) | lt
     out$frames <- c(out$frames, level[df])
     out$frame_row <- c(out$frame_row, row[df])
-    out$frame_slot <- c(out$frame_slot, slot[df])
+    out$frame_slot <- c(out$frame_slot, as_slot(slot[df]))
     out$dates <- c(out$dates, level[is_date])
     out$date_row <- c(out$date_row, row[is_date])
-    out$date_slot <- c(out$date_slot, slot[is_date])
+    out$date_slot <- c(out$date_slot, as_slot(slot[is_date]))
     is_factor <- atomic & vapply(level, is.factor, logical(1))
     is_text <- atomic & vapply(level, is.character, logical(1))
     text[[length(text) + 1]] <- unlist(lapply(level[is_factor], levels), use.names = FALSE)
@@ -82,7 +85,7 @@ list_column_content <- function(x) {
       attributes(p) <- NULL
       p
     }), recursive = FALSE, use.names = FALSE)
-    slot <- unlist(Map(function(s, k) lapply(seq_len(k), function(i) c(s, i)), slot[plain], n), recursive = FALSE)
+    slot <- paste0(rep(slot[plain], n), ifelse(rep(slot[plain], n) == "", "", "."), sequence(n))
     row <- rep(row[plain], n)
   }
   out$text <- unique(as.character(unlist(text, use.names = FALSE)))
@@ -288,6 +291,17 @@ nested_tables <- function(df, key, positional = FALSE, dataset = NULL) {
       }
       content <- list_column_content(col)
       tables[[t]]$list_dates[j] <- content$has_dates
+      # A list_of's prototype is processed with the data frames, as one of
+      # zero rows, so that its types follow theirs (factor levels of keys and
+      # dates); when it has no elements to follow, it holds no values.
+      ptype <- attr(col, "ptype", exact = TRUE)
+      content$frame_ptype <- logical(length(content$frames))
+      if (inherits(col, "vctrs_list_of") && is.data.frame(ptype)) {
+        content$frames <- c(content$frames, list(ptype))
+        content$frame_row <- c(content$frame_row, NA_integer_)
+        content$frame_slot <- c(content$frame_slot, list(integer(0)))
+        content$frame_ptype <- c(content$frame_ptype, TRUE)
+      }
       list_path <- paste0(path, "[[]]")
       list_pos <- paste0(pos, "[[]]")
       for (g in bind_frames(content$frames, where(list_pos))) {
@@ -302,12 +316,14 @@ nested_tables <- function(df, key, positional = FALSE, dataset = NULL) {
           m <- g$members[[k]]
           list(
             template = content$frames[[m]], row = content$frame_row[[m]], slot = content$frame_slot[[m]],
+            ptype = content$frame_ptype[[m]],
             rows = if (!single) seq.int(ends[[k]] - sizes[[k]] + 1L, length.out = sizes[[k]])
           )
         })
         tables <- c(tables, list(child))
       }
       content$frames <- NULL
+      content$frame_ptype <- NULL
       tables[[t]]$lists[[j]] <- content
     }
     t <- t + 1L
@@ -352,7 +368,7 @@ resolve_owners <- function(tables, key) {
       row <- unlist(lapply(tables[from], `[[`, "parent_row"), use.names = FALSE)
       k <- unlist(owners[from], use.names = FALSE)
       pairs <- unique(data.frame(row = row, k = k)[!is.na(k), , drop = FALSE])
-      if (nrow(pairs) == nrow_of(tb$df) && !anyDuplicated(pairs$row)) {
+      if (nrow(pairs) > 0 && nrow(pairs) == nrow_of(tb$df) && !anyDuplicated(pairs$row)) {
         candidates <- c(candidates, list(list(keys = pairs$k[order(pairs$row)], source = "list")))
       }
     }
@@ -481,7 +497,11 @@ assemble_tables <- function(tables, finish = function(df, tb, m) df) {
       for (tb in run) {
         slicers <- lapply(stats::setNames(tb$changed, tb$changed), function(k) piece_slicer(.subset2(tb$df, k)))
         for (m in tb$members) {
-          x[[c(m$row, m$slot)]] <- restore(tb, m, slicers)
+          if (isTRUE(m$ptype)) {
+            attrs$ptype <- restore(tb, m, slicers)
+          } else {
+            x[[c(m$row, m$slot)]] <- restore(tb, m, slicers)
+          }
         }
       }
       attributes(x) <- attrs
@@ -495,9 +515,9 @@ assemble_tables <- function(tables, finish = function(df, tb, m) df) {
 }
 
 # A vctrs list_of column's prototype for its new elements. The old prototype
-# is kept when the elements still match it (they can be cast to it, and have
-# the value labels and missing-value codes it has), and when they have none
-# in common. Otherwise it is found as vctrs::list_of() finds it, keeping the
+# is kept when the elements still match it (they can be cast to it, have the
+# value labels and missing-value codes it has, and the factor levels of their
+# common prototype), and when they have none in common. Otherwise it is found as vctrs::list_of() finds it, keeping the
 # attributes of the old prototype's columns that don't define their type
 # (such as labels, which tidyr::unnest() gives the unnested columns).
 with_elements_ptype <- function(x) {
@@ -509,19 +529,30 @@ with_elements_ptype <- function(x) {
   if (length(elements) == 0) {
     return(x)
   }
+  ptype <- tryCatch(do.call(vctrs::vec_ptype_common, elements), error = function(e) NULL)
   matches <- !is.null(old) && tryCatch({
     for (e in elements) vctrs::vec_cast(e, old)
     TRUE
-  }, error = function(e) FALSE) && all(vapply(elements, has_codes_of, logical(1), ptype = old))
-  if (!is.null(old) && matches) {
+  }, error = function(e) FALSE) && all(vapply(elements, has_codes_of, logical(1), ptype = old)) &&
+    (is.null(ptype) || same_levels(ptype, old))
+  if (matches) {
     return(x)
   }
-  ptype <- tryCatch(do.call(vctrs::vec_ptype_common, elements), error = function(e) NULL)
   if (!is.null(ptype)) {
     ptype <- with_ptype_attributes(ptype, old)
     if (!identical(ptype, old)) attr(x, "ptype") <- ptype
   }
   x
+}
+
+# Whether the factors of `x` and `ptype` (their columns found in both by
+# name) have the same levels, in any order.
+same_levels <- function(x, ptype) {
+  if (is.data.frame(x) && is.data.frame(ptype)) {
+    common <- intersect(names(x), names(ptype))
+    return(all(vapply(common, function(nm) same_levels(.subset2(x, nm), .subset2(ptype, nm)), logical(1))))
+  }
+  !is.factor(x) || !is.factor(ptype) || setequal(levels(x), levels(ptype))
 }
 
 # Whether `x` has the value labels and missing-value codes `ptype` has, in

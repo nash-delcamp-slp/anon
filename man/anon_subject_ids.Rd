@@ -160,9 +160,11 @@ each of its rows belongs to the subject in that column. Its \code{key}, \code{al
 and \code{key_cols} columns are replaced as in a dataset, subjects found only in
 nested data get pseudonyms too, and a data frame with its own key has its
 rows sorted by the new key (row names reset); others keep their rows in
-order. Row names of nested data frames that are row positions (integer,
-or made of digits) are reset; other row names, such as the terms of a table
-of model coefficients, are kept and rewritten as text. A dataset (or nested
+order. Row names of nested data frames are reset when their rows are
+sorted; in those that belong to their outer row, only row names that are
+row positions (integer, or made of digits) are reset, and other row names,
+such as the terms of a table of model coefficients, are kept and rewritten
+as text. A dataset (or nested
 data frame) without the \code{key} column whose rows still get one subject each
 from nested data is de-identified as if it had the key, each row having
 that subject: its rows are sorted by the new key and its own dates shifted.

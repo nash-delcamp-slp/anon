@@ -83,7 +83,7 @@ deid_shift_value <- function(x, off) {
   tz <- attr(x, "tzone")
   lt <- as.POSIXlt(x, tz = tz)
   lt$mday <- lt$mday + off
-  lt$isdst <- -1L
+  lt$isdst <- rep(-1L, length(x))
   as.POSIXct(lt, tz = tz)
 }
 
@@ -109,7 +109,23 @@ deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
     if (!is.null(out[[i]])) out[[i]] <- deid_expected_element(out[[i]], keys[i], oracle, prefix, key, keyed)
   }
   class(out) <- cls
-  deid_rewrite_attributes(out, oracle)
+  out <- deid_rewrite_attributes(out, oracle)
+  if (inherits(x, "vctrs_list_of")) {
+    attr(out, "ptype") <- deid_expected_ptype(x, oracle, prefix, key, keyed)
+  }
+  out
+}
+
+# A list_of's prototype as each pipeline should leave it: a data frame of no
+# rows, de-identified like its elements (a replaced or shifted factor keeps
+# no levels when the elements give it none; it would otherwise hold keys or
+# real dates).
+deid_expected_ptype <- function(x, oracle, prefix, key, keyed) {
+  ptype <- attr(x, "ptype", exact = TRUE)
+  if (!is.data.frame(ptype)) {
+    return(deid_rewrite_value(ptype, oracle))
+  }
+  deid_expected_frame(ptype, character(0), oracle, prefix, key, keyed || key %in% names(ptype), sort = TRUE)
 }
 
 deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
@@ -154,7 +170,8 @@ deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
 deid_frame_owners <- function(df, key) {
   if (key %in% names(df)) {
     k <- as.character(df[[key]])
-    k[!is.na(k) & k == ""] <- NA
+    # Blank keys, also of spaces only, are no key.
+    k[!is.na(k) & trimws(k) == ""] <- NA
     return(list(keys = k, from = "own"))
   }
   for (v in unclass(df)) {
@@ -207,22 +224,30 @@ deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FAL
       deid_expected_nested(v, keys, oracle, prefix, key, keyed)
     } else if (keyed) {
       values <- deid_expected_column(v, names(x)[j], keys, oracle, prefix, key)
-      if (!identical(values, v)) v[] <- values
+      if (is.factor(v) && names(x)[j] %in% c(key, deid_date_cols)) {
+        # A replaced or shifted factor has the new values as levels.
+        a <- attributes(v)
+        v <- factor(as.character(values))
+        attributes(v) <- c(attributes(v), a[setdiff(names(a), c("levels", "class", "contrasts", "names"))])
+      } else if (!identical(values, v)) {
+        v[] <- values
+      }
       deid_rewrite_attributes(v, oracle)
     } else {
       deid_rewrite_attributes(v, oracle)
     }
   }
-  # Row names that are row positions (integer, or digits) are reset inside
-  # nested data with subjects, and in a dataset whose rows are sorted; other
-  # row names inside nested data are kept, rewritten.
+  # Row names are reset when the rows are sorted. Inside nested data with
+  # subjects, row names that are row positions (integer, or digits) are reset
+  # too; other row names of data frames belonging to their outer row are
+  # kept, rewritten.
   rn <- attr(df, "row.names")
   positions <- is.numeric(rn) || all(grepl("^[0-9]+$", rn))
   x <- deid_rewrite_frame_text(x, df, cls, oracle)
   if (sort && own && nrow(x) > 1) {
     x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
   }
-  reset <- if (nested) keyed && positions else sort && own
+  reset <- (sort && own) || (nested && keyed && positions)
   if (reset && !tibble::is_tibble(x)) {
     rownames(x) <- NULL
   }
@@ -444,6 +469,10 @@ for (pipeline_name in names(deid_pipelines)) {
         expect_identical(typeof(x), type, info = id)
         also <- pipeline$attributes[[id]]
         want <- expected[[rewrite(col)]]
+        if (inherits(want, "vctrs_list_of")) {
+          has_key <- key %in% names(data[[ds]])
+          attr(want, "ptype") <- deid_expected_ptype(data[[ds]][[col]], text_oracle, pipeline$prefix, key, has_key)
+        }
         # Replaced and shifted factors lose a contrasts matrix named by the old
         # levels (a contrasts function's name would stay).
         if (col %in% replaced_cols && is.matrix(attr(want, "contrasts", exact = TRUE))) {
