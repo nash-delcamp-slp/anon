@@ -855,12 +855,58 @@ test_that("anon() keeps models in list columns and warns about what it can't red
   d <- tibble::tibble(ID = 1:2, FIT = list(fit, NULL), F = list(function(x) x, NULL))
   expect_warning(
     out <- anon(d, pattern_list = "DRUGQX"),
-    "`FIT\\[1\\]\\[[0-9]+\\]` holds a function, call, formula"
+    "can't redact functions, calls, formulas[^:]*: `FIT\\[1\\]\\$call`, `FIT\\[1\\]\\$terms`, `FIT\\[1\\]\\$model` \\(attribute `terms`\\), `F\\[1\\]`\\."
   )
   expect_s3_class(out$FIT[[1]], "lm")
   expect_identical(stats::coef(out$FIT[[1]]), stats::coef(fit))
-  expect_warning(anon(d, pattern_list = "DRUGQX"), "`F\\[1\\]` holds a function")
-  expect_warning(anon(function(x) x), "^The object holds a function")
+  expect_warning(anon(function(x) x), ": the object itself\\.")
+  # One warning lists the first ten locations and counts the others.
+  many <- tibble::tibble(FIT = rep(list(fit), 12))
+  w <- character(0)
+  withCallingHandlers(anon(many, pattern_list = "DRUGQX"), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  expect_length(w, 1)
+  expect_match(w, "`FIT\\[4\\]\\$call`, and 26 more\\.")
+})
+
+test_that("anon() never sets attributes on objects it leaves as they are", {
+  inner <- new.env()
+  l <- list(f = sum, e = inner, g = function(x) x)
+  out <- suppressWarnings(anon(l, pattern_list = "DRUGQX"))
+  expect_null(attributes(inner))
+  expect_identical(out$f, sum)
+  expect_identical(out$e, inner)
+  expect_identical(out$g, l$g)
+  expect_identical(suppressWarnings(anon(sum)), sum)
+})
+
+test_that("anon() redacts the text fields of records and POSIXlt date-times", {
+  rc <- vctrs::new_rcrd(list(name = c("DRUGQX", "b"), n = 1:2))
+  out <- anon(tibble::tibble(id = 1:2, rc = rc), pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_identical(vctrs::field(out$rc, "name"), c("[DRUG]", "b"))
+  lt <- as.POSIXlt("2020-01-01", tz = "UTC")
+  attr(lt, "note") <- "DRUGQX note"
+  out <- anon(list(lt = lt), pattern_list = list("[DRUG]" = "DRUGQX"))
+  expect_s3_class(out$lt, "POSIXlt")
+  expect_identical(attr(out$lt, "note"), "[DRUG] note")
+  expect_identical(format(out$lt), format(lt))
+})
+
+test_that("anon() drops secrets read from a step, with a warning", {
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("A-1", "A-2"))), keep_secrets = TRUE, seed = 1)
+  expect_s3_class(anon_secrets(step), "anon_secrets_list")
+  expect_warning(
+    out <- anon(list(keys = anon_secrets(step), vault = step$secrets, d = "x")),
+    "dropped the secrets[^`]*`keys`, `vault`"
+  )
+  expect_null(out$keys)
+  expect_null(out$vault)
+  e <- new.env(parent = globalenv())
+  assign("keys", anon_secrets(step), envir = e)
+  expect_warning(a <- anon(e), "dropped the secrets")
+  expect_identical(ls(a), character(0))
 })
 
 test_that("anon() keeps a grouped tibble's dataset label", {
@@ -873,7 +919,7 @@ test_that("anon() keeps a grouped tibble's dataset label", {
 })
 
 test_that("anon() on an environment returns a redacted copy and leaves the environment as it is", {
-  e <- new.env()
+  e <- new.env(parent = globalenv())
   assign("DRUGQX_notes", c("DRUGQX a", "b"), envir = e)
   assign(".hidden", "DRUGQX", envir = e)
   assign("df", data.frame(x = "DRUGQX"), envir = e)
@@ -893,7 +939,7 @@ test_that("anon() on an environment returns a redacted copy and leaves the envir
 })
 
 test_that("anon() on an environment drops secrets, leaves nested environments and skips active bindings", {
-  e <- new.env()
+  e <- new.env(parent = globalenv())
   step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("A-1", "A-2"))), keep_secrets = TRUE, seed = 1)
   assign("step", step, envir = e)
   inner <- new.env()
@@ -909,15 +955,67 @@ test_that("anon() on an environment drops secrets, leaves nested environments an
     }
   )
   expect_match(warnings, "Active bindings are not copied[^:]*: `\\[DRUG\\]_live`", all = FALSE)
-  expect_match(warnings, "`inner` holds a function, call, formula, environment", all = FALSE)
+  expect_match(warnings, "can't redact functions, calls, formulas, environments[^:]*: `inner`", all = FALSE)
   expect_null(out$step$secrets)
   expect_false(is.null(step$secrets))
   expect_identical(out$inner, inner)
   expect_false("[DRUG]_live" %in% ls(out))
   expect_false(environmentIsLocked(out))
   # Objects whose redacted names are the same can't both be kept.
-  e2 <- new.env()
+  e2 <- new.env(parent = globalenv())
   assign("DRUGQX", 1, envir = e2)
   assign("drugqx", 2, envir = e2)
   expect_error(anon(e2, pattern_list = list("[DRUG]" = "DRUGQX")), "same redacted name[^:]*: `\\[DRUG\\]`")
+})
+
+test_that("anon() on an environment keeps only a parent R saves by reference", {
+  frame <- local({
+    secret_key <- "ZQ-SECRET-0001"
+    e <- new.env()
+    e$d <- data.frame(a = "x")
+    e
+  })
+  expect_warning(out <- anon(frame, pattern_list = "DRUGQX"), "parent wasn't kept")
+  expect_identical(parent.env(out), globalenv())
+  expect_length(grepRaw("ZQ-SECRET", serialize(out, NULL)), 0)
+  for (parent in list(globalenv(), baseenv(), emptyenv(), asNamespace("stats"), as.environment("package:stats"))) {
+    e <- new.env(parent = parent)
+    e$v <- "a"
+    expect_no_warning(out <- anon(e))
+    expect_identical(parent.env(out), parent)
+  }
+})
+
+test_that("anon() on an environment skips what it can't read and names what redacts to nothing", {
+  e <- (function(a) environment())()
+  assign("x", "DRUGQX", envir = e)
+  delayedAssign("broken", stop("fails"), assign.env = e)
+  delayedAssign("lazy", "DRUGQX later", assign.env = e)
+  expect_warning(out <- anon(e, pattern_list = list("[DRUG]" = "DRUGQX")), "couldn't be read[^:]*: `a`, `broken`")
+  expect_setequal(ls(out), c("lazy", "x"))
+  expect_identical(out$lazy, "[DRUG] later")
+  e2 <- new.env(parent = globalenv())
+  e2$DRUGQX <- 1
+  e2$other <- 2
+  out <- anon(e2, default_replacement = "", pattern_list = "^DRUGQX$")
+  expect_setequal(ls(out), c("[unnamed 1]", "other"))
+  # A classed environment comes back as a plain one.
+  e3 <- new.env(parent = globalenv())
+  class(e3) <- "custom"
+  expect_identical(class(anon(e3)), c("anon_context", "environment"))
+})
+
+test_that("anon() with NLP reads an environment's names and skips what it can't redact", {
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types = NULL, return_list = FALSE) {
+    out <- stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+    if ("PERSON" %in% entity_types && any(grepl("JohnSmith", collect_text(x)))) out$PERSON <- "JohnSmith"
+    if (return_list) out else unlist(out)
+  })
+  e <- new.env(parent = globalenv())
+  e$JohnSmith_x <- "a"
+  e$self <- e
+  e$f <- function(x) x
+  e$ns <- asNamespace("stats")
+  out <- suppressWarnings(anon(e, nlp_auto = nlp_auto(person = TRUE)))
+  expect_setequal(ls(out), c("[PERSON]_x", "f", "ns", "self"))
 })

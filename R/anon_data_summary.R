@@ -129,7 +129,7 @@ anon_data_summary <- function(
 
 # The data summary of `objects` (from normalize_object_source()), and the
 # objects' names as the summary shows them (`object_names`, redacted with the
-# same patterns and NLP), in the order of `objects`.
+# same patterns and NLP, and made unique), in the order of `objects`.
 summarize_objects <- function(
   objects,
   pattern_list,
@@ -237,7 +237,9 @@ summarize_objects <- function(
     check_names = FALSE,
     nlp_auto = nlp_auto
   )
-  shown <- result$object_names
+  # Names that redact alike are made unique ("[DRUG]", "[DRUG] 1"), so that
+  # each object keeps a key of its own (in JSON too).
+  shown <- make.unique(result$object_names, sep = " ")
   result$object_names <- NULL
   shown_name <- function(x) {
     if (!is.null(x)) names(x) <- shown[match(names(x), obj_names)]
@@ -371,16 +373,21 @@ get_object_summary <- function(
 }
 
 
-# The number of distinct non-missing values. Text marked "bytes" that isn't
-# valid UTF-8 can't be translated by vctrs, so such text is compared byte by
-# byte instead; the redaction of the summary then reports it as text it
-# can't search, where it is shown.
+# The number of distinct non-missing values. vctrs can't translate text
+# marked "bytes", so such text is compared byte by byte instead, and a factor
+# with such levels by its codes; the redaction of the summary then reports
+# text it can't search, where it is shown.
 count_distinct <- function(x) {
-  if (is.character(x) && any(unconvertible_bytes(x))) {
+  if (is.factor(x) && marked_bytes(levels(x))) {
+    return(length(unique(as.integer(x)[!is.na(x)])))
+  }
+  if (is.character(x) && marked_bytes(x)) {
     return(length(unique(x[!is.na(x)])))
   }
   dplyr::n_distinct(x, na.rm = TRUE)
 }
+
+marked_bytes <- function(x) any(Encoding(x) == "bytes")
 
 
 #' Build an example-row specification for [anon_data_summary()]

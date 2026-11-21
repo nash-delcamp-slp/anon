@@ -1070,8 +1070,9 @@ deid_complete_pipeline <- function(pipeline) {
 # Each exit has `fn` (takes a step, returns text, or raw bytes for
 # serialized objects: what a user could print, save, paste into a prompt or
 # see in the app), `patterns` (TRUE if it applies `deid_patterns`, so
-# user-pattern terms must be gone too) and `errors` (TRUE, or a function of
-# the step, if it is expected to error; its error message is then checked).
+# user-pattern terms must be gone too), `errors` (TRUE, or a function of
+# the step, if it is expected to error; its error message is then checked)
+# and `gaps` (FALSE to leave it out of the known-gap tests).
 # Messages and warnings raised by an exit are checked as well.
 # `anon_secrets()` and serialize() of a step with secrets are left out on
 # purpose: they are documented to hold the secrets.
@@ -1085,34 +1086,45 @@ deid_env_with <- function(step) {
   e
 }
 
-# An environment holding `step` (and its `dm`, under a name holding a
-# user-pattern term), redacted with anon(): the copy must be an environment
-# whose step has no secrets, and the environment given must not change.
+# An environment holding `step`, its `dm` (under a name holding a
+# user-pattern term) and, for a step with secrets, the secrets read with
+# anon_secrets() and the step's secrets environment, redacted with anon():
+# the copy must be a new environment holding the step (still a step, without
+# secrets) and the data frame, under the expected names, without the
+# secrets; the environment given must not change.
 deid_anon_env <- function(step) {
   e <- new.env()
   assign("step", step, envir = e)
   assign("DRUGQX_dm", step$data$dm, envir = e)
+  if (!is.null(step$secrets)) {
+    assign("keys", anon_secrets(step), envir = e)
+    assign("vault", step$secrets, envir = e)
+  }
   before <- serialize(as.list(e, all.names = TRUE), NULL)
   a <- anon(e, pattern_list = deid_patterns)
   if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
   if (!is.null(attributes(e)) || !identical(serialize(as.list(e, all.names = TRUE), NULL), before)) {
     stop("anon() changed the environment it was given")
   }
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "step")))) {
+    stop("anon() returned an environment holding other objects than expected")
+  }
+  if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
   copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
   if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
-  c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies))
+  # The saved copy is checked as text, as its bytes hold no compressed data.
+  saved <- rawToChar(serialize(a, NULL, ascii = TRUE))
+  c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies), saved)
 }
 
 # An environment whose object names and step dataset names hold user-pattern
-# terms: the step under such a name (its datasets are then named like
-# "STUDYQX_step$dm"), a step one of whose datasets has such a name, and a
-# data frame.
+# terms: the step under such a name, one of its datasets renamed with such a
+# name (its datasets are then named like "STUDYQX_step$dm" and
+# "STUDYQX_step$DRUGQX_vs"), and a data frame.
 deid_env_named <- function(step) {
-  renamed <- step
-  names(renamed$data)[names(renamed$data) == "vs"] <- "DRUGQX_vs"
+  names(step$data)[names(step$data) == "vs"] <- "DRUGQX_vs"
   e <- new.env()
   assign("STUDYQX_step", step, envir = e)
-  assign("named", renamed, envir = e)
   assign("DRUGQX_dm", step$data$dm, envir = e)
   e
 }
@@ -1193,28 +1205,38 @@ deid_exits <- list(
   ),
   anon_env = list(fn = deid_anon_env, patterns = TRUE),
   # Reports, prompt bundles and what the app shows, on objects and step
-  # datasets named with user-pattern terms (the app is given real names to
-  # select).
+  # datasets named with user-pattern terms. Reports and the app are given the
+  # real names to select, and must select every object. Not run for the known
+  # gaps, which it doesn't concern.
   report_names = list(
     fn = function(step) {
       e <- deid_env_named(step)
+      n_objects <- length(step$data) + 1
       out <- character(0)
       for (rows in list(3, anon_example_rows(n = 3, key = "USUBJID"))) {
-        report <- anon_report(e, pattern_list = deid_patterns, example_values_n = 5, example_rows = rows)
+        report <- anon_report(
+          e, selection = c("STUDYQX_step", "DRUGQX_dm"), pattern_list = deid_patterns,
+          example_values_n = 5, example_rows = rows
+        )
+        if (length(report$object_names) != n_objects) stop("anon_report() didn't select every object by its real name")
         bundles <- vapply(c("markdown", "text", "json"), function(f) {
           as.character(anon_prompt_bundle(report = report, format = f))
         }, character(1))
         out <- c(out, capture.output(print(report)), as_anon_json(report), bundles, deid_dput(unclass(report)))
       }
       state <- anon_app_initial_state(e, pattern_list = deid_patterns, initial_selection = c("STUDYQX_step", "DRUGQX_dm"))
+      if (length(state$selected) != n_objects ||
+        !setequal(app_selected_names(state, state$selected), c(paste0("STUDYQX_step$", names(e$STUDYQX_step$data)), "DRUGQX_dm"))) {
+        stop("The app didn't select every object by its real name")
+      }
       c(
         out,
         capture.output(print(anon_inventory(e, pattern_list = deid_patterns))),
-        capture.output(print(anon_data_summary(e, pattern_list = deid_patterns, example_values_n = 5, example_rows = 3))),
         deid_dput(state[c("inventory", "choices", "selected")])
       )
     },
-    patterns = TRUE
+    patterns = TRUE,
+    gaps = FALSE
   ),
   risk = list(
     fn = function(step) {
@@ -1225,12 +1247,15 @@ deid_exits <- list(
 )
 
 # Names of the exits expected to error on a step.
-deid_expected_errors <- function(step) {
-  expected <- vapply(deid_exits, function(e) {
+deid_expected_errors <- function(step, exits = deid_exits) {
+  expected <- vapply(exits, function(e) {
     isTRUE(if (is.function(e$errors)) e$errors(step) else e$errors)
   }, logical(1))
-  names(deid_exits)[expected]
+  names(exits)[expected]
 }
+
+# The exits run for the known gaps: all but those marked `gaps = FALSE`.
+deid_gap_exits <- function() Filter(function(e) !isFALSE(e$gaps), deid_exits)
 
 # Run a pipeline, collecting its warnings and messages instead of printing
 # them.
@@ -1270,8 +1295,8 @@ deid_drop_flagged <- function(step, flagged = deid_flagged) {
 # Run every exit on a step: a list with each exit's text (including messages,
 # warnings and any error), its raw bytes if it returned raw, whether it
 # errored, and whether it applies `deid_patterns`.
-deid_run_exits <- function(step) {
-  lapply(deid_exits, function(exit) {
+deid_run_exits <- function(step, exits = deid_exits) {
+  lapply(exits, function(exit) {
     conditions <- character(0)
     errored <- FALSE
     out <- withCallingHandlers(

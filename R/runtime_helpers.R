@@ -57,8 +57,9 @@ anon_inventory <- function(
 #' @return An object of class `"anon_report"` containing the names of the
 #'   selected objects (`object_names`), an object inventory and an environment
 #'   summary for them, with your rules applied to all of it, object names and
-#'   a step's dataset names (`step$dm`) included. `selection` takes the
-#'   objects' real names.
+#'   a step's dataset names (`step$dm`) included: every part shows the same
+#'   redacted names, made unique when two redact alike (`"[DRUG]"`,
+#'   `"[DRUG] 1"`). `selection` takes the objects' real names.
 #'
 #' @export
 anon_report <- function(
@@ -93,16 +94,20 @@ anon_report <- function(
     df_classes = df_classes
   )
 
+  inventory <- anon_inventory(
+    objects,
+    pattern_list = pattern_list,
+    default_replacement = default_replacement,
+    check_approximate = check_approximate,
+    max_distance = max_distance
+  )
+  # Every part of the report shows the names the data summary shows (with
+  # NLP entities redacted too); the inventory has a row per object, in order.
+  inventory$name <- summarized$object_names
+
   report <- list(
-    # Redacted as in the data summary.
     object_names = summarized$object_names,
-    inventory = anon_inventory(
-      objects,
-      pattern_list = pattern_list,
-      default_replacement = default_replacement,
-      check_approximate = check_approximate,
-      max_distance = max_distance
-    ),
+    inventory = inventory,
     data_summary = summarized$summary
   )
 
@@ -191,7 +196,7 @@ anon_prompt_bundle <- function(
 
   if (format == "json") {
     bundle <- jsonlite::toJSON(
-      payload,
+      json_text(payload),
       pretty = TRUE,
       auto_unbox = TRUE,
       null = "null",

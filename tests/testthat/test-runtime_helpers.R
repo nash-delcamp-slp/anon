@@ -304,3 +304,28 @@ test_that("anon_report() redacts object names and a step's dataset names, and se
   expect_false(any(grepl("DRUGQX|STUDYQX", text)))
   expect_true(any(grepl("Variable Details ([DRUG]_dm)", text, fixed = TRUE)))
 })
+
+test_that("every part of a report shows the names the data summary shows", {
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types = NULL, return_list = FALSE) {
+    out <- stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+    if ("PERSON" %in% entity_types && any(grepl("JohnSmith", collect_text(x)))) out$PERSON <- "JohnSmith"
+    if (return_list) out else unlist(out)
+  })
+  objs <- list(JohnSmith_dm = data.frame(x = 1), Alice = data.frame(y = 1), ALICE = "b")
+  report <- anon_report(objs, pattern_list = list(PERSON = "Alice"), nlp_auto = nlp_auto(person = TRUE))
+  expect_identical(report$object_names, c("[PERSON]_dm", "PERSON", "PERSON 1"))
+  expect_identical(report$inventory$name, report$object_names)
+  json <- jsonlite::fromJSON(as_anon_json(report))
+  expect_named(json$data_summary$data_frames$variables, c("[PERSON]_dm", "PERSON"))
+  expect_false(any(grepl("JohnSmith|Alice", c(capture.output(print(report)), as_anon_json(report)), ignore.case = TRUE)))
+})
+
+test_that("JSON writes text marked bytes", {
+  x <- c("caf\xc3\xa9", "SECRET\x92s")
+  Encoding(x) <- "bytes"
+  report <- suppressWarnings(anon_report(list(d = data.frame(t = x)), example_values_n = 2))
+  json <- as_anon_json(report)
+  expect_match(json, "café", fixed = TRUE)
+  expect_match(json, "SECRET<92>s", fixed = TRUE)
+  expect_match(as.character(anon_prompt_bundle(report, format = "json")), "SECRET<92>s", fixed = TRUE)
+})

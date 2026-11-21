@@ -1,8 +1,9 @@
 # Helper function to collect all text from an object
 collect_text <- function(x) {
-  # An environment's text is that of the objects anon() copies from it.
-  if (is.environment(x)) {
-    return(collect_text(nlp_text_source(x, NULL, NULL)))
+  # Functions, environments and other objects anon() can't redact hold no
+  # text it can search, and are not entered.
+  if (is_unredactable(x)) {
+    return(character(0))
   }
 
   # Handle missing values and empty input

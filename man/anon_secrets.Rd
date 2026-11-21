@@ -10,7 +10,9 @@ anon_secrets(x)
 \item{x}{An object of class \code{"anon_deid_step"}.}
 }
 \value{
-A named list of tibbles, e.g. \code{subject_ids} or \code{date_offsets}.
+A named list of tibbles, e.g. \code{subject_ids} or \code{date_offsets}, of
+class \code{"anon_secrets_list"}. \code{\link[=anon]{anon()}} drops it (and a step's secrets
+environment) wherever it finds it, with a warning.
 }
 \description{
 Returns the information needed to link de-identified data back to the

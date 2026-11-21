@@ -658,3 +658,12 @@ test_that("anon_data_summary() names objects as redacted, and counts text it can
   expect_identical(s$data_frames$variables$d$n_distinct, 2L)
   expect_identical(s$other_objects$n_distinct, 2L)
 })
+
+test_that("anon_data_summary() counts valid text marked bytes and factors with such levels", {
+  z <- c("caf\xc3\xa9", "cafe", "cafe")
+  Encoding(z) <- "bytes"
+  f <- structure(c(1L, 2L, 1L), levels = z[1:2], class = "factor")
+  s <- anon_data_summary(list(d = data.frame(z = z), f = f))
+  expect_identical(s$data_frames$variables$d$n_distinct, 2L)
+  expect_identical(s$other_objects$n_distinct, 2L)
+})

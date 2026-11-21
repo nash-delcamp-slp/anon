@@ -52,7 +52,7 @@
 #'   contrasts matrix, which follow its levels. Value labels whose codes the
 #'   redaction made equal are merged into one entry, their original labels
 #'   joined with `" / "` and then redacted, with a warning naming the column as
-#'   it is named in the output (or a list element, as `col[2]`); equal
+#'   it is named in the output (or a list element, as `col[2]` or `col$name`); equal
 #'   missing-value codes are deduplicated without a warning, as which values
 #'   are missing doesn't change. A text `na_range` whose redacted ends would be
 #'   in descending order is kept, with a warning. Whatever `check_labels`
@@ -77,8 +77,8 @@
 #'   information replaced. For a de-identification step (see [anon_subject_ids()]), the step
 #'   itself is returned with its data redacted, the patterns also applied to its log and
 #'   settings, and its secrets dropped (read them from the original step); combine `step$data` rather than the step with `c()`.
-#'   For an environment, a new environment (with the same parent) holding
-#'   redacted copies of its objects (see "Environments" below). If approximate matches are found and `.self` is `FALSE`, warnings are issued.
+#'   For an environment, a new environment holding redacted copies of its
+#'   objects (see "Environments" below). If approximate matches are found and `.self` is `FALSE`, warnings are issued.
 #'   If `.self` is `TRUE`, warnings are attached as an attribute.
 #'
 #' @details
@@ -91,12 +91,18 @@
 #'
 #' Lists, list columns and the classed lists they hold (such as fitted
 #' models) keep their attributes and class, with their elements and
-#' attributes redacted. Objects `anon()` can't search for text (functions,
-#' calls and formulas, such as a model's `call`, environments held inside
-#' other objects, S4 objects and pointers) are left as they are, with a
-#' warning naming where they are: remove them, or rebuild them from redacted
-#' data, before sharing. Environments, functions and S4 objects held in
-#' attributes are left as they are, without a warning.
+#' attributes redacted. Records (vctrs `rcrd`) and `POSIXlt` date-times have
+#' their text fields and attributes redacted. Objects `anon()` can't search
+#' for text (functions, calls and formulas, such as a model's `call` or a
+#' model frame's `terms` attribute, environments held inside other objects,
+#' S4 objects and pointers) are left as they are, and one warning lists where
+#' they are (by element name where there is one, as `fit$call`; the first
+#' ten, and how many more): remove them, or rebuild them from redacted data,
+#' before sharing.
+#'
+#' Secrets read from a de-identification step with [anon_secrets()], and a
+#' step's secrets environment, are dropped wherever `anon()` finds them, with
+#' a warning (a step's own secrets are dropped as described under Value).
 #'
 #' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 #' through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -115,16 +121,27 @@
 #' objects returned by `anon()` using `c()`.
 #'
 #' @section Environments:
-#' For an environment, `anon()` returns a new environment, with the same
-#' parent, holding a redacted copy of each of its objects (hidden ones
-#' included), named as `check_names` says; the environment given and its
-#' objects are not changed. A de-identification step in it is redacted as
-#' above, its secrets dropped. Environments held in it are not copied: they
-#' are left as they are, with a warning, as are functions. Active bindings are
-#' not copied (reading one would run its function), with a warning. The copy
-#' is not locked, whether or not the environment given is. Objects whose
-#' redacted names would be the same are an error, as an environment can't
-#' hold both.
+#' For an environment, `anon()` returns a new environment holding a redacted
+#' copy of each of its objects (hidden ones included), named as `check_names`
+#' says (with NLP entities found in the names too); the environment given and
+#' its objects are not changed. Its class and other attributes are not kept:
+#' the copy is a plain environment (of class `anon_context`).
+#'
+#' The copy's parent is the environment's parent when R saves that parent by
+#' reference (the global, base or empty environment, a package or a
+#' namespace). Any other parent, such as a function's frame, would be saved
+#' with the copy, and the objects it holds with it, so the copy's parent is
+#' then the global environment, with a warning.
+#'
+#' A de-identification step in it is redacted as above, its secrets dropped.
+#' Environments held in it are not copied: they are left as they are, as are
+#' functions, and named in the warning. Reading the objects forces promises.
+#' Active bindings (reading one would run its function) and objects that
+#' can't be read (a missing argument, or a promise whose code fails) are not
+#' copied, with a warning. The copy is not locked, whether or not the
+#' environment given is. A name that redacts to nothing is replaced by
+#' `"[unnamed 1]"` and so on. Objects whose redacted names would be the same
+#' are an error, as an environment can't hold both.
 #'
 #' @section Global Options:
 #' The following global options affect function behavior:
@@ -235,8 +252,48 @@ anon <- function(
     df_classes <- merge_with_option(df_classes, "anon.df_classes")
   }
 
-  # Track warnings at the anon() level
+  # Track warnings at the anon() level: messages, the locations of objects
+  # anon() can't redact (see is_unredactable()) and of secrets it dropped,
+  # each as it is shown in the warning. `foreign` marks a result that is the
+  # object given (left as it is), on which no attribute is set.
   approximate_warnings <- character(0)
+  unredactable <- character(0)
+  secrets_dropped <- character(0)
+  foreign <- FALSE
+
+  # Collect what a recursive call recorded, and strip it from its result.
+  take <- function(child) {
+    approximate_warnings <<- c(approximate_warnings, attr(child, "approximate_warnings"))
+    unredactable <<- c(unredactable, attr(child, "anon_unredactable"))
+    secrets_dropped <<- c(secrets_dropped, attr(child, "anon_secrets_dropped"))
+    for (name in c("approximate_warnings", "anon_unredactable", "anon_secrets_dropped")) {
+      if (!is.null(attr(child, name, exact = TRUE))) attr(child, name) <- NULL
+    }
+    child
+  }
+
+  # An element anon() doesn't enter (secrets, which are dropped, or an object
+  # it can't redact, which is kept and named in the warning), handled where
+  # it is found so that nothing is set on it. NULL for other elements.
+  skip_element <- function(element, where) {
+    if (is_secrets(element)) {
+      secrets_dropped <<- c(secrets_dropped, shown_location(where))
+      return(list(value = NULL))
+    }
+    if (is_unredactable(element)) {
+      unredactable <<- c(unredactable, shown_location(where))
+      return(list(value = element))
+    }
+    NULL
+  }
+
+  # Record objects anon() can't redact held in the attributes of an object
+  # at `where` (see redact_text_attributes()).
+  found_in_attribute <- function(where) {
+    function(name) {
+      unredactable <<- c(unredactable, paste0(shown_location(where), " (attribute `", name, "`)"))
+    }
+  }
 
   apply_patterns <- function(text, compiled, check_approximate, max_distance) {
     if (length(compiled$groups) == 0) return(text)
@@ -279,7 +336,7 @@ anon <- function(
       result <- redact(v)
     }
     if (isTRUE(check_labels) && has_text_attributes(result)) {
-      result <- redact_text_attributes(result, redact, where = where)
+      result <- redact_text_attributes(result, redact, where = where, found = found_in_attribute(where))
     }
     warn_user_missing_changed(user_missing_of(v), result, where)
     if (isTRUE(check_names) && has_names(result)) {
@@ -376,7 +433,12 @@ anon <- function(
   compiled <- if (!is.null(.compiled)) .compiled else compile_patterns(pattern_replacements)
 
   # Dispatch based on object type (using the inner apply_patterns function)
-  if (inherits(x, "anon_deid_step")) {
+  if (is_secrets(x)) {
+    # Secrets read from a step (or its secrets environment) are dropped.
+    secrets_dropped <- shown_location(.where)
+    result <- NULL
+    foreign <- TRUE
+  } else if (inherits(x, "anon_deid_step")) {
     # Redact the step's data but keep the step, so print() and JSON still show
     # only its log.
     step_data <- anon(
@@ -393,8 +455,7 @@ anon <- function(
       .pattern_replacements = pattern_replacements,
       .compiled = compiled
     )
-    approximate_warnings <- c(approximate_warnings, attr(step_data, "approximate_warnings"))
-    attr(step_data, "approximate_warnings") <- NULL
+    step_data <- take(step_data)
     result <- x
     result$data <- step_data
     # The redacted step is meant to be shared, so it doesn't carry the secrets.
@@ -415,16 +476,18 @@ anon <- function(
       names(result$settings) <- apply_patterns(names(result$settings), compiled, FALSE, max_distance)
     }
   } else if (is.environment(x) && !isTRUE(.self)) {
-    # A new environment, with the same parent, holding redacted copies of the
-    # objects, named as `check_names` says; the environment given is left as
-    # it is. Active bindings are not copied, as reading one runs its
-    # function. Environments held inside are not entered (see below).
+    # A new environment holding redacted copies of the objects, named as
+    # `check_names` says; the environment given is left as it is (see
+    # "Environments" in the documentation).
     object_names <- ls(x, all.names = TRUE, sorted = TRUE)
     shown <- if (isTRUE(check_names)) {
       apply_patterns(object_names, compiled, check_approximate, max_distance)
     } else {
       object_names
     }
+    # A name redacted to nothing can't name an object: it gets a placeholder.
+    blank <- !nzchar(shown)
+    shown[blank] <- paste0("[unnamed ", seq_len(sum(blank)), "]")
     active <- vapply(object_names, bindingIsActive, logical(1), env = x, USE.NAMES = FALSE)
     if (any(active)) {
       approximate_warnings <- c(approximate_warnings, paste0(
@@ -432,7 +495,24 @@ anon <- function(
         paste0("`", shown[active], "`", collapse = ", "), "."
       ))
     }
-    clash <- unique(shown[!active][duplicated(shown[!active])])
+    # Reading an object forces a promise; a missing argument, or a promise
+    # whose code fails, can't be read.
+    unread <- structure(list(), class = "anon_unread")
+    values <- lapply(seq_along(object_names), function(i) {
+      if (active[i]) {
+        return(unread)
+      }
+      tryCatch(get(object_names[i], envir = x, inherits = FALSE), error = function(e) unread)
+    })
+    unreadable <- !active & vapply(values, inherits, logical(1), "anon_unread")
+    if (any(unreadable)) {
+      approximate_warnings <- c(approximate_warnings, paste0(
+        "These objects couldn't be read (a missing argument, or code that failed when their value was ",
+        "computed) and were not copied: ", paste0("`", shown[unreadable], "`", collapse = ", "), "."
+      ))
+    }
+    keep <- !active & !unreadable
+    clash <- unique(shown[keep][duplicated(shown[keep])])
     if (length(clash) > 0) {
       stop(
         "Objects would have the same redacted name, so they can't all be kept in one environment: ",
@@ -440,10 +520,27 @@ anon <- function(
         call. = FALSE
       )
     }
-    result <- new.env(parent = if (identical(x, emptyenv())) emptyenv() else parent.env(x))
-    for (i in which(!active)) {
-      value <- anon(
-        get(object_names[i], envir = x, inherits = FALSE),
+    # Saving an environment saves its parent too, unless the parent is one R
+    # saves by reference (the global, base or empty environment, a package or
+    # a namespace); another parent (such as a function's frame) could hold
+    # unredacted objects, so the copy's parent is then the global environment.
+    parent <- if (identical(x, emptyenv())) emptyenv() else parent.env(x)
+    if (!is_shared_environment(parent)) {
+      approximate_warnings <- c(approximate_warnings, paste0(
+        "The environment's parent wasn't kept, as saving the copy would save it and the objects it holds: ",
+        "the copy's parent is the global environment."
+      ))
+      parent <- globalenv()
+    }
+    result <- new.env(parent = parent)
+    for (i in which(keep)) {
+      skipped <- skip_element(values[[i]], shown[i])
+      if (!is.null(skipped)) {
+        if (!is.null(skipped$value)) assign(shown[i], skipped$value, envir = result)
+        next
+      }
+      value <- take(anon(
+        values[[i]],
         pattern_list = pattern_list,
         default_replacement = default_replacement,
         check_approximate = check_approximate,
@@ -456,12 +553,26 @@ anon <- function(
         .pattern_replacements = pattern_replacements,
         .compiled = compiled,
         .where = shown[i]
-      )
-      approximate_warnings <- c(approximate_warnings, attr(value, "approximate_warnings"))
-      if (!is.null(attr(value, "approximate_warnings"))) {
-        attr(value, "approximate_warnings") <- NULL
-      }
+      ))
       assign(shown[i], value, envir = result)
+    }
+  } else if (inherits(x, c("vctrs_rcrd", "POSIXlt"))) {
+    # Records and POSIXlt date-times are lists of fields: their text fields
+    # are redacted like vectors, and their own attributes like a vector's.
+    result <- unclass(x)
+    for (i in seq_along(result)) {
+      if (is.character(result[[i]]) || is.factor(result[[i]])) {
+        result[[i]] <- redact_atomic(result[[i]], paste0(if (is.null(.where)) "" else .where, "$", names(result)[i]))
+      }
+    }
+    class(result) <- oldClass(x)
+    if (isTRUE(check_labels) && has_text_attributes(result)) {
+      result <- redact_text_attributes(
+        result,
+        function(text) apply_patterns(text, compiled, check_approximate, max_distance),
+        where = .where,
+        found = found_in_attribute(.where)
+      )
     }
   } else if (is.atomic(x) && !is.null(x)) {
     result <- redact_atomic(x, .where)
@@ -501,7 +612,8 @@ anon <- function(
         result[[col_name]] <- redact_text_attributes(
           result[[col_name]],
           function(text) apply_patterns(text, compiled, check_approximate, max_distance),
-          where = shown_name
+          where = shown_name,
+          found = found_in_attribute(shown_name)
         )
       }
 
@@ -530,7 +642,9 @@ anon <- function(
           result[[col_name]],
           function(text) apply_patterns(text, compiled, check_approximate, max_distance)
         )
-      } else if (is_container_list(result[[col_name]])) {
+      } else if (is_unredactable(result[[col_name]])) {
+        unredactable <- c(unredactable, shown_location(shown_name))
+      } else if (is_container_list(result[[col_name]]) || inherits(result[[col_name]], c("vctrs_rcrd", "POSIXlt"))) {
         # Only recurse into anon() for list columns (need recursive handling)
         recursive_result <- anon(
           .where = shown_name,
@@ -547,16 +661,7 @@ anon <- function(
           .pattern_replacements = pattern_replacements,
           .compiled = compiled
         )
-
-        if (!is.null(attr(recursive_result, "approximate_warnings"))) {
-          approximate_warnings <- c(
-            approximate_warnings,
-            attr(recursive_result, "approximate_warnings")
-          )
-          attr(recursive_result, "approximate_warnings") <- NULL
-        }
-
-        result[[col_name]] <- recursive_result
+        result[[col_name]] <- take(recursive_result)
       }
 
       # Anonymize the names and dimnames of a column only if check_names is
@@ -609,17 +714,22 @@ anon <- function(
     if (isTRUE(check_labels)) {
       result <- redact_text_attributes(
         result,
-        function(text) apply_patterns(text, compiled, check_approximate, max_distance)
+        function(text) apply_patterns(text, compiled, check_approximate, max_distance),
+        found = found_in_attribute(.where)
       )
     }
     result <- unmarked$restore(list(result))[[1]]
   } else if (is_container_list(x)) {
+    # An element by its name as named in the output (`where$name`, or
+    # `where[2]` when it has none).
     element_where <- function(i) {
-      if (!is.null(.where)) {
-        paste0(.where, "[", i, "]")
-      } else if (!is.null(names(x)) && !is.na(names(x)[i]) && nzchar(names(x)[i])) {
-        # As named in the output.
+      name <- if (!is.null(names(x)) && !is.na(names(x)[i]) && nzchar(names(x)[i])) {
         if (isTRUE(check_names)) apply_patterns(names(x)[i], compiled, FALSE, max_distance) else names(x)[i]
+      }
+      if (!is.null(.where)) {
+        if (is.null(name)) paste0(.where, "[", i, "]") else paste0(.where, "$", name)
+      } else if (!is.null(name)) {
+        name
       } else {
         paste0("[[", i, "]]")
       }
@@ -640,6 +750,10 @@ anon <- function(
         if (is.atomic(element) && !is.null(element) && !is_container_list(element)) {
           return(redact_atomic(element, element_where(i), redact_vectors))
         }
+        skipped <- skip_element(element, element_where(i))
+        if (!is.null(skipped)) {
+          return(skipped$value)
+        }
         # Use .self = TRUE for recursive calls to collect warnings
         recursive_result <- anon(
           element,
@@ -656,17 +770,7 @@ anon <- function(
           .compiled = compiled,
           .where = element_where(i)
         )
-
-        # If recursive call has warnings, collect them
-        if (!is.null(attr(recursive_result, "approximate_warnings"))) {
-          approximate_warnings <<- c(
-            approximate_warnings,
-            attr(recursive_result, "approximate_warnings")
-          )
-          attr(recursive_result, "approximate_warnings") <- NULL # Remove the attribute
-        }
-
-        recursive_result
+        take(recursive_result)
       })
     names(result) <- names(x)
 
@@ -698,7 +802,8 @@ anon <- function(
         result <- redact_text_attributes(
           result,
           function(text) apply_patterns(text, compiled, check_approximate, max_distance),
-          where = .where
+          where = .where,
+          found = found_in_attribute(.where)
         )
       }
     }
@@ -723,8 +828,7 @@ anon <- function(
           .compiled = compiled,
           .where = .where
         )
-        attr(ptype, "approximate_warnings") <- NULL
-        attr(result, "ptype") <- ptype
+        attr(result, "ptype") <- take(ptype)
       }
       class(result) <- oldClass(x)
     }
@@ -733,25 +837,33 @@ anon <- function(
     # objects and similar can't be searched: they are left as they are, with
     # a warning.
     if (is_unredactable(x)) {
-      approximate_warnings <- c(approximate_warnings, unredactable_message(.where))
+      unredactable <- c(unredactable, shown_location(.where))
     }
     result <- x
+    foreign <- TRUE
   }
 
-  # Handle warnings based on .self parameter
-  if (length(approximate_warnings) > 0) {
-    unique_warnings <- unique(approximate_warnings)
-
-    if (isTRUE(.self)) {
-      # When called recursively, attach warnings as attribute instead of issuing them
-      attr(result, "approximate_warnings") <- unique_warnings
-    } else {
-      # When called from top level, issue warnings normally
-      rlang::warn(unique_warnings)
+  # Handle warnings based on .self parameter: a recursive call attaches what
+  # it recorded to its result (never to an object it was given, see
+  # `foreign`), and the top-level call issues one warning.
+  if (isTRUE(.self)) {
+    if (!foreign) {
+      if (length(approximate_warnings) > 0) attr(result, "approximate_warnings") <- unique(approximate_warnings)
+      if (length(unredactable) > 0) attr(result, "anon_unredactable") <- unique(unredactable)
+      if (length(secrets_dropped) > 0) attr(result, "anon_secrets_dropped") <- unique(secrets_dropped)
+    }
+  } else {
+    messages <- c(
+      unique(approximate_warnings),
+      if (length(unredactable) > 0) unredactable_message(unredactable),
+      if (length(secrets_dropped) > 0) secrets_message(secrets_dropped)
+    )
+    if (length(messages) > 0) {
+      rlang::warn(messages)
     }
   }
 
-  if (isFALSE(.self) && !inherits(result, "anon_deid_step")) {
+  if (isFALSE(.self) && !foreign && !inherits(result, "anon_deid_step")) {
     result <- new_anon_context(result)
   }
   result
@@ -930,11 +1042,56 @@ is_unredactable <- function(x) {
     typeof(x) %in% c("externalptr", "weakref", "bytecode")
 }
 
-unredactable_message <- function(where) {
+# Whether `x` is, or holds at any depth through lists and attributes that
+# aren't structural, an object anon() can't redact. Environments are not
+# entered.
+holds_unredactable <- function(x) {
+  if (is_unredactable(x)) {
+    return(TRUE)
+  }
+  if (is.list(x) && any(vapply(x, holds_unredactable, logical(1)))) {
+    return(TRUE)
+  }
+  attrs <- attributes(x)
+  attrs <- attrs[!names(attrs) %in% structural_attributes(x)]
+  any(vapply(attrs, holds_unredactable, logical(1)))
+}
+
+# Secrets read from a de-identification step with anon_secrets(), or its
+# secrets environment.
+is_secrets <- function(x) {
+  inherits(x, c("anon_secrets", "anon_secrets_list"))
+}
+
+# Environments R saves by reference rather than by their contents.
+is_shared_environment <- function(env) {
+  identical(env, globalenv()) || identical(env, baseenv()) || identical(env, emptyenv()) ||
+    isNamespace(env) || startsWith(attr(env, "name", exact = TRUE) %||% "", "package:")
+}
+
+# A location as warnings show it.
+shown_location <- function(where) {
+  if (is.null(where)) "the object itself" else paste0("`", where, "`")
+}
+
+# The first ten locations, and how many more.
+shown_locations <- function(locations, n = 10) {
+  locations <- unique(locations)
+  more <- length(locations) - n
+  paste0(paste(utils::head(locations, n), collapse = ", "), if (more > 0) paste0(", and ", more, " more"))
+}
+
+unredactable_message <- function(locations) {
   paste0(
-    if (is.null(where)) "The object" else paste0("`", where, "`"),
-    " holds a function, call, formula, environment, S4 object or similar, which anon() can't redact ",
-    "and left as it is: remove it, or rebuild it from redacted data, before sharing."
+    "anon() can't redact functions, calls, formulas, environments, S4 objects or similar, and left these as ",
+    "they are: ", shown_locations(locations), ". Remove them, or rebuild them from redacted data, before sharing."
+  )
+}
+
+secrets_message <- function(locations) {
+  paste0(
+    "anon() dropped the secrets of de-identification steps found in ", shown_locations(locations),
+    ": read them from the original step, and keep them apart from what you share."
   )
 }
 
@@ -1011,9 +1168,9 @@ nothing_to_redact <- function(x) {
   (is.numeric(x) || is.logical(x) || is.null(x)) && !is.object(x) && is.null(attributes(x))
 }
 
-# Apply `redact` to the text attributes of a vector, column or data frame:
-# labels, comments and other character attributes that aren't structural for
-# its class (see structural_attributes()), haven value labels (their names,
+# Apply `redact` to the text attributes of a vector, list, column or data
+# frame: labels, comments and other attributes that aren't structural for its
+# class (see structural_attributes()), haven value labels (their names,
 # and their values when they are text) and text user-defined missing values
 # (`na_values`, and the ends of `na_range`), as the values are redacted.
 # Names are left to `check_names`. Value labels whose codes the redaction made
@@ -1021,8 +1178,9 @@ nothing_to_redact <- function(x) {
 # (`where`, as named in the output); equal missing-value codes are
 # deduplicated, which doesn't change which values are missing. A text
 # `na_range` whose redacted ends would be in descending order is kept, with a
-# warning.
-redact_text_attributes <- function(x, redact, where = NULL) {
+# warning. `found`, if given, is called with the name of each attribute that
+# holds an object the walk can't redact (see holds_unredactable()).
+redact_text_attributes <- function(x, redact, where = NULL, found = NULL) {
   attrs <- attributes(x)
   shown <- if (is.null(where)) "a vector" else paste0("`", where, "`")
   names_attrs <- names(attrs)
@@ -1036,6 +1194,11 @@ redact_text_attributes <- function(x, redact, where = NULL) {
   ctx <- NULL
   for (name in names_attrs[!names_attrs %in% c(structural, own_terms)]) {
     value <- attrs[[name]]
+    # What the walk can't redact (such as a model frame's `terms`, a call) is
+    # reported through `found`, by the attribute's name.
+    if (!is.null(found) && holds_unredactable(value)) {
+      found(name)
+    }
     if (is.null(ctx)) ctx <- new_rewrite_context(redact)
     new <- rewrite_value(ctx, value)
     if (!identical(new, value)) {
@@ -1157,16 +1320,29 @@ redact_names <- function(x, redact) {
 }
 
 # The part of `x` whose text is searched for NLP entities: data frame columns
-# that are replaced wholesale are dropped, recursively through lists.
-nlp_text_source <- function(x, df_variable_names, df_classes) {
+# that are replaced wholesale are dropped, recursively through lists. For an
+# environment (`top`, the one given to anon()), the names and the objects
+# anon() copies from it: active bindings, objects that can't be read, secrets
+# and objects anon() can't redact (environments held in it included) are
+# left out, so nothing else is entered.
+nlp_text_source <- function(x, df_variable_names, df_classes, top = TRUE) {
   if (inherits(x, "anon_deid_step")) {
-    return(nlp_text_source(x$data, df_variable_names, df_classes))
+    return(nlp_text_source(x$data, df_variable_names, df_classes, top = FALSE))
   }
   if (is.environment(x)) {
-    # The objects anon() copies (active bindings are not read).
+    if (!top) {
+      return(NULL)
+    }
     object_names <- ls(x, all.names = TRUE)
     object_names <- object_names[!vapply(object_names, bindingIsActive, logical(1), env = x)]
-    return(lapply(mget(object_names, envir = x), nlp_text_source, df_variable_names, df_classes))
+    objects <- lapply(object_names, function(name) {
+      value <- tryCatch(get(name, envir = x, inherits = FALSE), error = function(e) NULL)
+      if (is_secrets(value) || is_unredactable(value)) NULL else value
+    })
+    return(c(
+      list(object_names),
+      lapply(objects, nlp_text_source, df_variable_names, df_classes, top = FALSE)
+    ))
   }
   if (is.data.frame(x)) {
     keep <- !vapply(
@@ -1179,7 +1355,7 @@ nlp_text_source <- function(x, df_variable_names, df_classes) {
     return(x[keep])
   }
   if (is_container_list(x)) {
-    return(lapply(x, nlp_text_source, df_variable_names, df_classes))
+    return(lapply(x, nlp_text_source, df_variable_names, df_classes, top = FALSE))
   }
   x
 }

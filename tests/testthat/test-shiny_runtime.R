@@ -920,3 +920,31 @@ test_that("the app shows objects by their redacted names and selects them by the
     }
   )
 })
+
+test_that("the app shows errors about objects with its patterns applied", {
+  e <- simpleError("Unknown objects in `selection`: Alice_data")
+  expect_identical(app_error_message(e, list(PERSON = "Alice"), "[REDACTED]"), "Unknown objects in `selection`: PERSON_data")
+  expect_match(app_error_message(e, list(PERSON = "("), "[REDACTED]"), "Something went wrong|selection")
+
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  objs <- new.env()
+  assign("Alice_data", data.frame(x = 1), envir = objs)
+  defaults <- anon_runtime_defaults()
+  defaults$pattern_list <- list(PERSON = "Alice")
+  shown <- character(0)
+  local_mocked_bindings(showNotification = function(ui, ...) shown <<- c(shown, ui), .package = "shiny")
+  shiny::testServer(
+    app = anon_app_server(envir = objs, runtime_defaults = defaults),
+    {
+      session$flushReact()
+      session$setInputs(pattern_rules = "PERSON = Alice")
+      session$setInputs(selected_objects = "PERSON_data")
+      rm("Alice_data", envir = objs)
+      session$setInputs(generate_report = 1)
+      session$flushReact()
+    }
+  )
+  expect_match(shown, "PERSON_data", all = FALSE)
+  expect_false(any(grepl("Alice", shown)))
+})

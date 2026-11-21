@@ -94,7 +94,7 @@ for the object's class (see the \code{other_attributes} argument of
 contrasts matrix, which follow its levels. Value labels whose codes the
 redaction made equal are merged into one entry, their original labels
 joined with \code{" / "} and then redacted, with a warning naming the column as
-it is named in the output (or a list element, as \code{col[2]}); equal
+it is named in the output (or a list element, as \code{col[2]} or \code{col$name}); equal
 missing-value codes are deduplicated without a warning, as which values
 are missing doesn't change. A text \code{na_range} whose redacted ends would be
 in descending order is kept, with a warning. Whatever \code{check_labels}
@@ -109,8 +109,9 @@ This argument overrides the global option.}
 An object of class \code{"anon_report"} containing the names of the
 selected objects (\code{object_names}), an object inventory and an environment
 summary for them, with your rules applied to all of it, object names and
-a step's dataset names (\code{step$dm}) included. \code{selection} takes the
-objects' real names.
+a step's dataset names (\code{step$dm}) included: every part shows the same
+redacted names, made unique when two redact alike (\code{"[DRUG]"},
+\code{"[DRUG] 1"}). \code{selection} takes the objects' real names.
 }
 \description{
 Build a report for selected objects, applying your redaction rules

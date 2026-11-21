@@ -4,6 +4,12 @@
 #' environment, selecting objects, cleaning text, and generating redacted
 #' structural reports suitable for prompt building.
 #'
+#' The app lists objects by their names with your patterns applied (as
+#' [anon_inventory()] shows them) and never sends the real names to the
+#' browser; error messages about objects go through the same patterns. NLP
+#' entities are applied when a report is built, so the report can redact a
+#' name that the object list still shows.
+#'
 #' @param envir Environment or list to inspect. Defaults to `globalenv()`.
 #' @param launch.browser Passed to [shiny::runApp()]. Defaults to `interactive()`.
 #' @param initial_selection Optional character vector of object names to preselect
@@ -359,7 +365,7 @@ anon_app_server <- function(
         error = function(e) {
           # Don't leave a report built from earlier rules or objects on show.
           report_data(NULL)
-          shiny::showNotification(conditionMessage(e), type = "error")
+          shiny::showNotification(app_error_message(e, active_rules(), active_default_replacement()), type = "error")
           NULL
         }
       )
@@ -394,7 +400,7 @@ anon_app_server <- function(
         ),
         error = function(e) {
           report_data(NULL)
-          shiny::showNotification(conditionMessage(e), type = "error")
+          shiny::showNotification(app_error_message(e, active_rules(), active_default_replacement()), type = "error")
           NULL
         }
       )
@@ -738,6 +744,24 @@ anon_app_initial_state <- function(
     raw_names = raw_names,
     choices = stats::setNames(ids, inventory$name),
     selected = ids[match(selected, raw_names)]
+  )
+}
+
+# An error's message as the app shows it: errors about the objects (such as
+# a selection or a step's datasets) name them, so the message goes through
+# the rules the object list uses (`pattern_list`); if that fails, a generic
+# message is shown.
+app_error_message <- function(e, pattern_list, default_replacement) {
+  tryCatch(
+    as.character(unclass(anon(
+      conditionMessage(e),
+      pattern_list = pattern_list,
+      default_replacement = default_replacement,
+      check_approximate = FALSE,
+      nlp_auto = FALSE
+    ))),
+    error = function(e2) "Something went wrong with the objects; check them and your rules.",
+    warning = function(w) "Something went wrong with the objects; check them and your rules."
   )
 }
 

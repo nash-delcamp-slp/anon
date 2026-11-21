@@ -163,6 +163,10 @@ extract_nlp_patterns <- function(x, entity_types) {
   date_time_first <- intersect(c("DATE", "TIME"), entity_types)
   entity_types <- c(date_time_first, setdiff(entity_types, date_time_first))
 
+  # An environment's text is that of the objects anon() copies from it.
+  if (is.environment(x)) {
+    x <- nlp_text_source(x, NULL, NULL)
+  }
   text_to_process <- collect_text(x)
 
   if (length(text_to_process) == 0) {

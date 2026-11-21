@@ -840,7 +840,9 @@ anon_subject_dates <- function(
 #'
 #' @param x An object of class `"anon_deid_step"`.
 #'
-#' @return A named list of tibbles, e.g. `subject_ids` or `date_offsets`.
+#' @return A named list of tibbles, e.g. `subject_ids` or `date_offsets`, of
+#'   class `"anon_secrets_list"`. [anon()] drops it (and a step's secrets
+#'   environment) wherever it finds it, with a warning.
 #'
 #' @examples
 #' data <- data.frame(USUBJID = c("a", "b"))
@@ -859,7 +861,13 @@ anon_secrets <- function(x) {
       call. = FALSE
     )
   }
-  mget(sort(ls(x$secrets)), envir = x$secrets)
+  structure(mget(sort(ls(x$secrets)), envir = x$secrets), class = c("anon_secrets_list", "list"))
+}
+
+#' @export
+print.anon_secrets_list <- function(x, ...) {
+  print(unclass(x), ...)
+  invisible(x)
 }
 
 #' @export

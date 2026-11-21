@@ -83,7 +83,7 @@ for the object's class (see the \code{other_attributes} argument of
 contrasts matrix, which follow its levels. Value labels whose codes the
 redaction made equal are merged into one entry, their original labels
 joined with \code{" / "} and then redacted, with a warning naming the column as
-it is named in the output (or a list element, as \code{col[2]}); equal
+it is named in the output (or a list element, as \code{col[2]} or \code{col$name}); equal
 missing-value codes are deduplicated without a warning, as which values
 are missing doesn't change. A text \code{na_range} whose redacted ends would be
 in descending order is kept, with a warning. Whatever \code{check_labels}
@@ -114,8 +114,8 @@ An object of class \code{anon_context} with the same structure as \code{x} but w
 information replaced. For a de-identification step (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}), the step
 itself is returned with its data redacted, the patterns also applied to its log and
 settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}.
-For an environment, a new environment (with the same parent) holding
-redacted copies of its objects (see "Environments" below). If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
+For an environment, a new environment holding redacted copies of its
+objects (see "Environments" below). If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
 If \code{.self} is \code{TRUE}, warnings are attached as an attribute.
 }
 \description{
@@ -136,12 +136,18 @@ their class (\code{AsIs}, vctrs \code{list_of}, whose prototype is redacted like
 
 Lists, list columns and the classed lists they hold (such as fitted
 models) keep their attributes and class, with their elements and
-attributes redacted. Objects \code{anon()} can't search for text (functions,
-calls and formulas, such as a model's \code{call}, environments held inside
-other objects, S4 objects and pointers) are left as they are, with a
-warning naming where they are: remove them, or rebuild them from redacted
-data, before sharing. Environments, functions and S4 objects held in
-attributes are left as they are, without a warning.
+attributes redacted. Records (vctrs \code{rcrd}) and \code{POSIXlt} date-times have
+their text fields and attributes redacted. Objects \code{anon()} can't search
+for text (functions, calls and formulas, such as a model's \code{call} or a
+model frame's \code{terms} attribute, environments held inside other objects,
+S4 objects and pointers) are left as they are, and one warning lists where
+they are (by element name where there is one, as \code{fit$call}; the first
+ten, and how many more): remove them, or rebuild them from redacted data,
+before sharing.
+
+Secrets read from a de-identification step with \code{\link[=anon_secrets]{anon_secrets()}}, and a
+step's secrets environment, are dropped wherever \code{anon()} finds them, with
+a warning (a step's own secrets are dropped as described under Value).
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -163,16 +169,27 @@ objects returned by \code{anon()} using \code{c()}.
 }
 \section{Environments}{
 
-For an environment, \code{anon()} returns a new environment, with the same
-parent, holding a redacted copy of each of its objects (hidden ones
-included), named as \code{check_names} says; the environment given and its
-objects are not changed. A de-identification step in it is redacted as
-above, its secrets dropped. Environments held in it are not copied: they
-are left as they are, with a warning, as are functions. Active bindings are
-not copied (reading one would run its function), with a warning. The copy
-is not locked, whether or not the environment given is. Objects whose
-redacted names would be the same are an error, as an environment can't
-hold both.
+For an environment, \code{anon()} returns a new environment holding a redacted
+copy of each of its objects (hidden ones included), named as \code{check_names}
+says (with NLP entities found in the names too); the environment given and
+its objects are not changed. Its class and other attributes are not kept:
+the copy is a plain environment (of class \code{anon_context}).
+
+The copy's parent is the environment's parent when R saves that parent by
+reference (the global, base or empty environment, a package or a
+namespace). Any other parent, such as a function's frame, would be saved
+with the copy, and the objects it holds with it, so the copy's parent is
+then the global environment, with a warning.
+
+A de-identification step in it is redacted as above, its secrets dropped.
+Environments held in it are not copied: they are left as they are, as are
+functions, and named in the warning. Reading the objects forces promises.
+Active bindings (reading one would run its function) and objects that
+can't be read (a missing argument, or a promise whose code fails) are not
+copied, with a warning. The copy is not locked, whether or not the
+environment given is. A name that redacts to nothing is replaced by
+\code{"[unnamed 1]"} and so on. Objects whose redacted names would be the same
+are an error, as an environment can't hold both.
 }
 
 \section{Global Options}{

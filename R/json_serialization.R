@@ -39,7 +39,7 @@ as_anon_payload <- function(x, path = "$") {
 #' @export
 as_anon_json <- function(x, pretty = TRUE, auto_unbox = TRUE) {
   jsonlite::toJSON(
-    as_anon_payload(x),
+    json_text(as_anon_payload(x)),
     pretty = pretty,
     auto_unbox = auto_unbox,
     null = "null",
@@ -493,4 +493,35 @@ unsupported_json_class_error <- function(x, path = "$") {
     paste(class(x), collapse = "/"),
     call. = FALSE
   )
+}
+
+# A payload with its text (values and names, at any depth) made writable as
+# JSON: text marked "bytes" is written as UTF-8 when it is valid, and
+# otherwise with its invalid bytes shown as hex ("<92>"), as anon() searches
+# it.
+json_text <- function(x) {
+  fix <- function(t) {
+    bytes <- !is.na(t) & Encoding(t) == "bytes"
+    if (any(bytes)) {
+      t[bytes] <- searchable_text_of(t[bytes])
+    }
+    t
+  }
+  if (is.character(x)) {
+    x[] <- fix(x)
+  } else if (is.list(x)) {
+    for (i in seq_along(x)) {
+      if (!is.null(x[[i]])) x[[i]] <- json_text(x[[i]])
+    }
+  }
+  if (!is.null(names(x))) {
+    names(x) <- fix(names(x))
+  }
+  x
+}
+
+# Text marked "bytes", unmarked and repaired as anon() searches it.
+searchable_text_of <- function(t) {
+  Encoding(t) <- "unknown"
+  repair_utf8(enc2utf8(t))
 }
