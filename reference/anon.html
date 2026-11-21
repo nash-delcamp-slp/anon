@@ -188,6 +188,8 @@ If <code>.self</code> is <code>TRUE</code>, warnings are attached as an attribut
     <p><code>anon()</code> operates recursively on nested structures. For data frames:</p><ul><li><p>Individual columns are processed based on their content</p></li>
 <li><p>Entire columns can be replaced if specified in <code>df_variable_names</code> or <code>df_classes</code></p></li>
 <li><p>Column names, row names, and labels (including haven value labels) are redacted when enabled</p></li>
+<li><p>List columns are redacted element by element, nested data frames included, and keep
+their class (<code>AsIs</code>, vctrs <code>list_of</code>, whose prototype is redacted like the elements)</p></li>
 </ul><p>Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
 <code>"&lt;92&gt;"</code>), which is written back where a pattern matched; a pattern that

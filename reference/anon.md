@@ -178,6 +178,10 @@ warnings are attached as an attribute.
 - Column names, row names, and labels (including haven value labels) are
   redacted when enabled
 
+- List columns are redacted element by element, nested data frames
+  included, and keep their class (`AsIs`, vctrs `list_of`, whose
+  prototype is redacted like the elements)
+
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is
 searched through a repaired copy with the invalid bytes shown as hex
 (e.g. `"<92>"`), which is written back where a pattern matched; a

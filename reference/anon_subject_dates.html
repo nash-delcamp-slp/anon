@@ -76,9 +76,11 @@ each participant.</p>
 
 <dl><dt id="arg-data">data<a class="anchor" aria-label="anchor" href="#arg-data"></a></dt>
 <dd><p>A data frame, a named list of data frames linked by <code>key</code>, or
-the result of an earlier step such as <code>anon_subject_dates()</code>. In datasets
-without the <code>key</code> column the values are left unchanged; keys in their
-attributes and names are rewritten (see Details).</p></dd>
+the result of an earlier step such as <code>anon_subject_dates()</code>. Data frames
+nested in them are de-identified too (see "Nested data" in Details). In
+datasets without the <code>key</code> column, at the top or in nested data, the
+values are left unchanged; keys in their attributes and names are
+rewritten (see Details).</p></dd>
 
 
 <dt id="arg-key">key<a class="anchor" aria-label="anchor" href="#arg-key"></a></dt>
@@ -88,7 +90,11 @@ attributes and names are rewritten (see Details).</p></dd>
 <dt id="arg-vars">vars<a class="anchor" aria-label="anchor" href="#arg-vars"></a></dt>
 <dd><p>Names of date columns to shift. By default, every character or
 factor column whose name ends in <code>DTC</code> (any case; ISO 8601 dates, as in
-SDTM) and every Date or POSIXct column, in each dataset that has the <code>key</code>.
+SDTM) and every Date, POSIXct or POSIXlt column, in each dataset whose
+rows have subjects and in nested data frames with a subject (see "Nested data" in
+<code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>); a list column holding Date, POSIXct or POSIXlt
+values counts as a Date column. <code>vars</code> names columns at every depth of
+nested data.
 In SDTM supplemental qualifier datasets (with <code>QNAM</code> and <code>QVAL</code>), <code>QVAL</code>
 values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
@@ -161,8 +167,8 @@ on a number). The log counts the attributes dropped in each dataset.</p></dd>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
     <p>Full ISO 8601 dates move by exactly the subject's offset and keep their
-format and any time part. Date columns keep their type, and POSIXct columns
-keep their type, time zone and clock time (the calendar date moves, so a
+format and any time part. Date columns keep their type, and POSIXct and
+POSIXlt columns keep their type, time zone and clock time (the calendar date moves, so a
 shift across a daylight saving change keeps 08:00 at 08:00). Column
 attributes such as variable labels are kept, with the dates in them
 replaced by <code>"[DATE]"</code> (see below); value labels (haven <code>labels</code>) are
@@ -191,6 +197,13 @@ becomes <code>"[DATE]T08:00"</code>, and <code>"2014---15"</code>), and dates wi
 as numbers with separators. The log has one row per dataset with such
 replacements, with counts. Values in the data are not changed by this
 rule.</p>
+<p>Dates in nested data move by the offset of the subject their row belongs
+to (see "Nested data" in <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>), with the same rules, and so
+do Date and date-time values held in list columns, at any depth through
+plain lists. Text values in list columns are not shifted. Objects that
+can't be de-identified, such as fitted models, recipes and resampling
+splits, are named in a warning: de-identify the raw data first, and build
+them on the de-identified copy.</p>
 <p>Year-and-month dates are shifted from the middle of the month, and year-only
 dates by whole years, so the order between a partial date and a full date of
 the same subject can change (for example a start month can end up after an
@@ -214,8 +227,8 @@ text columns with ISO 8601 dates as whole values, or dates inside text
 (<code>05JAN2014</code>, <code>UNK-JAN-2014</code>, <code>5 Jan 2014</code>, <code>Jan 5, 2014</code>, <code>JAN2014</code>) or as
 numbers with separators (<code>01/05/2014</code>, <code>1/5/14</code>, <code>01.05.2014</code>,
 <code>2014/01/05</code>), including the values kept in mixed columns such as <code>QVAL</code>,
-list columns (all the text their elements hold) and the columns of packed
-data frame columns. Other formats, such as <code>20140105</code>, <code>2014.01.05</code>,
+list columns (the text values their elements hold) and the columns of
+nested data frames. Other formats, such as <code>20140105</code>, <code>2014.01.05</code>,
 <code>2014-1-5</code>, <code>Jan-05-2014</code>, <code>12/2014</code> and a month and day without a year
 (<code>--12-15</code>), are not detected, nor replaced in attributes and names. It also
 lists any dataset without <code>key</code> that has such columns or a column named
@@ -230,10 +243,10 @@ texts and name the columns, or datasets (<code>"(list)"</code> for attributes of
 list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with <code><a href="https://rdrr.io/r/base/iconv.html" class="external-link">iconv()</a></code>) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (<code>"&lt;e9&gt;"</code>): this
-step shows original keys as <code>"[KEY]"</code>. Names inside packed columns are
-data, which <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code> doesn't rewrite, and this step can't
-recognise original keys in them once that step has run, so it always names
-the columns inside packed columns by position (<code>dataset.column[2]</code>).</p>
+step shows original keys as <code>"[KEY]"</code>. It names the columns inside nested
+data by position (<code>dataset.column[2]</code>, <code>dataset.column[[]][2]</code>), in
+warnings and in the log, so that a column is named the same way whether or
+not <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>, which rewrites keys in nested names, ran first.</p>
 <p>Random numbers come from R's random number generator; see
 <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>. Run this before or after <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>; each
 subject keeps one offset either way. Under HIPAA, HHS does not address date

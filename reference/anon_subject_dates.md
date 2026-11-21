@@ -29,9 +29,11 @@ anon_subject_dates(
 - data:
 
   A data frame, a named list of data frames linked by `key`, or the
-  result of an earlier step such as `anon_subject_dates()`. In datasets
-  without the `key` column the values are left unchanged; keys in their
-  attributes and names are rewritten (see Details).
+  result of an earlier step such as `anon_subject_dates()`. Data frames
+  nested in them are de-identified too (see "Nested data" in Details).
+  In datasets without the `key` column, at the top or in nested data,
+  the values are left unchanged; keys in their attributes and names are
+  rewritten (see Details).
 
 - key:
 
@@ -41,18 +43,22 @@ anon_subject_dates(
 
   Names of date columns to shift. By default, every character or factor
   column whose name ends in `DTC` (any case; ISO 8601 dates, as in SDTM)
-  and every Date or POSIXct column, in each dataset that has the `key`.
-  In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`),
-  `QVAL` values that are ISO 8601 dates with more than a bare year are
-  shifted too (year-only values are left alone because they can't be
-  told apart from numbers; a warning names the columns where they were
-  kept). In columns not named `*DTC`, such as `QVAL` or a result column
-  given in `vars`, only the values that are dates are shifted and other
-  values are kept; bare four-digit numbers are kept too (with a
-  warning), unless every value of the column, in every dataset, is a
-  bare year (such as a column of birth years). Columns given in `vars`
-  must be Date, POSIXct, or character or factor columns of ISO 8601
-  dates.
+  and every Date, POSIXct or POSIXlt column, in each dataset whose rows
+  have subjects and in nested data frames with a subject (see "Nested
+  data" in
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md));
+  a list column holding Date, POSIXct or POSIXlt values counts as a Date
+  column. `vars` names columns at every depth of nested data. In SDTM
+  supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
+  values that are ISO 8601 dates with more than a bare year are shifted
+  too (year-only values are left alone because they can't be told apart
+  from numbers; a warning names the columns where they were kept). In
+  columns not named `*DTC`, such as `QVAL` or a result column given in
+  `vars`, only the values that are dates are shifted and other values
+  are kept; bare four-digit numbers are kept too (with a warning),
+  unless every value of the column, in every dataset, is a bare year
+  (such as a column of birth years). Columns given in `vars` must be
+  Date, POSIXct, or character or factor columns of ISO 8601 dates.
 
 - max_days, min_days:
 
@@ -117,17 +123,17 @@ An object of class `"anon_deid_step"`, as for
 ## Details
 
 Full ISO 8601 dates move by exactly the subject's offset and keep their
-format and any time part. Date columns keep their type, and POSIXct
-columns keep their type, time zone and clock time (the calendar date
-moves, so a shift across a daylight saving change keeps 08:00 at 08:00).
-Column attributes such as variable labels are kept, with the dates in
-them replaced by `"[DATE]"` (see below); value labels (haven `labels`)
-are dropped from shifted columns, and haven user-defined missing values
-(`na_values`, `na_range`) in the key and date columns become plain
-missing values. A clock time that doesn't exist on the new date (inside
-a daylight saving gap) moves forward by the gap. Study day variables
-(`--DY`) are not changed and stay consistent with the shifted full
-dates, because each subject's dates all move together.
+format and any time part. Date columns keep their type, and POSIXct and
+POSIXlt columns keep their type, time zone and clock time (the calendar
+date moves, so a shift across a daylight saving change keeps 08:00 at
+08:00). Column attributes such as variable labels are kept, with the
+dates in them replaced by `"[DATE]"` (see below); value labels (haven
+`labels`) are dropped from shifted columns, and haven user-defined
+missing values (`na_values`, `na_range`) in the key and date columns
+become plain missing values. A clock time that doesn't exist on the new
+date (inside a daylight saving gap) moves forward by the gap. Study day
+variables (`--DY`) are not changed and stay consistent with the shifted
+full dates, because each subject's dates all move together.
 
 Dates can't be tied to one subject's offset in text that describes the
 data, so there they are replaced with `"[DATE]"` (the default date
@@ -150,6 +156,16 @@ replaced are those found inside text by the warning described below: ISO
 dates with a month name or as numbers with separators. The log has one
 row per dataset with such replacements, with counts. Values in the data
 are not changed by this rule.
+
+Dates in nested data move by the offset of the subject their row belongs
+to (see "Nested data" in
+[`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)),
+with the same rules, and so do Date and date-time values held in list
+columns, at any depth through plain lists. Text values in list columns
+are not shifted. Objects that can't be de-identified, such as fitted
+models, recipes and resampling splits, are named in a warning:
+de-identify the raw data first, and build them on the de-identified
+copy.
 
 Year-and-month dates are shifted from the middle of the month, and
 year-only dates by whole years, so the order between a partial date and
@@ -175,8 +191,8 @@ inside text (which can't be shifted) written as ISO 8601, with a month
 name (`05JAN2014`, `UNK-JAN-2014`, `5 Jan 2014`, `Jan 5, 2014`,
 `JAN2014`) or as numbers with separators (`01/05/2014`, `1/5/14`,
 `01.05.2014`, `2014/01/05`), including the values kept in mixed columns
-such as `QVAL`, list columns (all the text their elements hold) and the
-columns of packed data frame columns. Other formats, such as `20140105`,
+such as `QVAL`, list columns (the text values their elements hold) and
+the columns of nested data frames. Other formats, such as `20140105`,
 `2014.01.05`, `2014-1-5`, `Jan-05-2014`, `12/2014` and a month and day
 without a year (`--12-15`), are not detected, nor replaced in attributes
 and names. It also lists any dataset without `key` that has such columns
@@ -193,12 +209,12 @@ datasets and dataset names), holding it. Convert it to UTF-8 (for
 example with [`iconv()`](https://rdrr.io/r/base/iconv.html)) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-step shows original keys as `"[KEY]"`. Names inside packed columns are
-data, which
-[`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)
-doesn't rewrite, and this step can't recognise original keys in them
-once that step has run, so it always names the columns inside packed
-columns by position (`dataset.column[2]`).
+step shows original keys as `"[KEY]"`. It names the columns inside
+nested data by position (`dataset.column[2]`, `dataset.column[[]][2]`),
+in warnings and in the log, so that a column is named the same way
+whether or not
+[`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md),
+which rewrites keys in nested names, ran first.
 
 Random numbers come from R's random number generator; see
 [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md).

@@ -17,7 +17,8 @@
   and
   [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
   pseudonymize subjects and offset each subject’s dates consistently
-  across datasets.
+  across datasets, including nested data frames, and flag objects they
+  can’t de-identify, such as fitted models.
 - Environment summarization with
   [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md)
   and
