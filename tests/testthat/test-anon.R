@@ -873,12 +873,12 @@ test_that("anon() keeps models in list columns and warns about what it can't red
 
 test_that("anon() never sets attributes on objects it leaves as they are", {
   inner <- new.env()
-  l <- list(f = sum, e = inner, g = local(function(x) x, globalenv()))
+  l <- list(f = sum, e = globalenv(), g = local(function(x) x, globalenv()))
   out <- suppressWarnings(anon(l, pattern_list = "DRUGQX"))
-  expect_null(attributes(inner))
+  expect_null(attributes(globalenv()))
   expect_identical(out$f, sum)
-  expect_identical(out$e, inner)
-  expect_identical(out$g, l$g)
+  expect_identical(out$e, globalenv())
+  expect_identical(out$g, utils::removeSource(l$g))
   expect_identical(suppressWarnings(anon(sum)), sum)
 })
 
@@ -938,11 +938,12 @@ test_that("anon() on an environment returns a redacted copy and leaves the envir
   expect_setequal(ls(anon(e, pattern_list = "DRUGQX", check_names = FALSE)), c("DRUGQX_notes", "df"))
 })
 
-test_that("anon() on an environment drops secrets, leaves nested environments and skips active bindings", {
+test_that("anon() on an environment drops secrets, copies nested environments and skips active bindings", {
   e <- new.env(parent = globalenv())
   step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("A-1", "A-2"))), keep_secrets = TRUE, seed = 1)
   assign("step", step, envir = e)
   inner <- new.env()
+  inner$note <- "DRUGQX note"
   assign("inner", inner, envir = e)
   makeActiveBinding("DRUGQX_live", function() stop("read"), e)
   lockEnvironment(e, bindings = TRUE)
@@ -955,10 +956,12 @@ test_that("anon() on an environment drops secrets, leaves nested environments an
     }
   )
   expect_match(warnings, "Active bindings are not copied[^:]*: `\\[DRUG\\]_live`", all = FALSE)
-  expect_match(warnings, "can't redact functions, calls, formulas, environments[^:]*: `inner`", all = FALSE)
+  expect_match(warnings, "The parent of `inner` wasn't kept", all = FALSE)
   expect_null(out$step$secrets)
   expect_false(is.null(step$secrets))
-  expect_identical(out$inner, inner)
+  expect_false(identical(out$inner, inner))
+  expect_identical(out$inner$note, "[DRUG] note")
+  expect_identical(inner$note, "DRUGQX note")
   expect_false("[DRUG]_live" %in% ls(out))
   expect_false(environmentIsLocked(out))
   # Objects whose redacted names are the same are made unique.
@@ -975,7 +978,7 @@ test_that("anon() on an environment keeps only a parent R saves by reference", {
     e$d <- data.frame(a = "x")
     e
   })
-  expect_warning(out <- anon(frame, pattern_list = "DRUGQX"), "parent wasn't kept")
+  expect_warning(out <- anon(frame, pattern_list = "DRUGQX"), "The parent of the environment wasn't kept")
   expect_identical(parent.env(out), globalenv())
   expect_length(grepRaw("ZQ-SECRET", serialize(out, NULL)), 0)
   for (parent in list(globalenv(), baseenv(), emptyenv(), asNamespace("stats"), as.environment("package:stats"))) {
@@ -1041,15 +1044,14 @@ test_that("closures and formulas in the copy don't refer to the original's data"
   make <- function() {
     secret <- "ZQ-SECRET-0001"
     dat <- data.frame(y = c(1, 3, 2, 5, 4), x = 1:5)
-    # Without source references, which would save this file's text.
-    list(g = utils::removeSource(function() secret), f = y ~ x, fit = stats::lm(y ~ x, data = dat))
+    list(g = function() secret, f = y ~ x, fit = stats::lm(y ~ x, data = dat))
   }
   objs <- make()
   e <- new.env(parent = globalenv())
   e$g <- objs$g
   e$l <- list(f = objs$f)
   e$fit <- objs$fit
-  local_fn <- utils::removeSource(function() 1)
+  local_fn <- function() 1
   environment(local_fn) <- e
   e$local_fn <- local_fn
   w <- character(0)
@@ -1126,4 +1128,95 @@ test_that("anon() sets nothing on objects given to it directly with .self", {
   # As the data summary does when it applies column rules.
   invisible(anon_data_summary(list(e = inner, d = data.frame(x = 1)), df_variable_names = "x", example_values_n = 1))
   expect_null(attributes(inner))
+})
+
+test_that("anon() drops source references wherever it finds functions and calls", {
+  # Its environment is the global one, so only its source differs.
+  f <- eval(parse(text = "function() 1 # DRUGQX-003", keep.source = TRUE), globalenv())
+  ex <- parse(text = "x # DRUGQX-004", keep.source = TRUE)
+  e <- new.env(parent = globalenv())
+  e$f <- f
+  e$l <- list(g = f, ex = ex)
+  e$d <- structure(data.frame(a = 1), fn = f, srcref = attr(f, "srcref"))
+  e$col <- tibble::tibble(id = 1, fns = list(f))
+  out <- suppressWarnings(anon(e))
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
+  expect_identical(out$f(), 1)
+  expect_null(attr(out$f, "srcref"))
+  expect_null(attr(suppressWarnings(anon(f)), "srcref"))
+  expect_false(is.null(attr(f, "srcref")))
+})
+
+test_that("anon() copies environments held inside objects, once each", {
+  make <- function() {
+    secret <- "DRUGQX-005"
+    d <- data.frame(a = 1)
+    attr(d, "env") <- environment()
+    d
+  }
+  shared <- new.env(parent = globalenv())
+  shared$note <- "DRUGQX note"
+  shared$self <- shared
+  e <- new.env(parent = globalenv())
+  e$l <- list(a = shared, b = shared)
+  e$col <- tibble::tibble(id = 1, env = list(shared))
+  e$d <- make()
+  out <- suppressWarnings(anon(e, pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
+  copy <- out$l$a
+  expect_false(identical(copy, shared))
+  expect_identical(copy$note, "[DRUG] note")
+  expect_identical(out$l$b, copy)
+  expect_identical(out$col$env[[1]], copy)
+  expect_identical(copy$self, copy)
+  # The copy of the frame holds the data frame's copy, whose attribute is the frame's copy.
+  expect_identical(attr(attr(out$d, "env")$d, "env"), attr(out$d, "env"))
+  expect_identical(shared$note, "DRUGQX note")
+  # Shared environments stay by reference.
+  expect_identical(suppressWarnings(anon(list(g = globalenv())))$g, globalenv())
+})
+
+test_that("objects with reference semantics keep working on their redacted copy", {
+  # Built as R6 builds its objects (without adding R6 as a dependency): a
+  # classed environment of methods whose enclosing environment holds `self`,
+  # and is held by the object as `.__enclos_env__`.
+  new_person <- function(name) {
+    self <- new.env(parent = emptyenv())
+    enclos <- new.env(parent = globalenv())
+    enclos$self <- self
+    self$name <- name
+    self$greet <- function() paste("hi", self$name)
+    environment(self$greet) <- enclos
+    self$.__enclos_env__ <- enclos
+    class(self) <- c("Person", "R6")
+    self
+  }
+  p <- new_person("DRUGQX bob")
+  out <- suppressWarnings(anon(list(p = p, again = p), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_s3_class(out$p, "R6")
+  expect_identical(out$p$greet(), "hi [DRUG] bob")
+  expect_identical(out$again, out$p)
+  expect_identical(p$greet(), "hi DRUGQX bob")
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
+  # Environments are copied before the closures that refer to them, whatever
+  # their names.
+  e <- new.env(parent = globalenv())
+  holder <- new.env(parent = globalenv())
+  holder$v <- "DRUGQX"
+  e$a_reader <- function() v
+  environment(e$a_reader) <- holder
+  e$z_holder <- holder
+  out <- suppressWarnings(anon(e, pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(environment(out$a_reader), out$z_holder)
+  expect_identical(out$a_reader(), "[DRUG]")
+})
+
+test_that("dropping source references leaves the original function as it is", {
+  # Its environment is the global one, which saving it doesn't save.
+  f <- eval(parse(text = "function() {\n  1 # DRUGQX-007\n}", keep.source = TRUE), globalenv())
+  before <- serialize(f, NULL)
+  out <- suppressWarnings(anon(list(f = f)))
+  expect_identical(serialize(f, NULL), before)
+  expect_null(attr(out$f, "srcref"))
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
 })

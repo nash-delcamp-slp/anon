@@ -1091,13 +1091,15 @@ deid_env_with <- function(step) {
 
 # An environment holding `step`, its `dm` (under a name holding a
 # user-pattern term), a closure whose environment holds the step, one whose
-# environment is the environment itself and, for a step with secrets, the
-# secrets read with anon_secrets() (also in an attribute of `dm`) and the
-# step's secrets environment, redacted with anon(): the copy must be a new
-# environment holding the step (still a step, without secrets), the data
-# frame and the closures, under the expected names, without the secrets;
-# saving it must not save the closure's environment; and the environment
-# given must not change.
+# environment is the environment itself, a function whose source reference
+# holds a key, an environment in a list holding a user-pattern term and the
+# environment itself, and, for a step with secrets, the secrets read with
+# anon_secrets() (also in an attribute of `dm`) and the step's secrets
+# environment, redacted with anon(): the copy must be a new environment
+# holding the step (still a step, without secrets), the data frame, the
+# functions and the list, under the expected names, without the secrets;
+# saving it must not save the closure's environment, the source or the
+# nested environment's original; and the environment given must not change.
 deid_anon_env <- function(step) {
   e <- new.env()
   assign("step", step, envir = e)
@@ -1110,27 +1112,36 @@ deid_anon_env <- function(step) {
   assign("DRUGQX_dm", dm, envir = e)
   holder <- new.env(parent = globalenv())
   holder$step <- step
-  # Without source references, which would save this file's text.
-  reader <- utils::removeSource(function() nrow(step$data$dm))
+  reader <- function() nrow(step$data$dm)
   environment(reader) <- holder
   assign("reader", reader, envir = e)
-  own <- utils::removeSource(function() length(ls()))
+  own <- function() length(ls())
   environment(own) <- e
   assign("own", own, envir = e)
-  # The objects, saved (`own` is left out: saving it saves `e` itself).
-  snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), "own"), envir = e), NULL)
+  assign("sourced", eval(parse(text = paste0("function() 1 # ", deid_keys[1]), keep.source = TRUE), globalenv()), envir = e)
+  inner <- new.env(parent = globalenv())
+  inner$note <- "DRUGQX note"
+  inner$outer <- e
+  assign("box", list(inner = inner), envir = e)
+  # The objects, saved (`own` and `box` are left out: saving them saves `e`
+  # itself).
+  snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), c("own", "box")), envir = e), NULL)
   before <- snapshot()
   a <- anon(e, pattern_list = deid_patterns)
   if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
-  if (!is.null(attributes(e)) || !identical(snapshot(), before) || !identical(environment(e$own), e)) {
+  if (!is.null(attributes(e)) || !identical(snapshot(), before) || !identical(environment(e$own), e) ||
+    !identical(inner$note, "DRUGQX note") || !identical(inner$outer, e)) {
     stop("anon() changed the environment it was given")
   }
-  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "own", "reader", "step")))) {
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "own", "reader", "sourced", "step")))) {
     stop("anon() returned an environment holding other objects than expected")
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
   if (!identical(environment(a$own), a) || !identical(environment(a$reader), globalenv())) {
     stop("anon() didn't replace the closures' environments")
+  }
+  if (identical(a$box$inner, inner) || !identical(a$box$inner$outer, a)) {
+    stop("anon() didn't copy the nested environment, mapping its reference to the copy")
   }
   copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
   if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
