@@ -18,15 +18,20 @@ anon_subject_dates(
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
-the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. In datasets
-without the \code{key} column the values are left unchanged; keys in their
-attributes and names are rewritten (see Details).}
+the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. Data frames
+nested in them are de-identified too (see "Nested data" in Details). In
+datasets without the \code{key} column, at the top or in nested data, the
+values are left unchanged; keys in their attributes and names are
+rewritten (see Details).}
 
 \item{key}{Name of the subject identifier column.}
 
 \item{vars}{Names of date columns to shift. By default, every character or
 factor column whose name ends in \code{DTC} (any case; ISO 8601 dates, as in
-SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}.
+SDTM) and every Date or POSIXct column, in each dataset that has the \code{key}
+and in nested data frames with a subject (see "Nested data" in
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}); a list column holding Date or POSIXct values counts
+as a Date column. \code{vars} names columns at every depth of nested data.
 In SDTM supplemental qualifier datasets (with \code{QNAM} and \code{QVAL}), \code{QVAL}
 values that are ISO 8601 dates with more than a bare year are shifted too
 (year-only values are left alone because they can't be told apart from
@@ -127,6 +132,14 @@ as numbers with separators. The log has one row per dataset with such
 replacements, with counts. Values in the data are not changed by this
 rule.
 
+Dates in nested data move by the offset of the subject their row belongs
+to (see "Nested data" in \code{\link[=anon_subject_ids]{anon_subject_ids()}}), with the same rules, and so
+do Date and date-time values held in list columns, at any depth through
+plain lists. Text values in list columns are not shifted. Objects that
+can't be de-identified, such as fitted models, recipes and resampling
+splits, are named in a warning: de-identify the raw data first, and build
+them on the de-identified copy.
+
 Year-and-month dates are shifted from the middle of the month, and year-only
 dates by whole years, so the order between a partial date and a full date of
 the same subject can change (for example a start month can end up after an
@@ -151,8 +164,8 @@ text columns with ISO 8601 dates as whole values, or dates inside text
 (\verb{05JAN2014}, \code{UNK-JAN-2014}, \verb{5 Jan 2014}, \verb{Jan 5, 2014}, \code{JAN2014}) or as
 numbers with separators (\code{01/05/2014}, \code{1/5/14}, \verb{01.05.2014},
 \code{2014/01/05}), including the values kept in mixed columns such as \code{QVAL},
-list columns (all the text their elements hold) and the columns of packed
-data frame columns. Other formats, such as \code{20140105}, \verb{2014.01.05},
+list columns (the text values their elements hold) and the columns of
+nested data frames. Other formats, such as \code{20140105}, \verb{2014.01.05},
 \code{2014-1-5}, \code{Jan-05-2014}, \code{12/2014} and a month and day without a year
 (\code{--12-15}), are not detected, nor replaced in attributes and names. It also
 lists any dataset without \code{key} that has such columns or a column named
@@ -168,10 +181,10 @@ texts and name the columns, or datasets (\code{"(list)"} for attributes of the
 list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
-step shows original keys as \code{"[KEY]"}. Names inside packed columns are
-data, which \code{\link[=anon_subject_ids]{anon_subject_ids()}} doesn't rewrite, and this step can't
-recognise original keys in them once that step has run, so it always names
-the columns inside packed columns by position (\code{dataset.column[2]}).
+step shows original keys as \code{"[KEY]"}. It names the columns inside nested
+data by position (\code{dataset.column[2]}, \code{dataset.column[[]][2]}), in
+warnings and in the log, so that a column is named the same way whether or
+not \code{\link[=anon_subject_ids]{anon_subject_ids()}}, which rewrites keys in nested names, ran first.
 
 Random numbers come from R's random number generator; see
 \code{\link[=anon_subject_ids]{anon_subject_ids()}}. Run this before or after \code{\link[=anon_subject_ids]{anon_subject_ids()}}; each

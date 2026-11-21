@@ -174,10 +174,13 @@ deid_fixture <- function() {
   dm$PACK[[deid_keys[2]]] <- deid_keys[c(4:8, 1:3)]
   dm$PACK[[deid_keys[7]]] <- format(deid_start[c(2:8, 1)] + 2)
   attr(dm$PACK, "label") <- paste("Links of", deid_keys[1])
-  # Nested data: a data frame per row holding the row's subject's date, a
-  # list column of dates, numbers with a date in an attribute, and a data
-  # frame per row with its own key column.
-  dm$NEST <- I(lapply(seq_along(deid_start), function(i) tibble::tibble(DT = deid_start[i])))
+  # Nested data: a data frame per row holding the row's subject's date (with
+  # the subject's key in its label, so that each differs in more than its
+  # values), a list column of dates, numbers with a date in an attribute, and
+  # a data frame per row with its own key column.
+  dm$NEST <- I(lapply(seq_along(deid_start), function(i) {
+    tibble::tibble(DT = structure(deid_start[i], label = paste("Date of", deid_keys[i])))
+  }))
   dm$WHEN <- I(as.list(deid_start))
   dm$OBS <- I(lapply(seq_along(deid_start), function(i) structure(i, when = deid_start[i])))
   dm$SUB <- I(lapply(deid_keys, function(k) tibble::tibble(USUBJID = k, X = 1)))

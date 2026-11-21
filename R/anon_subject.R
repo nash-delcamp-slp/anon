@@ -8,9 +8,11 @@
 #' `RSUBJID`) are mapped through the same pseudonyms.
 #'
 #' @param data A data frame, a named list of data frames linked by `key`, or
-#'   the result of an earlier step such as [anon_subject_dates()]. In datasets
-#'   without the `key` column the values are left unchanged; keys in their
-#'   attributes and names are rewritten (see Details).
+#'   the result of an earlier step such as [anon_subject_dates()]. Data frames
+#'   nested in them are de-identified too (see "Nested data" in Details). In
+#'   datasets without the `key` column, at the top or in nested data, the
+#'   values are left unchanged; keys in their attributes and names are
+#'   rewritten (see Details).
 #' @param key Name of the subject identifier column.
 #' @param also Names of related identifier columns that hold one value per
 #'   subject (default `"SUBJID"`). They are replaced with the pseudonym's
@@ -106,26 +108,56 @@
 #' reason they are not searched for below. The log has one row per dataset
 #' with such rewrites (and one for the list of datasets), with counts by kind;
 #' this and earlier steps' logs and settings are renamed and rewritten to
-#' match. Values in the data are not rewritten, including the elements of list
-#' columns and packed data frame columns, with everything inside them: a packed
-#' column's own attributes (even its `label`) and names are left as they are,
-#' and handling nested data is planned.
+#' match. The same text is rewritten inside nested data (packed data frame
+#' columns and the data frames in list columns, see below), and in list
+#' columns the attributes and names of the vectors and plain lists the
+#' elements hold, at any depth. Text values in the data are not rewritten,
+#' neither in columns nor in list-column elements or nested data frames; they
+#' are searched (see below).
+#'
+#' **Nested data.** Data frames nested in the datasets are de-identified like
+#' datasets: packed data frame columns (as made by `tidyr::pack()`) and list
+#' columns of data frames (plain lists or vctrs `list_of`, as made by
+#' `tidyr::nest()`, `dplyr::group_nest()` or `dplyr::nest_by()`), at any depth,
+#' including data frames held in plain lists inside list columns. Each row of
+#' a packed column belongs to its outer row's subject, and each data frame in
+#' a list column to its row's subject, unless it has its own `key` column: then
+#' each of its rows belongs to the subject in that column. Its `key`, `also`
+#' and `key_cols` columns are replaced as in a dataset, subjects found only in
+#' nested data get pseudonyms too, and a data frame with its own key has its
+#' rows sorted by the new key (row names reset); others keep their rows in
+#' order. A dataset whose key is only in nested data (such as data nested by
+#' test, each element holding `USUBJID`) is de-identified through it. Rows
+#' with no subject (a missing key, or a blank key in the outer row) follow the
+#' rules above; nested data frames with no key, in a dataset without the key,
+#' are left unchanged like such datasets. Column types and labels are kept; a
+#' `list_of` keeps its class, its prototype following the new elements (such as
+#' factor levels), and grouped tibbles are regrouped. List-column elements
+#' that are not data frames, vectors, plain lists or `NULL` (fitted models such
+#' as `lm` or parsnip fits, recipes, workflows, `rsplit` and `rset` objects,
+#' environments, functions, formulas, S4 objects) are not entered or changed,
+#' and their columns are named in a warning. They can hold copies of the
+#' original data: de-identify the raw data first, and build models, recipes
+#' and resampling splits on the de-identified copy. Changes inside nested data
+#' are logged with counts, per dataset, with the column's path as `variable`
+#' (such as `"data[[]][USUBJID]"`).
 #'
 #' A warning lists any other character or factor column (values or factor
-#' levels), list column (all the text its elements hold: values, factor
-#' levels, names and attributes, at any depth), or column of a packed data
-#' frame column (named as `dataset.column[subcolumn]`, and deeper as
-#' `dataset.column[sub][subsub]`, with the text in its attributes; the packed
-#' column itself is named for its column names and attributes), in any
-#' dataset, that still contains original key values as whole
+#' levels), list column (the text values its elements hold: character values
+#' and factor levels, at any depth), or column of a nested data frame (named as
+#' `dataset.column[sub]` inside a packed column, `dataset.column[[]][sub]` for
+#' column `sub` of the data frames in list column `column`, and deeper as
+#' `dataset.column[sub][[]][subsub]`), in any dataset, that still contains
+#' original key values as whole
 #' values or as whole words inside text (checked for character keys that are
 #' not made only of digits, since numbers match many unrelated codes), and
 #' any dataset without `key` that has a column named like `key`, `also` or
-#' `key_cols` in any case. In datasets with `key`, a column named like one of
-#' them in another case (such as `usubjid` beside `USUBJID`) is not replaced
-#' and is named in a warning. Only text or factor columns can be given in
-#' `key_cols`; the others must be redacted or removed. Locations printed in
-#' warnings have keys rewritten, as names inside packed columns can hold them.
+#' `key_cols` in any case. In datasets with `key`, and in nested data frames
+#' with a subject, a column named like one of them in another case (such as
+#' `usubjid` beside `USUBJID`) is not replaced and is named in a warning. Only
+#' text or factor columns can be given in `key_cols`; the others must be
+#' redacted or removed. Locations printed in warnings have keys rewritten, as
+#' names can hold them.
 #' Columns of S4 objects are not searched or changed, and are named in a
 #' warning as data that can't be checked.
 #' Original values of `also` columns (such as `SUBJID`) elsewhere are not
@@ -337,7 +369,10 @@ anon_subject_ids <- function(
 #' @inheritParams anon_subject_ids
 #' @param vars Names of date columns to shift. By default, every character or
 #'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
-#'   SDTM) and every Date or POSIXct column, in each dataset that has the `key`.
+#'   SDTM) and every Date or POSIXct column, in each dataset that has the `key`
+#'   and in nested data frames with a subject (see "Nested data" in
+#'   [anon_subject_ids()]); a list column holding Date or POSIXct values counts
+#'   as a Date column. `vars` names columns at every depth of nested data.
 #'   In SDTM supplemental qualifier datasets (with `QNAM` and `QVAL`), `QVAL`
 #'   values that are ISO 8601 dates with more than a bare year are shifted too
 #'   (year-only values are left alone because they can't be told apart from
@@ -399,6 +434,14 @@ anon_subject_ids <- function(
 #' replacements, with counts. Values in the data are not changed by this
 #' rule.
 #'
+#' Dates in nested data move by the offset of the subject their row belongs
+#' to (see "Nested data" in [anon_subject_ids()]), with the same rules, and so
+#' do Date and date-time values held in list columns, at any depth through
+#' plain lists. Text values in list columns are not shifted. Objects that
+#' can't be de-identified, such as fitted models, recipes and resampling
+#' splits, are named in a warning: de-identify the raw data first, and build
+#' them on the de-identified copy.
+#'
 #' Year-and-month dates are shifted from the middle of the month, and year-only
 #' dates by whole years, so the order between a partial date and a full date of
 #' the same subject can change (for example a start month can end up after an
@@ -423,8 +466,8 @@ anon_subject_ids <- function(
 #' (`05JAN2014`, `UNK-JAN-2014`, `5 Jan 2014`, `Jan 5, 2014`, `JAN2014`) or as
 #' numbers with separators (`01/05/2014`, `1/5/14`, `01.05.2014`,
 #' `2014/01/05`), including the values kept in mixed columns such as `QVAL`,
-#' list columns (all the text their elements hold) and the columns of packed
-#' data frame columns. Other formats, such as `20140105`, `2014.01.05`,
+#' list columns (the text values their elements hold) and the columns of
+#' nested data frames. Other formats, such as `20140105`, `2014.01.05`,
 #' `2014-1-5`, `Jan-05-2014`, `12/2014` and a month and day without a year
 #' (`--12-15`), are not detected, nor replaced in attributes and names. It also
 #' lists any dataset without `key` that has such columns or a column named
@@ -440,10 +483,10 @@ anon_subject_ids <- function(
 #' list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
 #' step again. Every location printed in the steps' warnings and errors has
 #' keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-#' step shows original keys as `"[KEY]"`. Names inside packed columns are
-#' data, which [anon_subject_ids()] doesn't rewrite, and this step can't
-#' recognise original keys in them once that step has run, so it always names
-#' the columns inside packed columns by position (`dataset.column[2]`).
+#' step shows original keys as `"[KEY]"`. It names the columns inside nested
+#' data by position (`dataset.column[2]`, `dataset.column[[]][2]`), in
+#' warnings and in the log, so that a column is named the same way whether or
+#' not [anon_subject_ids()], which rewrites keys in nested names, ran first.
 #'
 #' Random numbers come from R's random number generator; see
 #' [anon_subject_ids()]. Run this before or after [anon_subject_ids()]; each

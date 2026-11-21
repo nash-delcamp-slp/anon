@@ -9,7 +9,8 @@
   anonymization.
 * Clinical de-identification: `anon_risk()` measures re-identification risk,
   and `anon_subject_ids()` and `anon_subject_dates()` pseudonymize subjects and
-  offset each subject's dates consistently across datasets.
+  offset each subject's dates consistently across datasets, including nested
+  data frames, and flag objects they can't de-identify, such as fitted models.
 * Environment summarization with `anon_report()` and `anon_data_summary()` to
   generate safe structural overviews suitable for sharing in prompts or bug
   reports.

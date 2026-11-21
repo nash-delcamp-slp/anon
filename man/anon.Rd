@@ -124,6 +124,8 @@ anonymization based on variable names or classes and warnings about approximate 
 \item Individual columns are processed based on their content
 \item Entire columns can be replaced if specified in \code{df_variable_names} or \code{df_classes}
 \item Column names, row names, and labels (including haven value labels) are redacted when enabled
+\item List columns are redacted element by element, nested data frames included, and keep
+their class (\code{AsIs}, vctrs \code{list_of}, whose prototype is redacted like the elements)
 }
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched

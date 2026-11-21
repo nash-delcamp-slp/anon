@@ -17,9 +17,11 @@ anon_subject_ids(
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
-the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. In datasets
-without the \code{key} column the values are left unchanged; keys in their
-attributes and names are rewritten (see Details).}
+the result of an earlier step such as \code{\link[=anon_subject_dates]{anon_subject_dates()}}. Data frames
+nested in them are de-identified too (see "Nested data" in Details). In
+datasets without the \code{key} column, at the top or in nested data, the
+values are left unchanged; keys in their attributes and names are
+rewritten (see Details).}
 
 \item{key}{Name of the subject identifier column.}
 
@@ -140,26 +142,56 @@ Keys made only of digits, and numeric keys, are not rewritten, for the same
 reason they are not searched for below. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;
 this and earlier steps' logs and settings are renamed and rewritten to
-match. Values in the data are not rewritten, including the elements of list
-columns and packed data frame columns, with everything inside them: a packed
-column's own attributes (even its \code{label}) and names are left as they are,
-and handling nested data is planned.
+match. The same text is rewritten inside nested data (packed data frame
+columns and the data frames in list columns, see below), and in list
+columns the attributes and names of the vectors and plain lists the
+elements hold, at any depth. Text values in the data are not rewritten,
+neither in columns nor in list-column elements or nested data frames; they
+are searched (see below).
+
+\strong{Nested data.} Data frames nested in the datasets are de-identified like
+datasets: packed data frame columns (as made by \code{tidyr::pack()}) and list
+columns of data frames (plain lists or vctrs \code{list_of}, as made by
+\code{tidyr::nest()}, \code{dplyr::group_nest()} or \code{dplyr::nest_by()}), at any depth,
+including data frames held in plain lists inside list columns. Each row of
+a packed column belongs to its outer row's subject, and each data frame in
+a list column to its row's subject, unless it has its own \code{key} column: then
+each of its rows belongs to the subject in that column. Its \code{key}, \code{also}
+and \code{key_cols} columns are replaced as in a dataset, subjects found only in
+nested data get pseudonyms too, and a data frame with its own key has its
+rows sorted by the new key (row names reset); others keep their rows in
+order. A dataset whose key is only in nested data (such as data nested by
+test, each element holding \code{USUBJID}) is de-identified through it. Rows
+with no subject (a missing key, or a blank key in the outer row) follow the
+rules above; nested data frames with no key, in a dataset without the key,
+are left unchanged like such datasets. Column types and labels are kept; a
+\code{list_of} keeps its class, its prototype following the new elements (such as
+factor levels), and grouped tibbles are regrouped. List-column elements
+that are not data frames, vectors, plain lists or \code{NULL} (fitted models such
+as \code{lm} or parsnip fits, recipes, workflows, \code{rsplit} and \code{rset} objects,
+environments, functions, formulas, S4 objects) are not entered or changed,
+and their columns are named in a warning. They can hold copies of the
+original data: de-identify the raw data first, and build models, recipes
+and resampling splits on the de-identified copy. Changes inside nested data
+are logged with counts, per dataset, with the column's path as \code{variable}
+(such as \code{"data[[]][USUBJID]"}).
 
 A warning lists any other character or factor column (values or factor
-levels), list column (all the text its elements hold: values, factor
-levels, names and attributes, at any depth), or column of a packed data
-frame column (named as \code{dataset.column[subcolumn]}, and deeper as
-\code{dataset.column[sub][subsub]}, with the text in its attributes; the packed
-column itself is named for its column names and attributes), in any
-dataset, that still contains original key values as whole
+levels), list column (the text values its elements hold: character values
+and factor levels, at any depth), or column of a nested data frame (named as
+\code{dataset.column[sub]} inside a packed column, \code{dataset.column[[]][sub]} for
+column \code{sub} of the data frames in list column \code{column}, and deeper as
+\code{dataset.column[sub][[]][subsub]}), in any dataset, that still contains
+original key values as whole
 values or as whole words inside text (checked for character keys that are
 not made only of digits, since numbers match many unrelated codes), and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or
-\code{key_cols} in any case. In datasets with \code{key}, a column named like one of
-them in another case (such as \code{usubjid} beside \code{USUBJID}) is not replaced
-and is named in a warning. Only text or factor columns can be given in
-\code{key_cols}; the others must be redacted or removed. Locations printed in
-warnings have keys rewritten, as names inside packed columns can hold them.
+\code{key_cols} in any case. In datasets with \code{key}, and in nested data frames
+with a subject, a column named like one of them in another case (such as
+\code{usubjid} beside \code{USUBJID}) is not replaced and is named in a warning. Only
+text or factor columns can be given in \code{key_cols}; the others must be
+redacted or removed. Locations printed in warnings have keys rewritten, as
+names can hold them.
 Columns of S4 objects are not searched or changed, and are named in a
 warning as data that can't be checked.
 Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not

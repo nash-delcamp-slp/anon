@@ -80,6 +80,8 @@
 #' - Individual columns are processed based on their content
 #' - Entire columns can be replaced if specified in `df_variable_names` or `df_classes`
 #' - Column names, row names, and labels (including haven value labels) are redacted when enabled
+#' - List columns are redacted element by element, nested data frames included, and keep
+#'   their class (`AsIs`, vctrs `list_of`, whose prototype is redacted like the elements)
 #'
 #' Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 #' through a repaired copy with the invalid bytes shown as hex (e.g.
