@@ -458,6 +458,12 @@ anon_subject_ids <- function(
 #' each participant.
 #'
 #' @inheritParams anon_subject_ids
+#' @param also Names of related identifier columns (default `"SUBJID"`), as in
+#'   [anon_subject_ids()]. This step doesn't replace them; their values are
+#'   masked in the locations its warnings and errors print, each as the
+#'   column's name in brackets (such as `"[SUBJID]"`). When `data` is the
+#'   result of [anon_subject_ids()], that step's `also` is used instead (and
+#'   its values are already replaced). Recorded in the settings.
 #' @param vars Names of date columns to shift. By default, every character or
 #'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
 #'   SDTM) and every Date, POSIXct or POSIXlt column, in each dataset whose
@@ -575,9 +581,9 @@ anon_subject_ids <- function(
 #' list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
 #' step again. Every location printed in the steps' warnings and errors has
 #' keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-#' step shows original keys as `"[KEY]"` and the original values of `SUBJID`
-#' columns in data with subjects as `"[SUBJID]"` (other `also` columns of
-#' [anon_subject_ids()] are known only to that step). It names the columns inside nested
+#' step shows original keys as `"[KEY]"` and the original values of the
+#' `also` columns in data with subjects as the column's name in brackets
+#' (`"[SUBJID]"`). It names the columns inside nested
 #' data by position (`dataset.column[2]`, `dataset.column[[]][2]`), in
 #' warnings and in the log, so that a column is named the same way whether or
 #' not [anon_subject_ids()], which rewrites keys in nested names, ran first.
@@ -608,7 +614,8 @@ anon_subject_dates <- function(
   partial = c("shift", "remove"),
   keep_secrets = FALSE,
   seed = NULL,
-  other_attributes = c("rewrite", "drop")
+  other_attributes = c("rewrite", "drop"),
+  also = "SUBJID"
 ) {
   partial <- match.arg(partial)
   other_attributes <- match.arg(other_attributes)
@@ -616,7 +623,14 @@ anon_subject_dates <- function(
 
   input <- as_dataset_list(data)
   data <- input$data
-  ids_done <- !is.null(input$previous) && any(startsWith(names(input$previous$settings), "subject_ids"))
+  ids_runs <- if (!is.null(input$previous)) startsWith(names(input$previous$settings), "subject_ids") else logical(0)
+  ids_done <- any(ids_runs)
+  # The related-ID columns: those of an earlier anon_subject_ids() run, which
+  # replaced them; otherwise `also`, used only to mask their values in the
+  # locations printed.
+  if (ids_done) {
+    also <- unique(unlist(lapply(input$previous$settings[ids_runs], `[[`, "also"), use.names = FALSE))
+  }
   # Columns inside nested data are named by position, so that a column is
   # named the same way whether or not the IDs step, which rewrites original
   # keys in nested names, ran first.
@@ -634,20 +648,23 @@ anon_subject_dates <- function(
   frames <- key_frames(tables, key)
   keys <- subject_keys(frames, key)
   # Warnings and errors print locations, whose names can hold dates and,
-  # unless the IDs step already ran, original keys: these are shown as
-  # "[KEY]".
-  # So are the values of the default related-ID column (`SUBJID`) in keyed
-  # data, as "[SUBJID]"; other `also` columns are known only to the IDs step.
+  # unless the IDs step already ran, original keys and related IDs: keys are
+  # shown as "[KEY]", and the values of each `also` column in keyed data as
+  # the column's name in brackets ("[SUBJID]").
   mask_keys <- if (ids_done) {
     identity
   } else {
     masked <- searchable_keys(keys, any_numeric_key(frames, key))$text
-    subjids <- related_id_map(list(list(value = unlist(lapply(tables, function(tabs) {
-      lapply(Filter(function(tb) tb$keyed && "SUBJID" %in% names(tb$df), tabs), function(tb) normalize_keys(tb$df$SUBJID))
-    }), use.names = FALSE), column = "SUBJID", idx = 0L, new = "[SUBJID]", numeric = FALSE)), masked)$values
-    ids <- c(masked, subjids)
-    replacements <- rep(c("[KEY]", "[SUBJID]"), c(length(masked), length(subjids)))
-    path_rewriter(id_rewriter(ids, replacements, subjids, names = TRUE))
+    also_values <- lapply(also, function(col) {
+      values <- unlist(lapply(tables, function(tabs) {
+        lapply(Filter(function(tb) tb$keyed && col %in% names(tb$df), tabs), function(tb) normalize_keys(tb$df[[col]]))
+      }), use.names = FALSE)
+      list(value = values, column = col, idx = 0L, new = paste0("[", col, "]"), numeric = FALSE)
+    })
+    related <- related_id_map(also_values, masked)
+    ids <- c(masked, related$values)
+    replacements <- c(rep("[KEY]", length(masked)), related$new)
+    path_rewriter(id_rewriter(ids, replacements, related$values, names = TRUE))
   }
   locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
@@ -804,7 +821,7 @@ anon_subject_dates <- function(
     list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
   }
   settings <- list(subject_dates = list(
-    key = key, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
+    key = key, also = also, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed), other_attributes = other_attributes
   ))
   settings <- rewritten$settings(settings)

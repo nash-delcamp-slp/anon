@@ -2036,3 +2036,29 @@ test_that("the count of shared related IDs counts only those rewritten", {
   attr(d$X, "label") <- "subject 10001"
   expect_warning(anon_subject_ids(d, seed = 1), "^1 original value")
 })
+
+test_that("the dates step masks the values of every related-ID column in the locations it prints", {
+  d <- data.frame(
+    USUBJID = c("AB-1001", "AB-1002"), SUBJID = c("ZQ0001", "ZQ0002"), SCRNID = c("SC0001", "SC0002"),
+    RFSTDTC = c("2020-01-01", "2020-02-01")
+  )
+  d[["SC0002"]] <- c("seen 2020-01-03", "x")
+  also <- c("SUBJID", "SCRNID")
+  # The IDs step first: the dates step uses its `also`, and the name is
+  # already rewritten.
+  ids <- anon_subject_ids(d, also = also, seed = 1)
+  warnings <- character(0)
+  step <- withCallingHandlers(anon_subject_dates(ids, seed = 2), warning = function(w) {
+    warnings <<- c(warnings, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+  expect_true(any(grepl("dates that were not shifted", warnings)))
+  expect_false(any(grepl("SC0002", warnings, fixed = TRUE)))
+  expect_equal(step$settings$subject_dates$also, also)
+  # The dates step first, with its own `also`.
+  expect_warning(
+    step <- anon_subject_dates(d, also = also, seed = 2),
+    "dates that were not shifted: data.\\[SCRNID\\]\\."
+  )
+  expect_equal(step$settings$subject_dates$also, also)
+})
