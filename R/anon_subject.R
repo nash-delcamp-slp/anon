@@ -1619,11 +1619,27 @@ rewrite_list_column <- function(ctx, column) {
   }
   column <- rewrite_attributes(ctx, column)
   where <- ctx$where
+  # Data frames that differ only in their values (as tidyr::nest() makes
+  # them) are rewritten once: the rewritten attributes and names, and the
+  # counts, are reused for the others.
+  done <- new.env(parent = emptyenv())
   element <- function(e) {
     if (is.data.frame(e)) {
+      id <- frame_text_id(e)
+      if (!is.null(id) && !is.null(done[[id]])) {
+        hit <- done[[id]]
+        ctx$counts <- ctx$counts + hit$counts
+        return(with_frame_text(e, hit$frame, hit$columns))
+      }
       ctx$where <- paste0(where, "[[]]")
+      before <- ctx$counts
       out <- rewrite_frame(ctx, e, nested = TRUE)
       ctx$where <- where
+      if (!is.null(id)) {
+        frame <- attributes(out)
+        frame$row.names <- NULL
+        assign(id, list(counts = ctx$counts - before, frame = frame, columns = lapply(unclass(out), attributes)), envir = done)
+      }
       return(out)
     }
     if (is.atomic(e) && !isS4(e)) {
@@ -1648,6 +1664,38 @@ rewrite_list_column <- function(ctx, column) {
     x
   }
   elements(column)
+}
+
+# An id for the text a data frame's rewrite depends on, when that is only its
+# names and its own and its columns' attributes: NULL for a data frame whose
+# rewrite also depends on its values (character row names, grouping, nested
+# columns, value labels and missing-value codes compared with the values,
+# vector names).
+frame_text_id <- function(df) {
+  attrs <- attributes(df)
+  if (is.character(attrs$row.names) || any(c("groups", "sorted", "index") %in% names(attrs))) {
+    return(NULL)
+  }
+  cols <- unclass(df)
+  columns <- lapply(cols, attributes)
+  per_value <- c("names", "dimnames", "labels", "na_values", "na_range")
+  if (any(vapply(cols, function(x) is.list(x) || isS4(x), logical(1))) ||
+    any(vapply(columns, function(a) any(per_value %in% names(a)), logical(1)))) {
+    return(NULL)
+  }
+  attrs$row.names <- NULL
+  rlang::hash(list(attrs, columns))
+}
+
+# A data frame given the rewritten attributes of another with the same
+# frame_text_id(): its own (`frame`, without row names) and its columns'.
+with_frame_text <- function(df, frame, columns) {
+  x <- unclass(df)
+  for (j in seq_along(x)) {
+    if (!identical(attributes(x[[j]]), columns[[j]])) attributes(x[[j]]) <- columns[[j]]
+  }
+  attributes(x) <- c(frame, list(row.names = .row_names_info(df, 0L)))
+  x
 }
 
 # Rewrite the attributes of `x` (a column, a data frame, the list of datasets,

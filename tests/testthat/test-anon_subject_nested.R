@@ -317,3 +317,22 @@ test_that("many nested data frames are handled at once", {
   d$data <- lapply(seq_len(n), function(i) tibble::tibble(LBDTC = c("2014-01-02", "2014-01-03"), LBDT = as.Date("2014-01-04")))
   expect_lt(system.time(anon_subject_dates(anon_subject_ids(d, seed = 1), seed = 2))[["elapsed"]], 10)
 })
+
+test_that("data frames that differ only in their values are rewritten alike, and counted each", {
+  inner <- function(v) {
+    t <- tibble::tibble(V = v, W = "x")
+    attr(t$V, "label") <- "Value for S-01"
+    t
+  }
+  d <- tibble::tibble(USUBJID = c("S-01", "S-02", "S-03"))
+  d$L <- list(inner(1), inner(2:3), inner(4))
+  attr(d$L[[3]]$W, "label") <- "About S-02"
+  step <- anon_subject_ids(d, keep_secrets = TRUE, seed = 20)
+  new <- stats::setNames(anon_secrets(step)$subject_ids$pseudonym, anon_secrets(step)$subject_ids$key)
+  for (e in step$data$L) {
+    expect_identical(attr(e$V, "label"), paste("Value for", new[["S-01"]]))
+    expect_identical(.row_names_info(e, 0L), .row_names_info(tibble::tibble(x = e$V), 0L))
+  }
+  expect_identical(attr(step$data$L[[match(new[["S-03"]], step$data$USUBJID)]]$W, "label"), paste("About", new[["S-02"]]))
+  expect_match(step$log$detail[step$log$dataset %in% "data" & is.na(step$log$variable)], "4 attribute value")
+})
