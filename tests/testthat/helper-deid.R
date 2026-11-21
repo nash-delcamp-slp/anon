@@ -1113,7 +1113,9 @@ deid_env_with <- function(step) {
 # the closure must be on a redacted copy of its environment; saving the copy
 # must not save the original environments or the source; and the
 # environment given must not change.
-deid_anon_env <- function(step) {
+# With `closures = "detach"`, the closures must refer to the global
+# environment instead.
+deid_anon_env <- function(step, closures = "copy") {
   e <- new.env()
   assign("step", step, envir = e)
   dm <- step$data$dm
@@ -1140,7 +1142,7 @@ deid_anon_env <- function(step) {
   # itself).
   snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), c("own", "box")), envir = e), NULL)
   before <- snapshot()
-  a <- anon(e, pattern_list = deid_patterns)
+  a <- anon(e, pattern_list = deid_patterns, closures = closures)
   if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
   if (!is.null(attributes(e)) || !identical(snapshot(), before) || !identical(environment(e$own), e) ||
     !identical(inner$note, "DRUGQX note") || !identical(inner$outer, e)) {
@@ -1151,7 +1153,12 @@ deid_anon_env <- function(step) {
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
   reader_env <- environment(a$reader)
-  if (!identical(environment(a$own), a) || identical(reader_env, holder) || !is.null(unclass(reader_env$step)$secrets)) {
+  if (closures == "detach") {
+    if (!identical(reader_env, globalenv()) || !identical(environment(a$own), globalenv())) {
+      stop("anon(closures = \"detach\") didn't give the closures the global environment")
+    }
+  } else if (!identical(environment(a$own), a) || identical(reader_env, holder) ||
+    !is.null(unclass(reader_env$step)$secrets)) {
     stop("anon() didn't replace the closures' environments with redacted copies")
   }
   if (identical(a$box$inner, inner) || !identical(a$box$inner$outer, a)) {
@@ -1251,6 +1258,7 @@ deid_exits <- list(
     patterns = TRUE
   ),
   anon_env = list(fn = deid_anon_env, patterns = TRUE),
+  anon_env_detach = list(fn = function(step) deid_anon_env(step, closures = "detach"), patterns = TRUE, gaps = FALSE),
   # Reports, prompt bundles and what the app shows, on objects and step
   # datasets named with user-pattern terms. Reports and the app are given the
   # real names to select, and must select every object. Not run for the known

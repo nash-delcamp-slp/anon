@@ -15,6 +15,7 @@ anon(
   check_names = TRUE,
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
+  closures = getOption("anon.closures", default = "copy"),
   .self = FALSE,
   .pattern_replacements = NULL,
   .compiled = NULL,
@@ -93,6 +94,14 @@ user-defined missing values. Default is \code{TRUE}.}
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
 This argument overrides the global option.}
+
+\item{closures}{What a closure, formula, terms object or quosure whose
+environment R doesn't save by reference (such as a function's frame)
+refers to in the result: \code{"copy"} (the default) gives it that
+environment's redacted copy, so it keeps working; \code{"detach"} gives it
+the global environment, so no data of that environment is kept, and it
+no longer finds what it needs there. See "Environments" below. Can be
+set as the \code{anon.closures} global option.}
 
 \item{.self}{Logical for internal use only. Used in recursive calls. Default is \code{FALSE}.
 When \code{TRUE}, warnings are collected as attributes instead of being issued immediately
@@ -203,11 +212,23 @@ keeps its class and other attributes (redacted), and its parent is the
 parent's copy when the parent isn't kept by reference. The global, base and
 empty environments, packages and namespaces are kept by reference. A
 closure, formula, terms object or quosure whose environment R doesn't save
-by reference (such as a function's frame) gets that environment's redacted
-copy as its environment, wherever \code{anon()} finds it (in environments,
-lists, list columns and attributes, such as a model's \code{terms}), with a
-warning naming them: it runs on the redacted objects, and saving the copy
-doesn't save the original's data. Objects that rely on reference
+by reference (such as a function's frame) is handled as \code{closures} says,
+wherever \code{anon()} finds it (in environments, lists, list columns and
+attributes, such as a model's \code{terms}), with a warning naming them:
+\itemize{
+\item \code{"copy"} (the default) gives it that environment's redacted copy
+(with that environment's parents, as above): it keeps working, on the
+redacted objects, and saving the copy doesn't save the original's data.
+But the copy then holds the closure's defining frame (and its callers'
+frames, up to the global environment), whose objects are redacted by
+your patterns only: values that match no pattern are kept.
+\item \code{"detach"} gives it the global environment: none of that
+environment's objects is kept, at the cost of closures, formulas and
+models that need them (they may fail, or find other objects of the same
+name in the global environment). It is the strict choice.
+}
+The environment given to \code{anon()}, and environments held in it as data,
+are copied whatever \code{closures} says. Objects that rely on reference
 semantics (such as R6 objects, their generators and inheritance, and
 closures from function factories such as memoised functions) work on
 their copy, which is no longer linked to the original; their active
@@ -232,6 +253,7 @@ The following global options affect function behavior:
 \item{\code{anon.df_variable_names}}{Global variable name specifications to combine with (after)
 \code{df_variable_names} parameter.}
 \item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
+\item{\code{anon.closures}}{Default \code{closures} (\code{"copy"} or \code{"detach"}).}
 \item{\code{anon.nlp_auto}}{List of logical values indicating which NLP entity types should be
 automatically redacted. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
 \item{\code{anon.nlp_default_replacements}}{Default NLP replacement labels. Use

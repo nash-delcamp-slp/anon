@@ -61,6 +61,13 @@
 #' @param nlp_auto List of logical values with names corresponding to entity names. Can be
 #'   generated with [`nlp_auto()`] and can be set as the `anon.nlp_auto` global option.
 #'   This argument overrides the global option.
+#' @param closures What a closure, formula, terms object or quosure whose
+#'   environment R doesn't save by reference (such as a function's frame)
+#'   refers to in the result: `"copy"` (the default) gives it that
+#'   environment's redacted copy, so it keeps working; `"detach"` gives it
+#'   the global environment, so no data of that environment is kept, and it
+#'   no longer finds what it needs there. See "Environments" below. Can be
+#'   set as the `anon.closures` global option.
 #' @param .self Logical for internal use only. Used in recursive calls. Default is `FALSE`.
 #'   When `TRUE`, warnings are collected as attributes instead of being issued immediately
 #'   and global options are ignored and only explicitly provided parameters are used.
@@ -155,11 +162,23 @@
 #' parent's copy when the parent isn't kept by reference. The global, base and
 #' empty environments, packages and namespaces are kept by reference. A
 #' closure, formula, terms object or quosure whose environment R doesn't save
-#' by reference (such as a function's frame) gets that environment's redacted
-#' copy as its environment, wherever `anon()` finds it (in environments,
-#' lists, list columns and attributes, such as a model's `terms`), with a
-#' warning naming them: it runs on the redacted objects, and saving the copy
-#' doesn't save the original's data. Objects that rely on reference
+#' by reference (such as a function's frame) is handled as `closures` says,
+#' wherever `anon()` finds it (in environments, lists, list columns and
+#' attributes, such as a model's `terms`), with a warning naming them:
+#' \itemize{
+#'   \item `"copy"` (the default) gives it that environment's redacted copy
+#'   (with that environment's parents, as above): it keeps working, on the
+#'   redacted objects, and saving the copy doesn't save the original's data.
+#'   But the copy then holds the closure's defining frame (and its callers'
+#'   frames, up to the global environment), whose objects are redacted by
+#'   your patterns only: values that match no pattern are kept.
+#'   \item `"detach"` gives it the global environment: none of that
+#'   environment's objects is kept, at the cost of closures, formulas and
+#'   models that need them (they may fail, or find other objects of the same
+#'   name in the global environment). It is the strict choice.
+#' }
+#' The environment given to `anon()`, and environments held in it as data,
+#' are copied whatever `closures` says. Objects that rely on reference
 #' semantics (such as R6 objects, their generators and inheritance, and
 #' closures from function factories such as memoised functions) work on
 #' their copy, which is no longer linked to the original; their active
@@ -182,6 +201,7 @@
 #'   \item{`anon.df_variable_names`}{Global variable name specifications to combine with (after)
 #'         `df_variable_names` parameter.}
 #'   \item{`anon.df_classes`}{Global class specifications to combine with (after) `df_classes` parameter.}
+#'   \item{`anon.closures`}{Default `closures` (`"copy"` or `"detach"`).}
 #'   \item{`anon.nlp_auto`}{List of logical values indicating which NLP entity types should be
 #'         automatically redacted. Use [`nlp_auto()`] to generate this list. Override the option by setting the `nlp_auto` argument.}
 #'   \item{`anon.nlp_default_replacements`}{Default NLP replacement labels. Use
@@ -263,6 +283,7 @@ anon <- function(
   check_names = TRUE,
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
+  closures = getOption("anon.closures", default = "copy"),
   .self = FALSE,
   .pattern_replacements = NULL,
   .compiled = NULL,
@@ -594,9 +615,13 @@ anon <- function(
   # The environments copied in this call (see copy_env()), kept until the
   # top-level call returns.
   if (!isTRUE(.self)) {
-    previous_memo <- copying$memo
+    previous <- list(memo = copying$memo, closures = copying$closures)
     copying$memo <- new.env(hash = TRUE, parent = emptyenv())
-    on.exit(copying$memo <- previous_memo, add = TRUE)
+    copying$closures <- match.arg(closures, c("copy", "detach"))
+    on.exit({
+      copying$memo <- previous$memo
+      copying$closures <- previous$closures
+    }, add = TRUE)
   }
 
   # An environment's objects are read once, for NLP and for the copy.
@@ -989,7 +1014,7 @@ anon <- function(
     messages <- c(
       unique(approximate_warnings),
       if (length(unredactable) > 0) unredactable_message(unredactable),
-      if (length(rehomed) > 0) rehomed_message(rehomed),
+      if (length(rehomed) > 0) rehomed_message(rehomed, copying$closures),
       if (length(secrets_dropped) > 0) secrets_message(secrets_dropped),
       if (length(refs_dropped) > 0) refs_message(refs_dropped)
     )
@@ -1190,8 +1215,9 @@ is_reference_object <- function(x) {
 }
 
 # The environments copied in a call to anon() and their copies (`memo`, a
-# hashed environment of `from`/`to` pairs by the address of `from`), while
-# it runs (see copy_env()); and whether the top-level call's guard is on.
+# hashed environment of `from`/`to` pairs by the address of `from`), and its
+# `closures` argument, while it runs (see copy_env() and
+# rehome_environment()); and whether the top-level call's guard is on.
 copying <- new.env(parent = emptyenv())
 
 # The copy made of `env` in the current call to anon(), or NULL.
@@ -1223,7 +1249,8 @@ without_source <- function(x) {
 # it would save an environment's data: an environment R doesn't save by
 # reference (see is_shared_environment()), such as a function's frame, is
 # replaced by its redacted copy, `copy(env)` (see copy_env(), which makes
-# one copy per environment). NULL when it is kept.
+# one copy per environment), or, with `closures = "detach"`, by the global
+# environment. NULL when it is kept.
 rehome_environment <- function(x, copy) {
   env <- if (is.function(x)) {
     if (is.primitive(x)) NULL else environment(x)
@@ -1236,7 +1263,7 @@ rehome_environment <- function(x, copy) {
   if (is_shared_environment(env)) {
     return(NULL)
   }
-  new <- copy(env)
+  new <- if (identical(copying$closures, "detach")) globalenv() else copy(env)
   if (is.function(x)) environment(x) <- new else attr(x, ".Environment") <- new
   x
 }
@@ -1376,7 +1403,14 @@ unredactable_message <- function(locations) {
   )
 }
 
-rehomed_message <- function(locations) {
+rehomed_message <- function(locations, closures = "copy") {
+  if (identical(closures, "detach")) {
+    return(paste0(
+      "These functions, formulas or quosures now refer to the global environment instead of their own ",
+      "(`closures = \"detach\"`), so that saving the result doesn't save its data; they may no longer find ",
+      "what they need: ", shown_locations(locations), "."
+    ))
+  }
   paste0(
     "These functions, formulas or quosures now refer to a redacted copy of their environment, so that saving ",
     "the result doesn't save the original's data: ", shown_locations(locations), "."

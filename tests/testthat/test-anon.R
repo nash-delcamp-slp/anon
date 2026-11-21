@@ -1316,3 +1316,32 @@ test_that("anon() keeps missing arguments in lists, as in a list of formals", {
   expect_identical(out$args$a, quote(expr = ))
   expect_identical(out$args$b, "[DRUG]")
 })
+
+test_that("closures = \"detach\" keeps no data of closures' environments, and \"copy\" keeps closures working", {
+  make <- local(function() {
+    who <- "JanePlain"
+    list(get_who = function() who, f = y ~ x)
+  }, globalenv())
+  objs <- make()
+  e <- new.env(parent = globalenv())
+  e$get_who <- objs$get_who
+  e$l <- list(f = objs$f)
+  e$df <- data.frame(a = "kept")
+  w <- character(0)
+  detached <- withCallingHandlers(anon(e, closures = "detach"), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  expect_false(grepl("JanePlain", rawToChar(serialize(detached, NULL, ascii = TRUE))))
+  expect_identical(environment(detached$get_who), globalenv())
+  expect_identical(attr(detached$l$f, ".Environment"), globalenv())
+  expect_identical(detached$df$a, "kept")
+  expect_match(w, "refer to the global environment instead of their own[^:]*: `get_who`", all = FALSE)
+  copied <- suppressWarnings(anon(e, closures = "copy"))
+  expect_identical(copied$get_who(), "JanePlain")
+  # The global option sets the default.
+  old <- options(anon.closures = "detach")
+  on.exit(options(old), add = TRUE)
+  expect_identical(environment(suppressWarnings(anon(e))$get_who), globalenv())
+  expect_error(anon(e, closures = "other"), "should be one of")
+})
