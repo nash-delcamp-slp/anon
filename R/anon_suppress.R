@@ -1,27 +1,26 @@
 #' Suppress quasi-identifiers until every subject reaches the target
 #'
 #' For subjects whose group is still smaller than the target after
-#' generalization, blanks quasi-identifier cells until enough released
-#' records are consistent with each of them (local suppression), or removes
-#' those subjects from every dataset. Risk is measured as an attacker who knows
-#' a subject's true values would count it (see "After suppression" in
-#' [anon_risk()]): the records whose values equal the subject's, or are
-#' blanked.
+#' generalization, blanks quasi-identifier cells until every released
+#' pattern is shared by enough records (local suppression), or removes those
+#' subjects from every dataset. Risk is k-anonymity on the released table
+#' (see "After suppression" in [anon_risk()]): a blanked cell is a value of
+#' its own.
 #'
 #' @inheritParams anon_risk
 #' @param data A data frame, a named list of data frames linked by `key`, or
 #'   the result of an earlier step such as [anon_generalize()].
 #' @param order Names of quasi-identifiers (as [anon_risk()] names them) from
-#'   least to most useful, to choose between blanking options of the same
-#'   size: the most useful are blanked last. Those not listed follow, in the
-#'   order of `quasi`. Default: the order of `quasi`, its first
-#'   quasi-identifier being the first blanked.
+#'   least to most useful, to choose between blanking options that are
+#'   otherwise equal: the most useful are blanked last. Those not listed
+#'   follow, in the order of `quasi`. Default: the order of `quasi`, its
+#'   first quasi-identifier being the first blanked.
 #' @param method `"cells"` (default) blanks cells; `"drop"` removes the
-#'   subjects at risk from every dataset.
+#'   subjects in groups smaller than the target from every dataset.
 #' @param unresolved With `method = "cells"`, what to do with subjects still
-#'   at risk when nothing is left to blank (only when there are fewer
-#'   subjects than the target group size): `"drop"` (default) removes them
-#'   from every dataset, with a warning; `"keep"` keeps them, with a warning.
+#'   in groups smaller than the target when nothing is left to blank:
+#'   `"drop"` (default) removes them from every dataset, with a warning;
+#'   `"keep"` keeps them, with a warning.
 #' @param key_cols Names of columns holding other subjects' keys (default
 #'   `"RSUBJID"`, as in SDTM `RELSUB`): rows that refer to a removed subject
 #'   are removed too, so no reference is left dangling.
@@ -36,32 +35,30 @@
 #'   other datasets that hold a column of that name.
 #'
 #' @details
-#' **The measure.** A subject's `k` is the number of released records
-#' consistent with its true values: on every quasi-identifier, the record
-#' shows the subject's value or a cell blanked by suppression. Real missing
-#' values are values. Cells blanked by an earlier `anon_suppress()` in the
-#' same chain count as blanked; their subjects' true values are no longer
-#' known, so those subjects are measured against the worst case (a value no
-#' record shows).
+#' **The measure.** Each released record's pattern is its visible
+#' quasi-identifier values plus the places of its blanked cells, a blanked
+#' cell counting as a value of its own; a subject's `k` is the number of
+#' released records with exactly its pattern, and every pattern must be
+#' shared by at least the target group size. Real missing values are values,
+#' distinct from blanked cells. Cells blanked by an earlier `anon_suppress()`
+#' in the same chain count as blanked. An attacker who knows a subject's
+#' values then finds at least `k` records that could be it, and records
+#' blanked everywhere only hide among each other.
 #'
-#' **Cells.** Blanking a subject's own cells doesn't help it: its own record
-#' is always consistent with it, and what matters is how many other records
-#' are. So subjects at risk are handled one at a time, the smallest `k` first
-#' (then in the order subjects first appear in the data), and for each, the
-#' records not yet consistent with it are ranked by how many cells would have
-#' to be blanked to make them consistent (fewest first), then by which (the
-#' least useful by `order` first), then by their order in the data; the
-#' cells of the first records are blanked until the subject's `k` reaches the
-#' target. Blanking only makes records consistent with more subjects, so `k`
-#' never decreases and a subject handled stays at the target. The result is
-#' deterministic, but not guaranteed to blank the fewest cells. A subject at
-#' risk keeps its own values: other records are blanked to hide it. A record
-#' that differs from the subject by a real missing value can't be made
-#' consistent (blanking it changes nothing). Subjects that can't reach the
-#' target (too few records can be made consistent, or fewer subjects than
-#' the target group size) are unresolved; removing them can leave others
-#' short of the records that covered them, so the step repeats until none is
-#' left at risk.
+#' **Cells.** The step repeats, on the records in groups smaller than the
+#' target: for each quasi-identifier still shown on some of them, it tries
+#' blanking that quasi-identifier on all of them. If a try brings records
+#' into groups of at least the target, it takes the try that brings the most
+#' (then needs the fewest cells, then blanks the least useful by `order`) and
+#' blanks only the records it brings in. Otherwise it takes the try that
+#' merges the most small patterns (then the least useful) and blanks it on
+#' all of them. Every step blanks at least one cell, so it ends; records
+#' still short when everything is blanked (or with fewer subjects than the
+#' target group size) are unresolved. The result is deterministic and
+#' doesn't depend on the order of rows, but it isn't guaranteed to blank the
+#' fewest cells. Blanking only joins records into groups and removing small
+#' groups leaves the others as they are, so groups of at least the target
+#' stay so.
 #'
 #' A quasi-identifier is blanked in **every row** of that subject: the column
 #' in every row of the subject in its dataset (and, with `everywhere`, in
@@ -76,8 +73,8 @@
 #' blanked (by subject key, as the data holds it, never values), and later
 #' steps carry the record on, so [anon_risk()] can measure the result.
 #'
-#' **Drop.** Subjects at risk are removed; removing subjects can leave others
-#' at risk, so this repeats until no subject is. Removed subjects' rows go
+#' **Drop.** Subjects in groups smaller than the target are removed (the other
+#' groups stay as they are). Removed subjects' rows go
 #' from every dataset with the `key`, from datasets whose rows belong to
 #' subjects through a packed column with the key or a list column of data
 #' frames holding one subject per row, from data frames with the key nested
@@ -103,9 +100,9 @@
 #' record the arguments and where each quasi-identifier comes from (not
 #' `filter`).
 #'
-#' The work is about (subjects at risk) x (subjects) x (quasi-identifiers),
-#' plus the measure (see [anon_risk()]); 3,000 subjects with 7
-#' quasi-identifiers take a few seconds.
+#' Each step of the loop groups the records once per quasi-identifier still
+#' shown on records short of the target; 10,000 subjects with 12
+#' quasi-identifiers, all of them unique at first, take about a second.
 #'
 #' @return An object of class `"anon_deid_step"`, as for [anon_subject_ids()],
 #'   with `suppressed`, the record of blanked cells (dataset, column or test,
@@ -149,105 +146,53 @@ anon_suppress <- function(
   sources <- inputs$sources
   qnames <- inputs$qnames
   rank <- suppress_rank(order, qnames)
-  weight <- 2^(rank - 1)
   keys <- inputs$table[[key]]
   n <- length(keys)
 
-  # Each subject's true values as codes, and the records as released (0:
-  # blanked). Cells blanked by an earlier step have unknown true values (-1).
-  true <- matrix(0L, n, length(qnames))
-  # Real missing values: blanking them changes nothing an attacker sees.
-  really_missing <- matrix(FALSE, n, length(qnames))
-  for (q in seq_along(qnames)) {
-    true[, q] <- vctrs::vec_group_id(inputs$table[[qnames[q]]])
-    really_missing[, q] <- vctrs::vec_detect_missing(inputs$table[[qnames[q]]])
-  }
-  earlier <- inputs$blanked
-  true[earlier] <- -1L
-  shown <- true
-  shown[earlier] <- 0L
+  # The released patterns: each value as a code (a missing value is a
+  # value), cells blanked by an earlier step 0, a value of their own.
+  codes <- released_codes(inputs$table[qnames], inputs$blanked)
+  # A real missing value can't be blanked: nothing would change in the data.
+  real_na <- vapply(inputs$table[qnames], vctrs::vec_detect_missing, logical(n))
+  real_na <- matrix(real_na, n) & codes != 0L
+  codes[real_na] <- -abs(codes[real_na])
   blanked <- matrix(FALSE, n, length(qnames))
-  k <- consistent_counts(shown, true)
-  before <- risk_summary(k, max_risk, k_target, length(qnames))
+  before <- risk_summary(pattern_group_sizes(codes), max_risk, k_target, length(qnames))
   dropped <- character(0)
   not_met <- character(0)
 
-  # Whether record j is consistent with each subject still in the data.
-  active <- rep(TRUE, n)
-  consistent_with <- function(j) {
-    ok <- active
-    for (q in which(shown[j, ] != 0L)) {
-      ok <- ok & true[, q] == shown[j, q]
-    }
-    ok
-  }
-
   if (method == "cells") {
-    kept_at_risk <- integer(0)
-    repeat {
-      idx <- which(active)
-      k <- rep(NA_integer_, n)
-      k[idx] <- consistent_counts(shown[idx, , drop = FALSE], true[idx, , drop = FALSE])
-      to_resolve <- if (length(idx) < k_target) integer(0) else idx[k[idx] < k_target]
-      while (length(to_resolve) > 0) {
-        i <- to_resolve[order(k[to_resolve], to_resolve)][1]
-        to_resolve <- setdiff(to_resolve, i)
-        differ <- shown != 0L & shown != matrix(true[i, ], n, length(qnames), byrow = TRUE)
-        size <- rowSums(differ)
-        # A record that differs by a real missing value can't be made
-        # consistent.
-        candidates <- which(active & size > 0 & rowSums(differ & really_missing) == 0)
-        need <- k_target - k[i]
-        if (length(candidates) < need) {
-          next
-        }
-        cost <- as.vector(differ[candidates, , drop = FALSE] %*% weight)
-        for (j in candidates[order(size[candidates], cost, candidates)][seq_len(need)]) {
-          old <- consistent_with(j)
-          cols <- which(differ[j, ])
-          shown[j, cols] <- 0L
-          blanked[j, cols] <- TRUE
-          gained <- consistent_with(j) & !old
-          k[gained] <- k[gained] + 1L
-        }
-        to_resolve <- intersect(to_resolve, which(k < k_target))
-      }
-      still <- idx[k[idx] < k_target]
-      if (length(still) == 0) break
-      if (unresolved == "keep") {
-        kept_at_risk <- still
-        break
-      }
-      # Removing them can leave others short of the records that covered
-      # them: measure again.
-      dropped <- c(dropped, keys[still])
-      active[still] <- FALSE
-      if (!any(active)) break
+    while (n >= k_target) {
+      k <- pattern_group_sizes(codes)
+      small <- which(k < k_target)
+      open <- which(colSums(codes[small, , drop = FALSE] > 0L) > 0)
+      if (length(small) == 0 || length(open) == 0) break
+      choice <- suppress_step(codes, small, open, k_target, rank)
+      cells <- cbind(choice$rows, choice$q)
+      codes[cells] <- 0L
+      blanked[cells] <- TRUE
     }
-    if (length(dropped) > 0) {
-      warning(
-        length(dropped), " subject(s) could not reach groups of at least ", k_target,
-        " by blanking and were removed from every dataset.",
-        call. = FALSE
-      )
-    }
-    if (length(kept_at_risk) > 0) {
-      warning(
-        length(kept_at_risk), " subject(s) remain in groups smaller than ", k_target,
-        " (unresolved = \"keep\").",
-        call. = FALSE
-      )
+    still <- which(pattern_group_sizes(codes) < k_target)
+    if (length(still) > 0) {
+      if (unresolved == "drop") {
+        dropped <- keys[still]
+        warning(
+          length(still), " subject(s) could not reach groups of at least ", k_target,
+          " by blanking and were removed from every dataset.",
+          call. = FALSE
+        )
+      } else {
+        warning(
+          length(still), " subject(s) remain in groups smaller than ", k_target,
+          " (unresolved = \"keep\").",
+          call. = FALSE
+        )
+      }
     }
   } else {
-    remaining <- seq_len(n)
-    repeat {
-      group_k <- consistent_counts(shown[remaining, , drop = FALSE], true[remaining, , drop = FALSE])
-      at_risk <- remaining[group_k < k_target]
-      if (length(at_risk) == 0) break
-      dropped <- c(dropped, keys[at_risk])
-      remaining <- setdiff(remaining, at_risk)
-      if (length(remaining) == 0) break
-    }
+    # Groups are exact patterns, so removing the small ones leaves the others
+    # as they are.
+    dropped <- keys[pattern_group_sizes(codes) < k_target]
   }
 
   # Blank the cells in the data.
@@ -312,6 +257,10 @@ anon_suppress <- function(
     }
   }
 
+  if (!is.null(record)) {
+    record <- record[!record$key %in% dropped, , drop = FALSE]
+  }
+
   ages <- intersect(sources$dataset[!is.na(sources$column) & toupper(sources$column) == "AGE"], names(data))
   births <- precise_birth_dates(data, ages)
   if (length(births) > 0) {
@@ -321,10 +270,7 @@ anon_suppress <- function(
 
   remaining <- !keys %in% dropped
   after <- if (any(remaining)) {
-    risk_summary(
-      consistent_counts(shown[remaining, , drop = FALSE], true[remaining, , drop = FALSE]),
-      max_risk, k_target, length(qnames)
-    )
+    risk_summary(pattern_group_sizes(codes[remaining, , drop = FALSE]), max_risk, k_target, length(qnames))
   }
   if (is.null(after) || !isTRUE(after$meets_target)) {
     not_met <- c(not_met, "measured risk above the target")
@@ -337,7 +283,7 @@ anon_suppress <- function(
     settings = paste0(
       "method = \"", method, "\", max_risk = ", format(max_risk, digits = 7), " (groups of at least ", k_target, ")",
       if (method == "cells") paste0(", order = ", deparse_list(qnames[order(rank)]), ", unresolved = \"", unresolved, "\""),
-      "; k counts the records consistent with a subject's true values (blanked cells consistent with any)",
+      "; k counts the released records with the same pattern (a blanked cell is a value of its own)",
       "; before: ", describe_risk(before), "; after: ", describe_risk(after),
       if (length(not_met) > 0) paste0("; target not met: ", paste(unique(not_met), collapse = ", "))
     )
@@ -387,6 +333,44 @@ suppress_rank <- function(order, qnames) {
     )
   }
   match(qnames, c(order, setdiff(qnames, order)))
+}
+
+# One step of local suppression on the records in groups smaller than the
+# target (`small`, rows of `codes`: positive for a value that can be
+# blanked, negative for a real missing value, 0 for a blank): for each
+# quasi-identifier still shown
+# on some of them (`open`), try blanking it on all of them. If some try
+# brings records into groups of at least the target, take the one that
+# brings the most (then needs the fewest cells, then is the least useful by
+# `rank`) and blank only the records it brings in. Otherwise take the try
+# that merges the most small patterns (then the least useful) and blank it
+# on all of them: each step blanks at least one cell, so the loop ends.
+suppress_step <- function(codes, small, open, k_target, rank) {
+  patterns <- function(m) vctrs::vec_group_id(as.data.frame(m[small, , drop = FALSE]))
+  n_patterns <- max(patterns(codes))
+  tries <- lapply(open, function(q) {
+    trial <- codes
+    shown <- small[codes[small, q] > 0L]
+    trial[shown, q] <- 0L
+    k <- pattern_group_sizes(trial)
+    rescued <- small[k[small] >= k_target]
+    list(
+      q = q, rescued = rescued, n_rescued = length(rescued),
+      cells = sum(codes[rescued, q] > 0L), merged = n_patterns - max(patterns(trial))
+    )
+  })
+  n_rescued <- vapply(tries, `[[`, numeric(1), "n_rescued")
+  cells <- vapply(tries, `[[`, numeric(1), "cells")
+  merged <- vapply(tries, `[[`, numeric(1), "merged")
+  if (any(n_rescued > 0)) {
+    best <- tries[[order(-n_rescued, cells, rank[open])[1]]]
+    rows <- best$rescued
+  } else {
+    best <- tries[[order(-merged, rank[open])[1]]]
+    rows <- small
+  }
+  rows <- rows[codes[rows, best$q] > 0L]
+  list(q = best$q, rows = rows)
 }
 
 # Blank a quasi-identifier for some subjects in every row of its dataset: a

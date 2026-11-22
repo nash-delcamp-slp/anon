@@ -470,14 +470,14 @@ for (pipeline_name in names(deid_pipelines)) {
   }
 
   if (!is.null(pipeline$risk)) {
-    test_that(paste0(pipeline_name, ": the risk an attacker counts meets the target the input misses"), {
+    test_that(paste0(pipeline_name, ": the released data is k-anonymous for the target the input misses"), {
       r <- pipeline$risk
       data <- pipeline$fixture()
       before <- anon_risk(data, quasi = r$quasi, max_risk = r$max_risk)
       expect_false(before$summary$meets_target)
       step <- deid_run(pipeline, data)$step
       oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
-      expect_true(all(deid_attacker_k(data, step, oracle) >= risk_k_target(r$max_risk)))
+      expect_true(all(deid_release_k(data, step, oracle) >= risk_k_target(r$max_risk)))
       expect_true(step$settings$suppress$meets_target)
       # Measured from the step's record of blanked cells too.
       expect_true(anon_risk(step, quasi = r$quasi, max_risk = r$max_risk)$summary$meets_target)

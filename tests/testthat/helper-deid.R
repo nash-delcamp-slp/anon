@@ -1054,39 +1054,33 @@ deid_generalized_expected <- function(blank = list()) {
   )
 }
 
-# The attacker's count for the pipelines that generalize and suppress,
-# written apart from the package: for each subject left in dm, the released
-# subjects whose AGE, RACE and first WEIGHT each equal its true
-# (generalized) value or are blanked (missing where the true value isn't).
-deid_attacker_k <- function(original, step, oracle) {
-  truth_of <- function(data, keys_of) {
-    first <- !duplicated(keys_of(data$vs)) & data$vs$VSTESTCD == "WEIGHT"
-    w <- data$vs$VSSTRESN[first][match(keys_of(data$dm), keys_of(data$vs)[first])]
-    data.frame(key = keys_of(data$dm), AGE = as.numeric(data$dm$AGE), RACE = as.character(data$dm$RACE), WEIGHT = as.numeric(w))
-  }
+# k-anonymity of the released data for the pipelines that generalize and
+# suppress, written apart from the package: for each subject left in dm,
+# the number of released subjects whose AGE, RACE and first WEIGHT form the
+# same pattern, a cell blanked (missing where the true, generalized value
+# isn't) counting as "<blank>" and a real missing value as "<NA>".
+deid_release_k <- function(original, step, oracle) {
   expected <- deid_generalized_expected()
-  dm <- original$dm
   truth <- data.frame(
     key = deid_keys,
-    AGE = expected$dm.AGE(dm$AGE, deid_keys, oracle),
-    RACE = expected$dm.RACE(dm$RACE, deid_keys, oracle),
+    AGE = expected$dm.AGE(original$dm$AGE, deid_keys, oracle),
+    RACE = expected$dm.RACE(original$dm$RACE, deid_keys, oracle),
     WEIGHT = round(deid_vs_weights[seq(1, length(deid_vs_weights), by = 2)], -1)
   )
+  out <- step$data
   back <- function(df) names(oracle$new_key)[match(as.character(df$USUBJID), oracle$new_key)]
-  released <- truth_of(step$data, back)
+  vs_keys <- back(out$vs)
+  first <- !duplicated(vs_keys) & out$vs$VSTESTCD == "WEIGHT"
+  released <- data.frame(key = back(out$dm), AGE = as.numeric(out$dm$AGE), RACE = as.character(out$dm$RACE))
+  released$WEIGHT <- as.numeric(out$vs$VSSTRESN[first][match(released$key, vs_keys[first])])
   truth <- truth[match(released$key, truth$key), ]
   missing <- function(x) is.na(x) | (is.character(x) & !is.na(x) & x == "")
-  vapply(seq_len(nrow(truth)), function(i) {
-    ok <- rep(TRUE, nrow(released))
-    for (q in c("AGE", "RACE", "WEIGHT")) {
-      rel <- released[[q]]
-      tru <- truth[[q]]
-      blank <- missing(rel) & !missing(tru)
-      same <- (missing(rel) & missing(tru[i])) | (!missing(rel) & !missing(tru[i]) & rel == tru[i])
-      ok <- ok & (blank | same)
-    }
-    sum(ok)
-  }, numeric(1))
+  pattern <- vapply(c("AGE", "RACE", "WEIGHT"), function(q) {
+    rel <- released[[q]]
+    ifelse(missing(rel) & !missing(truth[[q]]), "<blank>", ifelse(missing(rel), "<NA>", as.character(rel)))
+  }, character(nrow(released)))
+  key <- apply(matrix(pattern, nrow(released)), 1, paste, collapse = "\r")
+  as.vector(table(key)[key])
 }
 
 # The subjects a data frame's rows have of their own (kept apart from the
@@ -1174,7 +1168,7 @@ deid_keep_rows_without <- function(dropped) {
 #   variant), and `keys`: its subject keys as text, in the order of
 #   `deid_all_keys`;
 # - `risk`: `list(quasi, max_risk)`, a target the input misses and the
-#   result must meet, counted as an attacker would (deid_attacker_k());
+#   result must meet, as k-anonymity of the released data (deid_release_k());
 # - `dropped`: subjects (positions in deid_keys) whose rows the pipeline
 #   removes from data frames nested at any depth (see deid_expected_frame()).
 deid_pipelines <- list(

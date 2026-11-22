@@ -42,18 +42,18 @@ information, and requires groups of at least 12. Health Canada equates
 11, pass \code{max_risk = 1/11}. See Details.}
 
 \item{order}{Names of quasi-identifiers (as \code{\link[=anon_risk]{anon_risk()}} names them) from
-least to most useful, to choose between blanking options of the same
-size: the most useful are blanked last. Those not listed follow, in the
-order of \code{quasi}. Default: the order of \code{quasi}, its first
-quasi-identifier being the first blanked.}
+least to most useful, to choose between blanking options that are
+otherwise equal: the most useful are blanked last. Those not listed
+follow, in the order of \code{quasi}. Default: the order of \code{quasi}, its
+first quasi-identifier being the first blanked.}
 
 \item{method}{\code{"cells"} (default) blanks cells; \code{"drop"} removes the
-subjects at risk from every dataset.}
+subjects in groups smaller than the target from every dataset.}
 
 \item{unresolved}{With \code{method = "cells"}, what to do with subjects still
-at risk when nothing is left to blank (only when there are fewer
-subjects than the target group size): \code{"drop"} (default) removes them
-from every dataset, with a warning; \code{"keep"} keeps them, with a warning.}
+in groups smaller than the target when nothing is left to blank:
+\code{"drop"} (default) removes them from every dataset, with a warning;
+\code{"keep"} keeps them, with a warning.}
 
 \item{key_cols}{Names of columns holding other subjects' keys (default
 \code{"RSUBJID"}, as in SDTM \code{RELSUB}): rows that refer to a removed subject
@@ -77,40 +77,37 @@ and subject key).
 }
 \description{
 For subjects whose group is still smaller than the target after
-generalization, blanks quasi-identifier cells until enough released
-records are consistent with each of them (local suppression), or removes
-those subjects from every dataset. Risk is measured as an attacker who knows
-a subject's true values would count it (see "After suppression" in
-\code{\link[=anon_risk]{anon_risk()}}): the records whose values equal the subject's, or are
-blanked.
+generalization, blanks quasi-identifier cells until every released
+pattern is shared by enough records (local suppression), or removes those
+subjects from every dataset. Risk is k-anonymity on the released table
+(see "After suppression" in \code{\link[=anon_risk]{anon_risk()}}): a blanked cell is a value of
+its own.
 }
 \details{
-\strong{The measure.} A subject's \code{k} is the number of released records
-consistent with its true values: on every quasi-identifier, the record
-shows the subject's value or a cell blanked by suppression. Real missing
-values are values. Cells blanked by an earlier \code{anon_suppress()} in the
-same chain count as blanked; their subjects' true values are no longer
-known, so those subjects are measured against the worst case (a value no
-record shows).
+\strong{The measure.} Each released record's pattern is its visible
+quasi-identifier values plus the places of its blanked cells, a blanked
+cell counting as a value of its own; a subject's \code{k} is the number of
+released records with exactly its pattern, and every pattern must be
+shared by at least the target group size. Real missing values are values,
+distinct from blanked cells. Cells blanked by an earlier \code{anon_suppress()}
+in the same chain count as blanked. An attacker who knows a subject's
+values then finds at least \code{k} records that could be it, and records
+blanked everywhere only hide among each other.
 
-\strong{Cells.} Blanking a subject's own cells doesn't help it: its own record
-is always consistent with it, and what matters is how many other records
-are. So subjects at risk are handled one at a time, the smallest \code{k} first
-(then in the order subjects first appear in the data), and for each, the
-records not yet consistent with it are ranked by how many cells would have
-to be blanked to make them consistent (fewest first), then by which (the
-least useful by \code{order} first), then by their order in the data; the
-cells of the first records are blanked until the subject's \code{k} reaches the
-target. Blanking only makes records consistent with more subjects, so \code{k}
-never decreases and a subject handled stays at the target. The result is
-deterministic, but not guaranteed to blank the fewest cells. A subject at
-risk keeps its own values: other records are blanked to hide it. A record
-that differs from the subject by a real missing value can't be made
-consistent (blanking it changes nothing). Subjects that can't reach the
-target (too few records can be made consistent, or fewer subjects than
-the target group size) are unresolved; removing them can leave others
-short of the records that covered them, so the step repeats until none is
-left at risk.
+\strong{Cells.} The step repeats, on the records in groups smaller than the
+target: for each quasi-identifier still shown on some of them, it tries
+blanking that quasi-identifier on all of them. If a try brings records
+into groups of at least the target, it takes the try that brings the most
+(then needs the fewest cells, then blanks the least useful by \code{order}) and
+blanks only the records it brings in. Otherwise it takes the try that
+merges the most small patterns (then the least useful) and blanks it on
+all of them. Every step blanks at least one cell, so it ends; records
+still short when everything is blanked (or with fewer subjects than the
+target group size) are unresolved. The result is deterministic and
+doesn't depend on the order of rows, but it isn't guaranteed to blank the
+fewest cells. Blanking only joins records into groups and removing small
+groups leaves the others as they are, so groups of at least the target
+stay so.
 
 A quasi-identifier is blanked in \strong{every row} of that subject: the column
 in every row of the subject in its dataset (and, with \code{everywhere}, in
@@ -125,8 +122,8 @@ Columns keep their type and attributes. The step records which cells it
 blanked (by subject key, as the data holds it, never values), and later
 steps carry the record on, so \code{\link[=anon_risk]{anon_risk()}} can measure the result.
 
-\strong{Drop.} Subjects at risk are removed; removing subjects can leave others
-at risk, so this repeats until no subject is. Removed subjects' rows go
+\strong{Drop.} Subjects in groups smaller than the target are removed (the other
+groups stay as they are). Removed subjects' rows go
 from every dataset with the \code{key}, from datasets whose rows belong to
 subjects through a packed column with the key or a list column of data
 frames holding one subject per row, from data frames with the key nested
@@ -152,9 +149,9 @@ removed, and the risk before and after; it holds no values. The settings
 record the arguments and where each quasi-identifier comes from (not
 \code{filter}).
 
-The work is about (subjects at risk) x (subjects) x (quasi-identifiers),
-plus the measure (see \code{\link[=anon_risk]{anon_risk()}}); 3,000 subjects with 7
-quasi-identifiers take a few seconds.
+Each step of the loop groups the records once per quasi-identifier still
+shown on records short of the target; 10,000 subjects with 12
+quasi-identifiers, all of them unique at first, take about a second.
 }
 \examples{
 dm <- data.frame(
