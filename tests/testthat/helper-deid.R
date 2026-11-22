@@ -1454,8 +1454,8 @@ deid_leaks <- function(results, sentinels = NULL) {
   found
 }
 
-# From a step's secrets: per original key, the new key and the date offset in
-# days; per fixture SUBJID, the pseudonym's number as the SUBJID column gets
+# From a step's secrets: per original key, the new key, the date offset in
+# days and the direction of year-only dates; per fixture SUBJID, the pseudonym's number as the SUBJID column gets
 # it (`new_also`); and what the pipeline does with other attributes
 # (`other`).
 deid_oracle <- function(step, other = "rewrite") {
@@ -1477,5 +1477,8 @@ deid_oracle <- function(step, other = "rewrite") {
   numbers <- as.integer(sub(step$settings$subject_ids$prefix, "", new_key[own], fixed = TRUE))
   subjids <- if (numeric) unname(deid_numeric_subjids[deid_subjids]) else deid_subjids
   new_also <- stats::setNames(formatC(numbers, width = nchar(length(new_key)), flag = "0"), subjids)
-  list(new_key = new_key, new_also = new_also, offset = stats::setNames(offsets$offset_days, offset_key), other = other)
+  list(
+    new_key = new_key, new_also = new_also, offset = stats::setNames(offsets$offset_days, offset_key),
+    year_direction = stats::setNames(offsets$year_direction, offset_key), other = other
+  )
 }

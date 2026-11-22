@@ -493,10 +493,13 @@ anon_subject_ids <- function(
 #'   `"2014-03--T08:00"` with the time kept) moves the middle of the month by
 #'   the subject's offset and keeps month precision; a year-only date
 #'   (`"2014"`, or SDTM `"2014---15"` with the day kept) moves by whole years,
-#'   at least one, in the direction of the offset, so the real year is never
-#'   kept. Both ends of an interval (`"2014-01-02/2014-01-05"`) are shifted.
-#' @param keep_secrets Logical. If `TRUE`, keep each subject's offset; read it
-#'   with [anon_secrets()]. Default `FALSE`.
+#'   `max(1, round(|offset| / 365.25))`, so the real year is never kept, in a
+#'   direction (earlier or later) drawn at random for each subject apart from
+#'   the offset, so that it doesn't reveal which way the subject's dates
+#'   moved. Both ends of an interval (`"2014-01-02/2014-01-05"`) are shifted.
+#' @param keep_secrets Logical. If `TRUE`, keep each subject's offset and the
+#'   direction of its year-only dates (`offset_days` and `year_direction`, -1
+#'   or 1); read them with [anon_secrets()]. Default `FALSE`.
 #'
 #' @details
 #' Full ISO 8601 dates move by exactly the subject's offset and keep their
@@ -695,7 +698,9 @@ anon_subject_dates <- function(
   kept_years <- character(0)
   kept_qval_years <- character(0)
 
-  offsets <- draw_offsets(length(keys), max_days, min_days, seed)
+  drawn <- draw_offsets(length(keys), max_days, min_days, seed)
+  offsets <- drawn$offset
+  year_signs <- drawn$year_sign
 
   log <- deid_log_start(
     "subject_dates", length(keys), key, seed,
@@ -717,6 +722,7 @@ anon_subject_dates <- function(
       }
       tabs[[t]]$idx <- table_owner(tabs, t, keys, key)
       subject_offset <- offsets[tabs[[t]]$idx]
+      subject_year_sign <- year_signs[tabs[[t]]$idx]
       df <- tb$df
       shifted_cols <- integer(0)
       where <- function(col) location(ds, table_column_path(tb, match(col, names(df)), positional = TRUE))
@@ -730,7 +736,8 @@ anon_subject_dates <- function(
           shifted <- shift_dates_by_subject(
             df[[col]], subject_offset, partial, keep_non_dates,
             keep_years = keep_non_dates && !col %in% years_only_cols,
-            missing = if (is.character(df[[col]]) || is.factor(df[[col]])) table_missing(tb, df[[col]])
+            missing = if (is.character(df[[col]]) || is.factor(df[[col]])) table_missing(tb, df[[col]]),
+            year_sign = subject_year_sign
           )
         }
         if (shifted$kept_years > 0) {
@@ -743,7 +750,9 @@ anon_subject_dates <- function(
       }
 
       if (is.null(vars) && all(c("QNAM", "QVAL") %in% names(df))) {
-        shifted <- shift_qval_dates(df$QVAL, subject_offset, partial, missing = table_missing(tb, df$QVAL))
+        shifted <- shift_qval_dates(
+          df$QVAL, subject_offset, partial, missing = table_missing(tb, df$QVAL), year_sign = subject_year_sign
+        )
         if (shifted$kept_years > 0) {
           kept_qval_years <- c(kept_qval_years, where("QVAL"))
         }
@@ -818,7 +827,7 @@ anon_subject_dates <- function(
   warn_invalid_utf8(data, rewritten$invalid, locate = locate)
 
   secrets <- if (isTRUE(keep_secrets)) {
-    list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
+    list(date_offsets = tibble::tibble(key = keys, offset_days = offsets, year_direction = year_signs))
   }
   settings <- list(subject_dates = list(
     key = key, also = also, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
@@ -1228,10 +1237,16 @@ dataset_date_vars <- function(df, vars, key, dataset, locate = identity, list_da
   setdiff(names(df)[is_date | is_dtc], key)
 }
 
-# Draw `size` indices from 1:n with replacement, restoring the global RNG state.
+# Draw `size` indices from 1:n with replacement, restoring the global RNG
+# state. With several `n`, one draw of `size` for each, in turn from the same
+# random stream (a list).
 sample_with_seed <- function(n, size, seed = NULL) {
+  draw <- function() {
+    out <- lapply(n, function(m) sample.int(m, size = size, replace = TRUE))
+    if (length(n) == 1) out[[1]] else out
+  }
   if (is.null(seed)) {
-    return(sample.int(n, size = size, replace = TRUE))
+    return(draw())
   }
   has_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   if (has_seed) {
@@ -1241,16 +1256,17 @@ sample_with_seed <- function(n, size, seed = NULL) {
     on.exit(rm(".Random.seed", envir = .GlobalEnv), add = TRUE)
   }
   set.seed(seed)
-  sample.int(n, size = size, replace = TRUE)
+  draw()
 }
 
 # Shift each value by its subject's offset (days), keeping the column's type and
 # attributes. Values without an offset, and text that is not ISO 8601, are
 # removed (text becomes `missing`, see fill_missing()). Returns the new values
 # and counts.
-shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, keep_years = keep_non_dates, missing = NULL) {
+shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, keep_years = keep_non_dates, missing = NULL,
+                                   year_sign = NULL) {
   if (inherits(x, "haven_labelled")) {
-    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial, keep_non_dates, keep_years, missing)
+    shifted <- shift_dates_by_subject(vctrs::vec_data(x), offset, partial, keep_non_dates, keep_years, missing, year_sign)
     attrs <- attributes(x)
     attrs[c("labels", "na_values", "na_range")] <- NULL
     attributes(shifted$values) <- attrs
@@ -1269,7 +1285,7 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
     return(shifted)
   }
   if (is.factor(x)) {
-    shifted <- shift_dates_by_subject(as.character(x), offset, partial, keep_non_dates, keep_years, missing)
+    shifted <- shift_dates_by_subject(as.character(x), offset, partial, keep_non_dates, keep_years, missing, year_sign)
     shifted$values <- with_attributes_of(factor(shifted$values), x)
     return(shifted)
   }
@@ -1296,7 +1312,7 @@ shift_dates_by_subject <- function(x, offset, partial, keep_non_dates = FALSE, k
       unchanged <- unchanged | year_kept
     }
     no_offset <- present & !unchanged & is.na(offset)
-    new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE))
+    new_values <- suppressWarnings(shift_iso8601(x, use, partial, year_step = TRUE, year_sign = year_sign))
     if (partial == "remove") {
       removed_partial <- present & !unchanged & !no_offset & is_partial_date(x, kinds)
     }
@@ -1398,7 +1414,7 @@ interval_end_kinds <- function(x, kinds) {
 
 # Shift QVAL values that are ISO 8601 dates with more than a bare year (which
 # can't be told apart from a number); other values are untouched.
-shift_qval_dates <- function(x, offset, partial = "shift", missing = NULL) {
+shift_qval_dates <- function(x, offset, partial = "shift", missing = NULL, year_sign = NULL) {
   text <- as.character(x)
   kinds <- parse_iso8601_dates(text)$kind
   year_only <- !is.na(text) & is_year_only_value(text, kinds)
@@ -1413,7 +1429,10 @@ shift_qval_dates <- function(x, offset, partial = "shift", missing = NULL) {
   removed_partial <- if (partial == "remove") is_date & !no_offset & is_partial_date(text, kinds) else rep(FALSE, length(text))
   movable <- is_date & !no_offset & !removed_partial
   new_text <- text
-  new_text[movable] <- suppressWarnings(shift_iso8601(text[movable], offset[movable], "shift", year_step = TRUE))
+  year_sign <- if (is.null(year_sign)) sign(offset) else year_sign
+  new_text[movable] <- suppressWarnings(
+    shift_iso8601(text[movable], offset[movable], "shift", year_step = TRUE, year_sign = year_sign[movable])
+  )
   failed <- movable & !nzchar(new_text)
   movable <- movable & !failed
   new_text <- fill_missing(new_text, no_offset | removed_partial | failed, missing, text)
@@ -3241,15 +3260,21 @@ has_text_row_names <- function(df) {
 }
 
 # One offset per subject, drawn uniformly from the whole numbers between
-# min_days and max_days in either direction (0 counted once).
+# min_days and max_days in either direction (0 counted once), and, apart
+# from it, the direction (-1 or 1) in which the subject's year-only dates
+# move: taking it from the offset's sign would reveal that sign.
 draw_offsets <- function(n, max_days, min_days, seed) {
   width <- max_days - min_days + 1
   total <- 2 * width - (min_days == 0)
-  idx <- sample_with_seed(total, n, seed = seed)
-  ifelse(
-    idx <= width,
-    min_days - 1 + idx,
-    -(min_days - 1 + idx - width + (min_days == 0))
+  drawn <- sample_with_seed(c(total, 2), n, seed = seed)
+  idx <- drawn[[1]]
+  list(
+    offset = ifelse(
+      idx <= width,
+      min_days - 1 + idx,
+      -(min_days - 1 + idx - width + (min_days == 0))
+    ),
+    year_sign = c(-1, 1)[drawn[[2]]]
   )
 }
 

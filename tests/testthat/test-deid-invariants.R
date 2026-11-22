@@ -7,10 +7,11 @@
 # pseudonym's number, dates move by the subject's offset, and everything else
 # is unchanged. Full dates move by the offset (POSIXct by calendar days,
 # keeping the clock time), year-and-month dates from day 15 of the month,
-# year-only dates by whole years (at least one, in the direction of the
-# offset), each end of an interval on its own; durations are kept. In rows
-# without a key, the key stays blank and SUBJID and dates are removed (set to
-# the column's missing value).
+# year-only dates by whole years (at least one, in the subject's own random
+# direction, kept in the secrets apart from the offset), each end of an
+# interval on its own; durations are kept. In rows without a key, the key
+# stays blank and SUBJID and dates are removed (set to the column's missing
+# value).
 deid_date_cols <- c(
   "RFSTDTC", "rficdtc", "RFSTDT", "VSDTC", "VSDTM", "VSNYDTM", "EXSTDTC", "EXENDTC", "QVAL",
   "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC",
@@ -24,13 +25,13 @@ deid_missing_like <- function(x) {
   if (any(!is.na(x) & x == "")) "" else NA_character_
 }
 
-deid_shift_text <- function(x, off) {
+deid_shift_text <- function(x, off, direction) {
   if (is.na(x) || !nzchar(x) || grepl("^P", x)) {
     return(x)
   }
   if (grepl("/", x, fixed = TRUE)) {
     ends <- strsplit(x, "/", fixed = TRUE)[[1]]
-    return(paste(vapply(ends, deid_shift_text, character(1), off = off, USE.NAMES = FALSE), collapse = "/"))
+    return(paste(vapply(ends, deid_shift_text, character(1), off = off, direction = direction, USE.NAMES = FALSE), collapse = "/"))
   }
   if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}", x)) {
     return(paste0(format(as.Date(substr(x, 1, 10)) + off), substring(x, 11)))
@@ -39,7 +40,7 @@ deid_shift_text <- function(x, off) {
     return(paste0(format(as.Date(paste0(substr(x, 1, 7), "-15")) + off, "%Y-%m"), substring(x, 8)))
   }
   if (grepl("^[0-9]{4}($|---)", x)) {
-    years <- sign(off) * max(1, round(abs(off) / 365.25))
+    years <- direction * max(1, round(abs(off) / 365.25))
     return(paste0(sprintf("%04d", as.integer(substr(x, 1, 4)) + years), substring(x, 5)))
   }
   stop("No expected value for date ", x)
@@ -50,6 +51,7 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
     return(deid_expected_nested(x, keys, oracle, prefix, key, keyed = TRUE))
   }
   off <- unname(oracle$offset[keys])
+  direction <- unname(oracle$year_direction[keys])
   if (col %in% c(key, "RSUBJID")) {
     # A key's haven missing-value codes become missing; numeric keys get
     # numbers.
@@ -73,7 +75,7 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   present <- !is.na(x) & nzchar(x)
   no_key <- is.na(off)
   out <- x
-  out[!no_key] <- vapply(which(!no_key), function(i) deid_shift_text(x[i], off[i]), character(1))
+  out[!no_key] <- vapply(which(!no_key), function(i) deid_shift_text(x[i], off[i], direction[i]), character(1))
   out[no_key & present] <- deid_missing_like(x)
   out
 }

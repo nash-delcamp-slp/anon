@@ -267,13 +267,16 @@ iso8601_center_offset <- function(x, center_date) {
 
 # Shift ISO 8601 strings by `offset` days (one value or one per element),
 # keeping each value's format and precision. With year_step = TRUE, year-only
-# values (and year-and-day values) move by whole years, at least one, in the
-# direction of the offset, instead of from the middle of the year, so a
-# non-zero offset always changes the year. Values whose shifted year falls
+# values (and year-and-day values) move by whole years instead of from the
+# middle of the year: `max(1, round(|offset| / 365.25))` years in the
+# direction `year_sign` (one value or one per element, -1 or 1; by default
+# the sign of the offset), so a non-zero offset always changes the year. A
+# zero offset leaves them as they are. Values whose shifted year falls
 # outside 0001-9999, and values that are not recognised ISO 8601 dates, are
 # removed with a warning.
-shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
+shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE, year_sign = NULL) {
   offset <- rep_len(offset, length(x))
+  year_sign <- if (is.null(year_sign)) sign(offset) else rep_len(year_sign, length(x))
   parsed <- parse_iso8601_dates(x)
   kind <- parsed$kind
   shifted <- parsed$reference + offset
@@ -285,8 +288,8 @@ shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
     parts <- strsplit(x[is_interval], "/", fixed = TRUE)
     starts <- vapply(parts, `[`, character(1), 1)
     ends <- vapply(parts, `[`, character(1), 2)
-    new_starts <- suppressWarnings(shift_iso8601(starts, offset[is_interval], partial, year_step))
-    new_ends <- suppressWarnings(shift_iso8601(ends, offset[is_interval], partial, year_step))
+    new_starts <- suppressWarnings(shift_iso8601(starts, offset[is_interval], partial, year_step, year_sign[is_interval]))
+    new_ends <- suppressWarnings(shift_iso8601(ends, offset[is_interval], partial, year_step, year_sign[is_interval]))
     lost <- !nzchar(new_starts) | !nzchar(new_ends)
     out[is_interval] <- ifelse(lost, "", paste0(new_starts, "/", new_ends))
     out_of_range[is_interval] <- lost & partial == "shift"
@@ -310,8 +313,8 @@ shift_iso8601 <- function(x, offset, partial = "shift", year_step = FALSE) {
     year_like <- kind %in% c("year", "year_day")
     if (any(year_like)) {
       if (year_step) {
-        years <- as.integer(substr(x[year_like], 1, 4)) +
-          sign(offset[year_like]) * pmax(1, round(abs(offset[year_like]) / 365.25))
+        step <- year_sign[year_like] * pmax(1, round(abs(offset[year_like]) / 365.25))
+        years <- as.integer(substr(x[year_like], 1, 4)) + ifelse(offset[year_like] == 0, 0, step)
       } else {
         years <- shifted_year[year_like]
       }

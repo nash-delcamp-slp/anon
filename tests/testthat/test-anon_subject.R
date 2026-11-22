@@ -169,9 +169,14 @@ test_that("year-only dates always change year; month dates keep month precision"
   d <- data.frame(USUBJID = sprintf("S%03d", 1:300), BRTHDTC = "1950", MHSTDTC = "2014-03")
   result <- anon_subject_dates(d, keep_secrets = TRUE, seed = 10)
   out <- result$data
-  off <- anon_secrets(result)$date_offsets$offset_days
+  secrets <- anon_secrets(result)$date_offsets
   expect_true(all(out$BRTHDTC != "1950"))
-  expect_true(all((as.integer(out$BRTHDTC) > 1950) == (off > 0)))
+  # Year-only dates move in the subject's own random direction, not the
+  # offset's, which would reveal the offset's sign.
+  expect_setequal(secrets$year_direction, c(-1, 1))
+  expect_true(all((as.integer(out$BRTHDTC) > 1950) == (secrets$year_direction > 0)))
+  expect_true(any(sign(secrets$offset_days) != secrets$year_direction))
+  expect_true(any(sign(secrets$offset_days) == secrets$year_direction))
   expect_match(out$MHSTDTC, "^[0-9]{4}-[0-9]{2}$")
   expect_true(all(out$MHSTDTC != "2014-03"))
   expect_true(all(is.na(anon_subject_dates(d, partial = "remove", seed = 10)$data$BRTHDTC)))
@@ -326,7 +331,12 @@ test_that("large max_days is capped and years stay within 0001-9999", {
   expect_error(anon_subject_dates(d, max_days = 1e7), "from 1 to 3650")
   msgs <- character(0)
   withCallingHandlers(
-    anon_subject_dates(data.frame(USUBJID = c("a", "b"), YDTC = c("9999", "9999")), min_days = 400, max_days = 400, seed = 1),
+    # Each subject has a year at either end, so one leaves the range whichever
+    # way its years move.
+    anon_subject_dates(
+      data.frame(USUBJID = c("a", "a", "b", "b"), YDTC = c("9999", "0001", "9999", "0001")),
+      min_days = 400, max_days = 400, seed = 1
+    ),
     warning = function(w) {
       msgs <<- c(msgs, conditionMessage(w))
       invokeRestart("muffleWarning")
@@ -336,12 +346,18 @@ test_that("large max_days is capped and years stay within 0001-9999", {
 })
 
 test_that("offsets cover both directions uniformly and 0 only once", {
-  off <- draw_offsets(20000, max_days = 3, min_days = 0, seed = 1)
+  off <- draw_offsets(20000, max_days = 3, min_days = 0, seed = 1)$offset
   expect_setequal(unique(off), -3:3)
   expect_true(all(abs(table(off) / 20000 - 1 / 7) < 0.02))
-  off <- draw_offsets(5000, max_days = 365, min_days = 30, seed = 2)
+  drawn <- draw_offsets(5000, max_days = 365, min_days = 30, seed = 2)
+  off <- drawn$offset
   expect_true(all(abs(off) >= 30 & abs(off) <= 365))
   expect_true(abs(mean(off > 0) - 0.5) < 0.03)
+  # The direction of year-only dates is drawn apart from the offset: each
+  # direction about half the time, whichever way the offset goes.
+  expect_setequal(drawn$year_sign, c(-1, 1))
+  expect_true(abs(mean(drawn$year_sign[off > 0] > 0) - 0.5) < 0.05)
+  expect_true(abs(mean(drawn$year_sign[off < 0] > 0) - 0.5) < 0.05)
 })
 
 test_that("QVAL dates are flagged when vars skips them, and month dates shift", {
@@ -654,7 +670,7 @@ test_that("a vars column of bare years is shifted by whole years", {
   off <- anon_secrets(result)$date_offsets
   years <- as.integer(result$data$BRTHYR) - c(1956L, 1971L)
   expect_true(all(years != 0))
-  expect_equal(sign(years), sign(off$offset_days[match(dm$USUBJID, off$key)]))
+  expect_equal(sign(years), off$year_direction[match(dm$USUBJID, off$key)])
 })
 
 test_that("leftover-key check: invalid UTF-8 keys, latin1 text, unkeyed datasets, word boundaries", {
