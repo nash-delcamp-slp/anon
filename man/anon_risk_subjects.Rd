@@ -4,7 +4,7 @@
 \alias{anon_risk_subjects}
 \title{Per-subject re-identification risk}
 \usage{
-anon_risk_subjects(data, quasi, key = "USUBJID")
+anon_risk_subjects(data, quasi, key = "USUBJID", na = c("value", "wildcard"))
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
@@ -20,6 +20,14 @@ vary by row, such as baseline height and weight in \code{vs}.}
 \item{key}{Name of the subject identifier column shared by the datasets. It
 must have the same type (character or factor, or numeric) in every
 dataset used.}
+
+\item{na}{How a missing quasi-identifier value counts when forming groups.
+\code{"value"} (default): missing is a value of its own, which is right for
+values that are really missing. \code{"wildcard"}: a missing value matches any
+value, which is the usual way to measure cells blanked by suppression
+(see \code{\link[=anon_suppress]{anon_suppress()}}); a subject's \code{k} is then the number of subjects
+whose values agree with its own on every quasi-identifier where both have
+a value.}
 }
 \value{
 A tibble with one row per subject: the \code{key} (as character), \code{k}

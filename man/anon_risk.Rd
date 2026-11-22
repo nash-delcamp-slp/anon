@@ -4,7 +4,13 @@
 \alias{anon_risk}
 \title{Measure re-identification risk from quasi-identifiers}
 \usage{
-anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
+anon_risk(
+  data,
+  quasi,
+  key = "USUBJID",
+  max_risk = 0.09,
+  na = c("value", "wildcard")
+)
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
@@ -29,6 +35,14 @@ threshold Health Canada and EMA encourage for public release of clinical
 information, and requires groups of at least 12. Health Canada equates
 0.09 with a cell size of 11, but \code{1 / 11} is about 0.0909; to use groups of
 11, pass \code{max_risk = 1/11}. See Details.}
+
+\item{na}{How a missing quasi-identifier value counts when forming groups.
+\code{"value"} (default): missing is a value of its own, which is right for
+values that are really missing. \code{"wildcard"}: a missing value matches any
+value, which is the usual way to measure cells blanked by suppression
+(see \code{\link[=anon_suppress]{anon_suppress()}}); a subject's \code{k} is then the number of subjects
+whose values agree with its own on every quasi-identifier where both have
+a value.}
 }
 \value{
 An object of class \code{"anon_risk"}, a list with:
@@ -47,7 +61,7 @@ non-missing values (\code{n_values}), the number of missing values
 left out). Rows are ordered so the variable whose removal helps most
 comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
-\item \code{quasi}, \code{key}: the quasi-identifier names and key used.
+\item \code{quasi}, \code{key}, \code{na}: the quasi-identifier names, key and \code{na} used.
 \item \code{sources}: one row per quasi-identifier giving where it comes from:
 \code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test} and
 \code{result_col}, plus \code{filtered} (whether a \code{filter} was used). The filter
@@ -73,6 +87,15 @@ with no value for a quasi-identifier (for example, missing from \code{vs}) gets
 \code{NA} for it, and \code{NA} is treated as a value of its own when forming groups.
 Blank strings, which is how SAS transport (XPT) files store missing text, are
 treated as missing. Values are otherwise grouped by exact equality.
+
+With \code{na = "wildcard"}, groups overlap: a subject with a missing value can
+count towards several groups, and \code{k} is counted for each subject on its
+own, as sdcMicro does for suppressed cells. Subjects with the same values
+are counted together, so the work grows with the number of distinct
+combinations that have a missing value times the number of distinct
+combinations (at most the number of subjects squared, times the number of
+quasi-identifiers); a few thousand subjects take well under a second.
+Without missing values it gives the same result as \code{"value"}.
 
 Risk is measured on one value per subject for each quasi-identifier. A copy
 shared with others usually contains every row of a dataset (for example
