@@ -15,6 +15,8 @@
 deid_date_cols <- c(
   "RFSTDTC", "rficdtc", "RFSTDT", "VSDTC", "VSDTM", "VSNYDTM", "EXSTDTC", "EXENDTC", "QVAL",
   "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC",
+  # ADaM dates of the profile fixture.
+  "RANDDT", "TRTSDT", "TRTEDT", "ADT",
   # Inside nested data.
   "DT", "VSTM", "LBDTC", "RPDT", "MXDTC", "PKDTC", "SPDTC", "SPDT"
 )
@@ -477,10 +479,83 @@ for (pipeline_name in names(deid_pipelines)) {
       expect_false(before$summary$meets_target)
       step <- deid_run(pipeline, data)$step
       oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
-      expect_true(all(deid_release_k(data, step, oracle) >= risk_k_target(r$max_risk)))
+      truth <- if (is.null(r$truth)) deid_release_truth else r$truth
+      expect_true(all(deid_release_k(data, step, oracle, truth) >= risk_k_target(r$max_risk)))
       expect_true(step$settings$suppress$meets_target)
+      if (!is.null(step$settings$deidentify)) {
+        expect_true(step$settings$deidentify$meets_target)
+        expect_identical(step$settings$deidentify$not_met, character(0))
+      }
       # Measured from the step's record of blanked cells too.
       expect_true(anon_risk(step, quasi = r$quasi, max_risk = r$max_risk)$summary$meets_target)
+    })
+  }
+
+  if (!is.null(pipeline$deidentify)) {
+    test_that(paste0(pipeline_name, ": removed columns are blank, copies agree, and derived columns follow their quasi-identifier"), {
+      checks <- pipeline$deidentify
+      data <- pipeline$fixture()
+      step <- deid_run(pipeline, data)$step
+      oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
+      out <- step$data
+      blank <- function(x) {
+        x <- if (is.factor(x)) as.character(x) else unclass(x)
+        is.na(x) | (is.character(x) & !is.na(x) & trimws(x) == "")
+      }
+      for (id in checks$removed) {
+        parts <- strsplit(id, ".", fixed = TRUE)[[1]]
+        expect_true(all(blank(out[[parts[1]]][[parts[2]]])), info = id)
+      }
+      # A copy's value for each subject (by original key): every row of a
+      # column copy must agree; a test copy gives its first matching row.
+      copy_values <- function(spec) {
+        ds <- sub("\\..*$", "", spec)
+        col <- sub("\\[.*$", "", sub("^[^.]*\\.", "", spec))
+        df <- out[[ds]]
+        keys <- names(oracle$new_key)[match(as.character(df[[key]]), oracle$new_key)]
+        rows <- rep(TRUE, nrow(df))
+        if (grepl("[", spec, fixed = TRUE)) {
+          for (cond in strsplit(sub("^.*\\[(.*)\\]$", "\\1", spec), ",", fixed = TRUE)[[1]]) {
+            kv <- strsplit(cond, "=", fixed = TRUE)[[1]]
+            rows <- rows & as.character(df[[kv[1]]]) %in% kv[2]
+          }
+        }
+        text <- ifelse(blank(df[[col]]), "<blank>", as.character(df[[col]]))
+        values <- text[rows]
+        k <- keys[rows]
+        if (!grepl("[", spec, fixed = TRUE)) {
+          # Every row of a subject shows one value.
+          expect_true(all(tapply(values, k, function(v) length(unique(v))) == 1), info = spec)
+        }
+        stats::setNames(values[!duplicated(k)], k[!duplicated(k)])[deid_keys]
+      }
+      for (q in names(checks$copies)) {
+        specs <- checks$copies[[q]]
+        reference <- copy_values(specs[1])
+        for (spec in specs[-1]) {
+          expect_identical(copy_values(spec), reference, info = paste(q, spec))
+        }
+      }
+      # Derived values: the row's original value where shown, and one value
+      # (or blank) per released value of the quasi-identifier.
+      for (id in names(checks$derived)) {
+        ds <- sub("\\..*$", "", id)
+        col <- sub("^[^.]*\\.", "", id)
+        from <- sub("^[^.]*\\.", "", checks$derived[[id]])
+        original <- data[[ds]]
+        keys <- names(oracle$new_key)[match(as.character(out[[ds]][[key]]), oracle$new_key)]
+        # Rows keep their order within a subject.
+        occurrence <- stats::ave(seq_along(keys), keys, FUN = seq_along)
+        original_rows <- vapply(seq_along(keys), function(i) {
+          which(as.character(original[[key]]) == keys[i])[occurrence[i]]
+        }, integer(1))
+        got <- out[[ds]][[col]]
+        shown <- !blank(got)
+        expect_identical(as.character(got[shown]), as.character(original[[col]][original_rows][shown]), info = id)
+        released <- ifelse(blank(out[[ds]][[from]]), "<blank>", as.character(out[[ds]][[from]]))
+        derived <- ifelse(shown, as.character(got), "<blank>")
+        expect_true(all(tapply(derived, released, function(v) length(unique(v))) == 1), info = id)
+      }
     })
   }
 
