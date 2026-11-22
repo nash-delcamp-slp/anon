@@ -162,5 +162,6 @@ anon_risk(
 
 }
 \seealso{
-\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject group sizes.
+\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject group sizes;
+\code{\link[=anon_generalize]{anon_generalize()}} and \code{\link[=anon_suppress]{anon_suppress()}} to bring the risk down.
 }

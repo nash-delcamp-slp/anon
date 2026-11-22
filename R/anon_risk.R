@@ -112,7 +112,8 @@
 #'   The object holds counts only, no subject-level rows or key values. Use
 #'   [anon_risk_subjects()] for per-subject results.
 #'
-#' @seealso [anon_risk_subjects()] for per-subject group sizes.
+#' @seealso [anon_risk_subjects()] for per-subject group sizes;
+#'   [anon_generalize()] and [anon_suppress()] to bring the risk down.
 #'
 #' @examples
 #' dm <- data.frame(

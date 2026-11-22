@@ -11,6 +11,7 @@
   and `anon_subject_ids()` and `anon_subject_dates()` pseudonymize subjects and
   offset each subject's dates consistently across datasets, including nested
   data frames, and flag objects they can't de-identify, such as fitted models.
+  `anon_generalize()` and `anon_suppress()` bring the measured risk down.
 * `anon()` redacts a copy of an environment, and text at any depth in
   attributes; reports and the app show object names redacted.
 * Environment summarization with `anon_report()` and `anon_data_summary()` to
