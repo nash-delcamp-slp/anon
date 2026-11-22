@@ -98,7 +98,8 @@
 #' shows a different value than its own dataset for a subject (for example
 #' `AGE` in `adsl` not generalized like `AGE` in `dm`), or when a dataset
 #' holding `AGE` as a quasi-identifier also holds a birth date more precise
-#' than a year (`BRTHDTC`, or a Date `BRTHDT`): with a reference date such as
+#' than a year (a column named like a birth date, such as `BRTHDTC`, a Date
+#' `BRTHDT`, `BIRTHDATE` or `DOB`): with a reference date such as
 #' `RFSTDTC`, it gives the age back exactly, even after the dates were
 #' offset (both move together). Remove birth dates or reduce them to the year
 #' first. Other dates can give a quasi-identifier back the same way (an age
@@ -775,13 +776,16 @@ holds_values <- function(df, values) {
   FALSE
 }
 
-# Columns of the datasets `datasets` holding birth dates more precise than a
-# year: text BRTHDTC with a month, or Date/date-time birth dates.
+# Columns of the datasets `datasets` named like a birth date (such as
+# BRTHDTC, BRTHDT, BIRTHDATE or DOB; see look_alike_names()) holding birth
+# dates more precise than a year: text with a month, or Date/date-time
+# values.
 precise_birth_dates <- function(data, datasets) {
   out <- character(0)
   for (ds in datasets) {
     df <- data[[ds]]
-    for (col in names(df)[toupper(names(df)) %in% c("BRTHDTC", "BRTHDT", "BRTHDTM")]) {
+    births <- grepl(paste0("^(", birth_name_pattern, ")$"), names(df), ignore.case = TRUE, useBytes = TRUE)
+    for (col in names(df)[births]) {
       x <- df[[col]]
       precise <- if (inherits(x, c("Date", "POSIXct", "POSIXlt"))) {
         any(!is.na(x))

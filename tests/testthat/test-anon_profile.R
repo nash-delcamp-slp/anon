@@ -144,3 +144,11 @@ test_that("a profile prints by role and goes to and from a data frame", {
   expect_identical(edited$profile, rep("sdtm", nrow(edited)))
   expect_error(anon_profile(df[, -1]), "need the columns `variable`")
 })
+
+test_that("an SDTM domain wildcard takes a two-letter prefix in capitals", {
+  names <- c("VSDY", "AESTDY", "body", "Lady", "vsDY", "DY")
+  expect_identical(names[profile_match("--DY", names)], "VSDY")
+  expect_identical(names[profile_match("--STDY", names)], "AESTDY")
+  # The rest of the name ignores case, as other rules do.
+  expect_true(profile_match("--DTC", "VSdtc"))
+})

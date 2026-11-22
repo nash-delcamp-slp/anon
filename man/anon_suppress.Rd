@@ -147,7 +147,8 @@ when a copy of a column quasi-identifier in another dataset with the key
 shows a different value than its own dataset for a subject (for example
 \code{AGE} in \code{adsl} not generalized like \code{AGE} in \code{dm}), or when a dataset
 holding \code{AGE} as a quasi-identifier also holds a birth date more precise
-than a year (\code{BRTHDTC}, or a Date \code{BRTHDT}): with a reference date such as
+than a year (a column named like a birth date, such as \code{BRTHDTC}, a Date
+\code{BRTHDT}, \code{BIRTHDATE} or \code{DOB}): with a reference date such as
 \code{RFSTDTC}, it gives the age back exactly, even after the dates were
 offset (both move together). Remove birth dates or reduce them to the year
 first. Other dates can give a quasi-identifier back the same way (an age

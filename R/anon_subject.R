@@ -235,7 +235,13 @@
 #'   `step`, `dataset`, `variable`, `n_changed`, `n_removed` and `detail`; the
 #'   first row of each step records its settings; earlier steps are included
 #'   when `data` was a step result), `settings` (a named list with each step's
-#'   arguments, without the seed value) and
+#'   arguments, without the seed value, and `findings`: a tibble of what its
+#'   warnings name as left in the data, one row per location, with `kind`
+#'   (such as `"keys_left"`, `"dates_unshifted"` or `"objects"`), `dataset`,
+#'   `column` (as the warnings print them), `n_values` (the distinct text
+#'   values holding what was found, `NA` where that doesn't apply) and
+#'   `single_value` (whether the column holds one value in every row); no
+#'   values) and
 #'   `secrets` (`NULL` unless `keep_secrets = TRUE` here or in an earlier step).
 #'   Saving the object (for example with [saveRDS()]) also saves its secrets.
 #'
@@ -419,21 +425,32 @@ anon_subject_ids <- function(
       call. = FALSE
     )
   }
+  # What the warnings name as left in the data is recorded in the settings
+  # (`findings`), without values.
   warn_missing_code_keys(tables, keys, locate = locate)
-  warn_leftover_keys(
+  findings <- warn_leftover_keys(
     data, key, searchable$text,
     skip = c(also, key_cols), locate = locate, related = related$values, related_cols = related$columns
   )
   warn_ambiguous_related(related, also, ids, replacements, rewritten$texts, rewritten$name_texts)
-  warn_id_name_variants(data, c(key, also, key_cols), locate = locate)
-  warn_unkeyed_identifiers(data, key, c(also, key_cols), check_dates = FALSE, locate = locate)
+  findings <- rbind(
+    findings,
+    warn_id_name_variants(data, c(key, also, key_cols), locate = locate),
+    warn_unkeyed_identifiers(data, key, c(also, key_cols), check_dates = FALSE, locate = locate)
+  )
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
-  warn_s4_columns(data, paste0("original `", key, "` values"), rewritten$s4, locate = locate)
-  warn_opaque_columns(data, locate = locate)
+  findings <- rbind(
+    findings,
+    warn_s4_columns(data, paste0("original `", key, "` values"), rewritten$s4, locate = locate),
+    warn_opaque_columns(data, locate = locate)
+  )
   warn_owner_conflicts(tables, locate = locate)
   if (searched) {
-    warn_kept_codes(rewritten$kept, paste0("original `", key, "` values"), locate = locate)
-    warn_invalid_utf8(data, rewritten$invalid, locate = locate)
+    findings <- rbind(
+      findings,
+      warn_kept_codes(rewritten$kept, paste0("original `", key, "` values"), locate = locate),
+      warn_invalid_utf8(data, rewritten$invalid, locate = locate)
+    )
   }
 
   secrets <- if (isTRUE(keep_secrets)) {
@@ -444,6 +461,7 @@ anon_subject_ids <- function(
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed), other_attributes = other_attributes
   ))
   settings <- rewritten$settings(settings)
+  settings$subject_ids$findings <- findings
   new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
@@ -800,6 +818,10 @@ anon_subject_dates <- function(
       call. = FALSE
     )
   }
+  # What the warnings name as left in the data is recorded in the settings
+  # (`findings`), without values: bare years kept, dates not shifted, objects
+  # and text that can't be checked.
+  findings <- step_findings("years_kept", unique(c(kept_years, kept_qval_years)), locate)
   if (length(kept_years) > 0) {
     warning(
       "These columns hold bare four-digit numbers that were kept, because the column ",
@@ -817,14 +839,20 @@ anon_subject_dates <- function(
     )
   }
   warn_missing_code_keys(tables, keys, positional = TRUE, locate = locate)
-  warn_unshifted_iso_dates(data, date_vars, key, vars, locate = locate)
-  warn_unkeyed_identifiers(data, key, character(0), check_dates = TRUE, locate = locate)
-  warn_kept_codes(rewritten$kept, "dates", locate = locate)
+  findings <- rbind(
+    findings,
+    warn_unshifted_iso_dates(data, date_vars, key, vars, locate = locate),
+    warn_unkeyed_identifiers(data, key, character(0), check_dates = TRUE, locate = locate),
+    warn_kept_codes(rewritten$kept, "dates", locate = locate)
+  )
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
-  warn_s4_columns(data, "dates", rewritten$s4, locate = locate)
-  warn_opaque_columns(data, locate = locate)
+  findings <- rbind(
+    findings,
+    warn_s4_columns(data, "dates", rewritten$s4, locate = locate),
+    warn_opaque_columns(data, locate = locate)
+  )
   warn_owner_conflicts(tables, locate = locate)
-  warn_invalid_utf8(data, rewritten$invalid, locate = locate)
+  findings <- rbind(findings, warn_invalid_utf8(data, rewritten$invalid, locate = locate))
 
   secrets <- if (isTRUE(keep_secrets)) {
     list(date_offsets = tibble::tibble(key = keys, offset_days = offsets, year_direction = year_signs))
@@ -834,6 +862,7 @@ anon_subject_dates <- function(
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed), other_attributes = other_attributes
   ))
   settings <- rewritten$settings(settings)
+  settings$subject_dates$findings <- findings
   new_deid_step(input$unwrap(data), log, secrets, previous = input$previous, settings = settings)
 }
 
@@ -1554,11 +1583,12 @@ warn_ambiguous_related <- function(related, also, ids, replacements, texts, name
 # the `skip` columns, in any case, are not checked: they were just replaced, or
 # warn_id_name_variants() or warn_unkeyed_identifiers() names them. List
 # columns and columns of nested data frames are searched too (see
-# dataset_tables()). `locate` rewrites the printed locations.
+# dataset_tables()). `locate` rewrites the printed locations. Returns what
+# was found (see step_findings()).
 warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = identity,
                                related = character(0), related_cols = character(0)) {
   if (length(keys) == 0 && length(related) == 0) {
-    return(invisible())
+    return(invisible(empty_findings()))
   }
   # The texts of every location are searched in one call (nested data can
   # print one location for many tables).
@@ -1586,9 +1616,13 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
     list(owner = integer(0), idx = integer(0))
   }
   is_key <- found$idx <= length(keys)
+  # Each location holding what was found, and how many of its distinct
+  # values do.
   located <- function(found) {
     hit <- vapply(values, function(v) any(v %in% found), logical(1))
-    list(hits = unique(where[hit]), nested = any(is_nested[hit]))
+    hits <- unique(where[hit])
+    n <- vapply(hits, function(h) sum(unique(unlist(values[where == h], use.names = FALSE)) %in% found), integer(1))
+    list(hits = hits, n = n, nested = any(is_nested[hit]))
   }
   keys_found <- located(distinct[unique(found$owner[is_key])])
   if (length(keys_found$hits) > 0) {
@@ -1616,6 +1650,10 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
       call. = FALSE
     )
   }
+  invisible(rbind(
+    step_findings("keys_left", keys_found$hits, locate, keys_found$n),
+    step_findings("related_left", related_found$hits, locate, related_found$n)
+  ))
 }
 
 # Column names compared in any case. Names that can't be searched (not valid
@@ -2707,6 +2745,7 @@ warn_kept_codes <- function(kept, what, locate = identity) {
       call. = FALSE
     )
   }
+  invisible(step_findings("codes_kept", unique(kept), locate))
 }
 
 # Warn about columns whose value labels or missing-value codes were merged
@@ -2753,6 +2792,7 @@ warn_invalid_utf8 <- function(data, invalid = list(), locate = identity) {
       call. = FALSE
     )
   }
+  invisible(step_findings("unsearchable_text", names(texts), locate, lengths(texts)))
 }
 
 # Warn about columns holding S4 objects, and about S4 objects held in
@@ -2783,6 +2823,7 @@ warn_s4_columns <- function(data, what, in_attributes = character(0), locate = i
       call. = FALSE
     )
   }
+  invisible(rbind(step_findings("objects", hits, locate), step_findings("s4_attributes", unique(in_attributes), locate)))
 }
 
 # Warn about list columns holding objects that can't be de-identified (see
@@ -2805,6 +2846,7 @@ warn_opaque_columns <- function(data, locate = identity) {
       call. = FALSE
     )
   }
+  invisible(step_findings("objects", hits, locate))
 }
 
 # Warn about data frames whose rows get subjects from nested data in more
@@ -2834,6 +2876,48 @@ warn_owner_conflicts <- function(tables, locate = identity) {
 # and a column inside it, printed "dataset.column" by format_locations().
 location_sep <- "\x1f"
 location <- function(dataset, path) paste0(dataset, location_sep, path)
+
+# What a step's warnings found that it couldn't de-identify, for its
+# settings (`findings`): one row per location, with its `kind`, `dataset` and
+# `column` as the warnings print them (rewritten by `locate`), `n_values`
+# (the number of distinct text values holding what was found, NA where it
+# doesn't apply) and `single_value` (TRUE when the column holds one value in
+# every row). No values.
+step_findings <- function(kind, hits, locate = identity, n_values = NA_integer_, single_value = FALSE) {
+  if (length(hits) == 0) {
+    return(empty_findings())
+  }
+  parts <- strsplit(as.character(hits), location_sep, fixed = TRUE)
+  dataset <- vapply(parts, function(p) if (length(p) > 0) p[1] else "", character(1))
+  column <- vapply(parts, function(p) if (length(p) > 1) paste(p[-1], collapse = location_sep) else NA_character_, character(1))
+  shown <- !is.na(column)
+  column[shown] <- locate(column[shown])
+  tibble::tibble(
+    kind = kind, dataset = locate(dataset), column = column,
+    n_values = rep_len(as.integer(n_values), length(hits)), single_value = rep_len(as.logical(single_value), length(hits))
+  )
+}
+
+empty_findings <- function() {
+  tibble::tibble(kind = character(0), dataset = character(0), column = character(0), n_values = integer(0), single_value = logical(0))
+}
+
+# Whether a column holds one value in every row (no missing or blank value),
+# and nothing else that could hold values: no unused factor levels, value
+# labels or missing-value codes.
+single_value_column <- function(x) {
+  if (is.null(x) || is.list(x) || isS4(x) || length(x) == 0) {
+    return(FALSE)
+  }
+  v <- blank_to_na(if (is.factor(x)) as.character(x) else vctrs::vec_data(x))
+  if (anyNA(v) || vctrs::vec_unique_count(v) != 1) {
+    return(FALSE)
+  }
+  if (is.factor(x) && length(levels(x)) > 1) {
+    return(FALSE)
+  }
+  !any(c("labels", "na_values", "na_range") %in% names(attributes(x)))
+}
 
 # Locations (such as "ds.col" or "ds.col[sub]") as a step's warnings print
 # them. Text marked "bytes" or not valid UTF-8 can't be printed, so its bytes
@@ -3010,6 +3094,17 @@ valid_utf8_text <- function(x) {
 warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identity) {
   hits <- character(0)
   sas_hits <- character(0)
+  sas_single <- logical(0)
+  # For the findings, by location (several nested tables can print one):
+  # the distinct text values holding dates (NULL for Date and date-time
+  # values), and whether its column holds one value in every row in each.
+  texts <- list()
+  single <- list()
+  found <- function(where, leaf, df, text) {
+    hits <<- c(hits, where)
+    if (!is.null(text)) texts[[where]] <<- unique(c(texts[[where]], text[date_like_values(text)]))
+    single[[where]] <<- c(single[[where]], single_value_column(df[[leaf$name]]))
+  }
   for (ds in names(data)) {
     tabs <- dataset_tables(data[[ds]])
     for (t in seq_along(tabs)) {
@@ -3033,21 +3128,25 @@ warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identi
         if (leaf$name %in% c(key, selected, mixed)) {
           # List columns' text isn't shifted, only their Date and date-time
           # values.
-          unshifted <- if (leaf$name %in% mixed || is.list(df[[leaf$name]])) {
-            has_dates_in_values(non_date_values(leaf$text, only_non_dates = leaf$name %in% mixed))
-          } else {
-            FALSE
+          if (leaf$name %in% mixed || is.list(df[[leaf$name]])) {
+            text <- non_date_values(leaf$text, only_non_dates = leaf$name %in% mixed)
+            if (has_dates_in_values(text)) found(where, leaf, df, text)
           }
-          if (unshifted) hits <- c(hits, where)
         } else if (leaf$sas) {
           sas_hits <- c(sas_hits, where)
+          sas_single <- c(sas_single, single_value_column(df[[leaf$name]]))
         } else if (leaf$date || has_dates_in_values(valid_utf8_text(leaf$text))) {
-          hits <- c(hits, where)
+          found(where, leaf, df, if (!leaf$date) valid_utf8_text(leaf$text))
         }
       }
     }
   }
   hits <- unique(hits)
+  n_found <- vapply(hits, function(h) if (is.null(texts[[h]])) NA_integer_ else length(texts[[h]]), integer(1))
+  findings <- rbind(
+    step_findings("dates_unshifted", hits, locate, n_found, vapply(hits, function(h) all(single[[h]]), logical(1))),
+    step_findings("sas_dates_unshifted", unique(sas_hits), locate, NA_integer_, sas_single[!duplicated(sas_hits)])
+  )
   if (length(hits) > 0) {
     warning(
       "These columns contain dates that were not shifted: ",
@@ -3067,6 +3166,7 @@ warn_unshifted_iso_dates <- function(data, date_vars, key, vars, locate = identi
       call. = FALSE
     )
   }
+  invisible(findings)
 }
 
 # Text values that can be searched, without those recognised as ISO 8601
@@ -3099,12 +3199,16 @@ iso_date_columns <- function(tb, cols) {
 # 2014, JAN2014) or numeric with separators (01/05/2014, 01.05.2014,
 # 2014/01/05).
 has_dates_in_values <- function(values) {
-  length(values) > 0 && any(
-    grepl(iso_date_like_pattern, values, useBytes = TRUE) |
-      grepl(embedded_date_pattern, values, useBytes = TRUE) |
-      grepl(month_name_date_pattern, values, ignore.case = TRUE, useBytes = TRUE) |
-      grepl(slash_date_pattern, values, useBytes = TRUE)
-  )
+  length(values) > 0 && any(date_like_values(values))
+}
+
+# For each text value, whether it holds a date as has_dates_in_values() finds
+# them.
+date_like_values <- function(values) {
+  grepl(iso_date_like_pattern, values, useBytes = TRUE) |
+    grepl(embedded_date_pattern, values, useBytes = TRUE) |
+    grepl(month_name_date_pattern, values, ignore.case = TRUE, useBytes = TRUE) |
+    grepl(slash_date_pattern, values, useBytes = TRUE)
 }
 
 iso_date_like_pattern <- "^[0-9]{4}-([0-9]{2}(-[0-9]{2}|--T)|-{2}[0-9]{2})|^[0-9]{4}-[0-9]{2}$"
@@ -3180,6 +3284,9 @@ sas_date_format_pattern <- paste0(
 warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = identity) {
   hits <- character(0)
   nested <- FALSE
+  ids <- character(0)
+  dates <- character(0)
+  single <- logical(0)
   for (ds in names(data)) {
     flagged <- character(0)
     for (tb in dataset_tables(data[[ds]])) {
@@ -3190,12 +3297,12 @@ warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = i
       names_ <- vapply(tb$leaves, `[[`, character(1), "name")
       paths <- vapply(tb$leaves, `[[`, character(1), "path")
       cols <- if (check_dates) dataset_date_vars(tb$df, NULL, key, ds, list_dates = tb$list_dates) else character(0)
-      flagged <- c(
-        flagged,
-        paths[name_key(names_) %in% name_key(c(key, id_cols))],
-        paths[match(cols, names_)],
-        if (check_dates) iso_date_columns(tb, names_)
-      )
+      named <- paths[name_key(names_) %in% name_key(c(key, id_cols))]
+      dated <- setdiff(c(paths[match(cols, names_)], if (check_dates) iso_date_columns(tb, names_)), named)
+      flagged <- c(flagged, named, dated)
+      if (length(named) > 0) ids <- c(ids, location(ds, named))
+      if (length(dated) > 0) dates <- c(dates, location(ds, dated))
+      single <- c(single, vapply(dated, function(p) single_value_column(tb$df[[names_[match(p, paths)]]]), logical(1)))
       nested <- nested || (nzchar(tb$path) && length(flagged) > before)
     }
     if (length(flagged) > 0) {
@@ -3211,6 +3318,13 @@ warn_unkeyed_identifiers <- function(data, key, id_cols, check_dates, locate = i
       call. = FALSE
     )
   }
+  # A location printed for several nested tables holds one value only if it
+  # does in each.
+  date_single <- vapply(split(single, factor(dates, levels = unique(dates))), all, logical(1))
+  invisible(rbind(
+    step_findings("keyless_ids", unique(ids), locate),
+    step_findings("keyless_dates", unique(dates), locate, NA_integer_, unname(date_single))
+  ))
 }
 
 # Warn about columns in keyed data named like `key`, `also` or `key_cols` in
@@ -3233,6 +3347,7 @@ warn_id_name_variants <- function(data, id_cols, locate = identity) {
       call. = FALSE
     )
   }
+  invisible(step_findings("id_name_variants", hits, locate))
 }
 
 deid_log_start <- function(step, n_subjects, key, seed, settings = NULL) {

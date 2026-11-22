@@ -141,18 +141,39 @@
 #' [anon_suppress()] found no other reason not to (copies of a
 #' quasi-identifier that differ, birth dates next to `AGE`, values of removed
 #' subjects left); reasons are in `settings$deidentify$not_met`. No
-#' quasi-identifier found in the data is a reason too. Last, an audit walks
-#' every dataset at every depth for what the steps left as it was, each
-#' kind named in a warning and a reason: columns and supplemental
-#' qualifiers that look like quasi-identifiers without a rule (see
-#' [anon_profile()]); datasets without the key (and no `"also"` column that
-#' ties their rows to subjects) holding columns the profile names or that
-#' look like quasi-identifiers; profile date columns that weren't offset
-#' (such as a number of days); and quasi-identifier or derived columns
-#' holding lists.
+#' quasi-identifier found in the data is a reason too. So is each kind of
+#' identifier or date that [anon_subject_ids()] and [anon_subject_dates()]
+#' name in their warnings as left in the data (their settings' `findings`):
+#' original keys or related IDs in other columns or inside text, columns
+#' named like an identifier in another case, datasets without the key
+#' holding identifiers or dates, dates that weren't shifted (dates inside
+#' free text, text dates outside `*DTC` and the profile's `"date"` rules,
+#' numbers with a SAS date format, bare years kept), objects that can't be
+#' de-identified, value labels holding keys or dates, and text that can't be
+#' searched. A date column that holds one value in every row (such as a
+#' dictionary version, `"2019-09"`, in a dataset without the key) can't tell
+#' subjects apart and isn't a reason; identifiers always are. No date parser
+#' is guessed: SAS datetimes held as text in a result column (such as
+#' `AVALC` of the `FPPDTM1` parameter of ADaM's ADAB) aren't shifted, are
+#' named in a warning, and the target is not met; remove them or convert
+#' them first. Last, an audit walks every dataset at every depth for what
+#' the steps left as it was, each kind named in a warning and a reason:
+#' columns, supplemental qualifiers and elements of list columns that look
+#' like quasi-identifiers without a rule (see [anon_profile()]); datasets
+#' without the key (and no `"also"` columns that tie their rows to subjects)
+#' holding columns the profile names or that look like quasi-identifiers;
+#' profile date columns that weren't offset (such as a number of days);
+#' quasi-identifier or derived columns holding lists, and elements of list
+#' columns that a rule matches; attributes of quasi-identifier, derived and
+#' test result columns other than those that describe them (label, formats,
+#' value labels and missing-value codes, class, levels, names, time zone and
+#' the type's structural attributes), which can hold their original values
+#' and are left as they are; and data frames held in attributes whose
+#' columns the profile names or that look like quasi-identifiers.
 #'
-#' **Residual signals.** Meeting the target is about the quasi-identifiers
-#' only. Other things a person might know single subjects out too: treatment
+#' **Residual signals.** Meeting the target covers the quasi-identifiers
+#' (measured), and the identifiers and dates the steps find (above). Other
+#' things a person might know single subjects out too: treatment
 #' duration (the profile's `"duration"` rules, which offsetting doesn't
 #' change; in days and in the rule's bands), the number of rows a subject
 #' has in each dataset, the visits (`VISITNUM`, `AVISITN`) and study days
@@ -267,13 +288,6 @@ anon_deidentify <- function(
   for (row in removed$log) {
     log <- deid_log_add(log, row$dataset, row$variable, row$detail, row$n, 0)
   }
-  for (i in seq_along(mapped$added)) {
-    log <- deid_log_add(
-      log, mapped$added[i], mapped$through[i],
-      paste0("rows tied to subjects through `", mapped$through[i], "` (no `", key, "` column): processed as a dataset with it"),
-      nrow_of(d[[mapped$added[i]]]), 0
-    )
-  }
   step <- new_deid_step(
     input$unwrap(d), log, NULL, previous = input$previous,
     settings = list(remove = list(columns = removed$columns, not_found = removed$not_found))
@@ -287,6 +301,14 @@ anon_deidentify <- function(
     step, key = key, keep_secrets = keep_secrets || length(extra_dates) > 0,
     seed = if (!is.null(seed)) seed + 1, also = also
   ))
+  # What the two steps found and left in the data (their warnings name it).
+  step_found <- step_findings_reasons(
+    rbind(
+      step$settings[[last_setting(step$settings, "subject_ids")]]$findings,
+      step$settings[[last_setting(step$settings, "subject_dates")]]$findings
+    ),
+    vapply(extra_dates, `[[`, character(1), "where")
+  )
 
   # Quasi-identifier, derived, companion and profile text date columns of
   # data frames nested in the datasets are measured and changed as datasets
@@ -447,7 +469,7 @@ anon_deidentify <- function(
   if (length(unmeasured) > 0 || length(unmeasured_q) > 0) {
     not_met <- c(not_met, "copies of quasi-identifiers that vary within a subject aren't measured")
   }
-  not_met <- c(not_met, gaps)
+  not_met <- c(not_met, gaps, step_found)
   risk_after <- NULL
   if (length(active) > 0) {
     risk_after <- tryCatch(
@@ -479,6 +501,18 @@ anon_deidentify <- function(
   }
 
   log <- final$log
+  # The IDs step logged the key it gave a dataset without one; the dataset is
+  # released without it, so the row says how its rows were tied instead.
+  for (i in seq_along(mapped$added)) {
+    at <- which(log$step == "subject_ids" & log$dataset %in% mapped$added[i] & log$variable %in% key)
+    if (length(at) == 0) next
+    log$variable[at[1]] <- NA_character_
+    log$detail[at[1]] <- paste0(
+      "rows tied to subjects through `", mapped$through[i], "` (no `", key, "` column): processed as a dataset with it, ",
+      "released without it"
+    )
+    if (length(at) > 1) log <- log[-at[-1], ]
+  }
   first <- which(log$step == "deidentify")[1]
   log$detail[first] <- paste0(
     log$detail[first],
@@ -603,16 +637,19 @@ profile_role_columns <- function(profile, data, columns, role, key) {
   setdiff(unique(columns$column[columns$role == role]), key)
 }
 
-# Datasets without the key whose rows map to subjects through an `also`
-# column (such as `SUBJID`, or `USUBJIDN`): every row holds a value that the
-# datasets with the key give exactly one subject. They get the key column,
-# last, so that the steps process them as datasets with the key (the
-# `also` column is replaced, dates are offset, quasi-identifiers measured
-# and generalized), and anon_deidentify() removes it at the end. A dataset
-# without such a column, or with a row whose value is missing, ties to no
-# subject or to several, or whose `also` columns disagree, is left as it is
-# (the final audit names it). Returns the data, the datasets given the key
-# (`added`) and the column each was tied through (`through`).
+# Datasets without the key whose rows map to subjects through their `also`
+# columns (such as `SUBJID`, or `USUBJIDN`): every row holds, in at least
+# one of them, a value that the datasets with the key give exactly one
+# subject, and every value held in any of them points to that same subject.
+# They get the key column, last, so that the steps process them as datasets
+# with the key (the `also` columns are replaced, dates are offset,
+# quasi-identifiers measured and generalized), and anon_deidentify() removes
+# it at the end. A dataset with a row that no value ties to a subject, or
+# with a value that ties to no subject, to several, or to another subject
+# than the row's other `also` columns, is left as it is (the final audit
+# names it, and the target is not met). Returns the data, the datasets given
+# the key (`added`) and the column each was tied through (`through`: the
+# first that ties every row, else those that tie them together).
 map_keyless_datasets <- function(data, key, columns) {
   out <- list(data = data, added = character(0), through = character(0))
   keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
@@ -632,7 +669,9 @@ map_keyless_datasets <- function(data, key, columns) {
     df <- data[[ds]]
     candidates <- columns$column[columns$dataset == ds & columns$role == "also"]
     if (nrow_of(df) == 0 || length(candidates) == 0) next
-    found <- list()
+    # Each row's subject (a position in `key_values`) by each `also` column:
+    # NA where the value is missing, 0 where no subject or several hold it.
+    by_column <- list()
     for (a in candidates) {
       x <- df[[a]]
       if (is.list(x)) next
@@ -644,16 +683,35 @@ map_keyless_datasets <- function(data, key, columns) {
       ambiguous <- pairs$v[duplicated(pairs$v)]
       v <- normalize_keys(zap_user_missing(x))
       at <- which(ok)[match(v, held[ok])]
-      if (anyNA(at) || any(v %in% ambiguous)) next
-      found[[a]] <- at
+      at[!is.na(v) & (is.na(at) | v %in% ambiguous)] <- 0L
+      by_column[[a]] <- at
     }
-    if (length(found) == 0) next
-    subjects <- lapply(found, function(at) key_text[at])
-    if (!all(vapply(subjects, identical, logical(1), subjects[[1]]))) next
-    df[[key]] <- vctrs::vec_slice(key_values, found[[1]])
+    if (length(by_column) == 0) next
+    # Every row must have a subject, and every value held in an `also`
+    # column must point to it.
+    subject <- rep(NA_character_, nrow_of(df))
+    first <- rep(NA_integer_, nrow_of(df))
+    agree <- TRUE
+    for (at in by_column) {
+      if (any(at %in% 0L)) {
+        agree <- FALSE
+        break
+      }
+      s <- key_text[at]
+      if (any(!is.na(s) & !is.na(subject) & s != subject)) {
+        agree <- FALSE
+        break
+      }
+      take <- is.na(subject) & !is.na(s)
+      subject[take] <- s[take]
+      first[take] <- at[take]
+    }
+    if (!agree || anyNA(first)) next
+    df[[key]] <- vctrs::vec_slice(key_values, first)
     out$data[[ds]] <- df
     out$added <- c(out$added, ds)
-    out$through <- c(out$through, names(found)[1])
+    held_by <- names(by_column)[vapply(by_column, function(at) !anyNA(at), logical(1))]
+    out$through <- c(out$through, if (length(held_by) > 0) held_by[1] else paste(names(by_column), collapse = ", "))
   }
   out
 }
@@ -677,14 +735,41 @@ map_keyless_datasets <- function(data, key, columns) {
 #   a list column holding text;
 # - a `quasi` or `derived` column holding a list (not data frames, whose
 #   columns are walked), a column of the `key` rule other than the key (in
-#   another case), and a `remove` column not blank.
+#   another case), and a `remove` column not blank;
+# - in a list column (not of data frames), the names of the plain lists and
+#   vectors it holds, at any depth, that a rule other than `keep` matches or
+#   that look like a quasi-identifier: the values they name are released as
+#   they are;
+# - attributes, which the steps don't change other than rewriting keys and
+#   dates in text: an attribute of a `quasi` or `derived` column (or of the
+#   result column of a test rule) other than those that describe it (see
+#   describing_attributes), which can hold the original values; and, in the
+#   data frames held in attributes of a dataset or of a column (at any
+#   depth), a column that a rule other than `keep` matches or that looks like
+#   a quasi-identifier.
 audit_release <- function(profile, data, key, k_target) {
-  found <- list(keyless = character(0), look = character(0), dates = character(0), left = character(0))
+  found <- list(
+    keyless = character(0), look = character(0), dates = character(0), left = character(0),
+    attributes = character(0), attribute_frames = character(0)
+  )
   ids <- c("key", "also", "key_cols", "date", "duration")
+  tests <- which(profile$role %in% c("quasi", "derived") & !is.na(profile$test_col))
+  # Columns of a data frame held in an attribute that a rule other than
+  # `keep` matches, or that look like a quasi-identifier.
+  check_attribute_frames <- function(x, where, ds) {
+    for (held in attribute_frames(x, where)) {
+      cols <- names(held$df)
+      ruled <- profile_columns(profile, stats::setNames(list(held$df), ds))
+      role <- ruled$role[match(cols, ruled$column)]
+      hit <- (!is.na(role) & role != "keep") | (is.na(role) & look_alike_names(cols))
+      if (any(hit)) found$attribute_frames <<- c(found$attribute_frames, paste0(held$where, "$", cols[hit]))
+    }
+  }
   for (ds in names(data)) {
     df <- data[[ds]]
     has_key <- key %in% names(df)
     if (!has_key && nrow_of(df) == 0) next
+    check_attribute_frames(df, ds, ds)
     tables <- nested_tables(df, key)
     row_keys <- if (has_key) table_row_keys(tables)
     keyless <- character(0)
@@ -696,6 +781,23 @@ audit_release <- function(profile, data, key, k_target) {
       ruled <- profile_columns(profile, stats::setNames(list(f), ds))
       role <- ruled$role[match(cols, ruled$column)]
       where <- paste0(ds, ".", if (t == 1) cols else paste0(tb$path, "[", cols, "]"))
+      # Attributes: of quasi-identifier, derived and test result columns,
+      # those that don't describe the column; data frames held in any.
+      results <- vapply(cols, function(col) {
+        any(vapply(tests, function(i) {
+          profile$test_col[i] %in% cols && profile_in_scope(profile$datasets[[i]], ds, attr(profile, "scope")) &&
+            profile_match(profile$variable[i], col)
+        }, logical(1)))
+      }, logical(1))
+      for (j in which(role %in% c("quasi", "derived") | results)) {
+        other <- other_attributes_of(f[[j]])
+        if (length(other) > 0) {
+          found$attributes <- c(found$attributes, paste0("attr(", where[j], ", \"", other, "\")"))
+        }
+      }
+      for (j in seq_along(cols)) {
+        check_attribute_frames(f[[j]], where[j], ds)
+      }
       # Columns of data frames (packed, or in list columns) are tables of
       # their own.
       frames <- vapply(f, function(x) is.data.frame(x) || (is.list(x) && length(x) > 0 && holds_only_frames(x)), logical(1))
@@ -715,6 +817,16 @@ audit_release <- function(profile, data, key, k_target) {
       left <- (has_key & role %in% c("quasi", "derived") & lists) | (role %in% "key" & cols != key) |
         (role %in% "remove" & !vapply(f, function(x) is.list(x) || all(vctrs::vec_detect_missing(blank_to_na(vctrs::vec_data(x)))), logical(1)))
       found$left <- c(found$left, where[left])
+      # Names of the plain lists and vectors held in list columns.
+      for (j in which(lists & !vapply(f, isS4, logical(1)))) {
+        held <- list_element_names(f[[j]])
+        if (length(held) == 0) next
+        named <- profile_columns(profile, stats::setNames(list(stats::setNames(as.list(held), held)), ds))
+        held_role <- named$role[match(held, named$column)]
+        at <- paste0(where[j], "[[]]$", held)
+        found$left <- c(found$left, at[!is.na(held_role) & held_role != "keep"])
+        found$look <- c(found$look, at[is.na(held_role) & look_alike_names(held)])
+      }
     }
     if (length(keyless) > 0) {
       found$keyless <- c(found$keyless, paste0(ds, " (", paste(unique(sub("^[^.]*[.]", "", keyless)), collapse = ", "), ")"))
@@ -746,8 +858,23 @@ audit_release <- function(profile, data, key, k_target) {
   if (length(found$left) > 0) {
     warning(
       "These columns match a profile rule but were left as they are (a quasi-identifier or derived variable ",
-      "holding a list, the key named in another case, or a direct identifier not blank): ",
+      "holding a list, the key named in another case, a direct identifier not blank, or an element of a list ",
+      "column named like one of them): ",
       paste(found$left, collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
+  if (length(found$attributes) > 0) {
+    warning(
+      "These attributes of quasi-identifier or derived columns were left as they are and can hold their ",
+      "original values: ", paste(found$attributes, collapse = ", "), ". Remove them.",
+      call. = FALSE
+    )
+  }
+  if (length(found$attribute_frames) > 0) {
+    warning(
+      "These columns of data frames held in attributes match a profile rule or look like quasi-identifiers, ",
+      "and were left as they are: ", paste(found$attribute_frames, collapse = ", "), ". Remove those attributes.",
       call. = FALSE
     )
   }
@@ -755,9 +882,98 @@ audit_release <- function(profile, data, key, k_target) {
     if (length(found$keyless) > 0) "datasets without the key hold identifiers, quasi-identifiers or dates",
     if (length(found$look) > 0) "columns that look like quasi-identifiers have no profile rule",
     if (length(found$dates) > 0) "profile date columns were not offset",
-    if (length(found$left) > 0) "columns that match a profile rule were left as they are"
+    if (length(found$left) > 0) "columns that match a profile rule were left as they are",
+    if (length(found$attributes) > 0) "attributes of quasi-identifier or derived columns were left as they are",
+    if (length(found$attribute_frames) > 0) "data frames held in attributes hold identifiers, quasi-identifiers or dates"
   )
 }
+
+# Attributes that describe a column rather than hold data: its label,
+# formats, value labels and missing-value codes (which anon_deidentify()
+# trims to the released values), class, factor levels, names, row names and
+# time zone, and the other structural attributes of its type (see
+# structural_attributes()).
+describing_attributes <- c("label", "labels", "na_values", "na_range", "class", "levels", "names", "row.names", "tzone")
+
+# The names of a column's other attributes.
+other_attributes_of <- function(x) {
+  a <- as.character(names(attributes(x)))
+  a[!a %in% c(describing_attributes, structural_attributes(x)) & !startsWith(a, "format.")]
+}
+
+# The data frames held in the attributes of `x` (not its structural ones, see
+# structural_attributes(), such as a list_of's prototype), directly or in
+# plain lists, and in their own attributes and those
+# of their columns, each with where it is held, as R code
+# (`attr(adsl, "source")`, `attr(adsl.AGE, "raw")$by`).
+attribute_frames <- function(x, where) {
+  out <- list()
+  held <- function(v, at) {
+    if (is.data.frame(v)) {
+      out[[length(out) + 1]] <<- list(df = v, where = at)
+      out <<- c(out, attribute_frames(v, at))
+      for (col in names(v)) out <<- c(out, attribute_frames(v[[col]], paste0(at, "$", col)))
+    } else if (is.list(v) && is.null(oldClass(v))) {
+      inner <- names(v)
+      for (i in seq_along(v)) {
+        held(v[[i]], if (!is.null(inner) && !is.na(inner[i]) && nzchar(inner[i])) paste0(at, "$", inner[i]) else paste0(at, "[[", i, "]]"))
+      }
+    }
+  }
+  a <- attributes(x)
+  for (name in setdiff(names(a), structural_attributes(x))) {
+    held(a[[name]], paste0("attr(", where, ", \"", name, "\")"))
+  }
+  out
+}
+
+# The names of the plain lists and vectors held in a list column, at any
+# depth (data frames are walked as tables; other objects aren't entered).
+list_element_names <- function(x) {
+  out <- character(0)
+  walk <- function(e) {
+    if (is.data.frame(e) || isS4(e) || !is.null(oldClass(e))) {
+      return()
+    }
+    out <<- c(out, names(e))
+    if (is.list(e)) for (el in e) walk(el)
+  }
+  for (e in x) walk(e)
+  out <- unique(out)
+  out[!is.na(out) & nzchar(out)]
+}
+
+# The reasons the target isn't met for what anon_subject_ids() and
+# anon_subject_dates() found and left in the data (their settings'
+# `findings`, see step_findings()), one per kind. Profile text dates that
+# anon_deidentify() offsets itself (`ours`, as the dates step prints them)
+# aren't left. A date column that holds one value in every row (such as a
+# dictionary version in a dataset without the key) can't tell subjects apart,
+# so it isn't a reason; identifiers always are.
+step_findings_reasons <- function(findings, ours = character(0)) {
+  if (is.null(findings) || nrow(findings) == 0) {
+    return(character(0))
+  }
+  where <- ifelse(is.na(findings$column), findings$dataset, paste0(findings$dataset, ".", findings$column))
+  dates <- findings$kind %in% c("dates_unshifted", "sas_dates_unshifted", "keyless_dates", "years_kept")
+  left <- !(dates & (where %in% ours | findings$single_value))
+  unname(unique(step_finding_reason[findings$kind[left]]))
+}
+
+step_finding_reason <- c(
+  keys_left = "columns still hold original subject keys",
+  related_left = "columns still hold original related identifiers",
+  id_name_variants = "columns named like identifier columns in another case were not replaced",
+  keyless_ids = "datasets without the key hold identifiers, quasi-identifiers or dates",
+  keyless_dates = "datasets without the key hold identifiers, quasi-identifiers or dates",
+  dates_unshifted = "columns hold dates that were not offset",
+  sas_dates_unshifted = "columns hold dates that were not offset",
+  years_kept = "columns hold dates that were not offset",
+  objects = "columns hold objects that can't be de-identified",
+  s4_attributes = "columns hold objects that can't be de-identified",
+  codes_kept = "value labels or missing-value codes hold original keys or dates",
+  unsearchable_text = "text can't be searched for keys and dates"
+)
 
 # Whether every element of a list is a data frame (or NULL).
 holds_only_frames <- function(x) {
@@ -778,9 +994,11 @@ table_row_keys <- function(tables) {
 
 # Whether a column without a rule that looks like a quasi-identifier can be
 # released: it holds no value, or one value (missing values count as one)
-# that at least `k_target` subjects share.
+# that at least `k_target` subjects share, and nothing else that holds
+# values (factor levels besides it, value labels, missing-value codes).
 shared_constant <- function(x, keys, k_target) {
-  if (is.list(x)) {
+  if (is.list(x) || (is.factor(x) && length(levels(x)) > 1) ||
+    any(c("labels", "na_values", "na_range") %in% names(attributes(x)))) {
     return(FALSE)
   }
   v <- blank_to_na(vctrs::vec_data(x))
@@ -1110,17 +1328,23 @@ shift_extra_dates <- function(step, extra, key, keep_secrets) {
   step
 }
 
-# Whether column names look like a quasi-identifier or a birth date: an age,
-# a birth date, a site, a numeric ID, a country, a sex or gender, a race, an
-# ethnicity, a height, a weight, a BMI, a body surface area or a renal
-# function, in any case; units (`*U`) aside.
+# Whether column names look like a quasi-identifier, a birth date or a
+# postal code: an age, a birth date (`*BRTH*`, `*BIRTH*`, `DOB*`), a site, a
+# numeric ID, a country (`COUNTRY*`, `CNTRY*`), a ZIP or postal code, a sex
+# or gender, a race, an ethnicity, a height (`HT`, `HTS`), a weight (`WT`,
+# `WTS`, and `BW`, `BWT` as NONMEM names body weight), a BMI, a body surface area or a renal function, in any
+# case; units (`*U`) aside.
 look_alike_names <- function(x) {
   looks <- paste0(
-    "^(A?AGE[A-Z0-9]*|.*BRTH.*|.*BIRTH.*|SITE[A-Z0-9]*|.*IDN|COUNTRY.*|SEX.*|GENDER.*|RACE.*|ETHNIC.*|",
-    "HEIGHT.*|HGT.*|HT|HTBL|WEIGHT.*|WGT.*|WT|WTBL|BMI.*|BSA.*|CRCL.*|EGFR.*)$"
+    "^(A?AGE[A-Z0-9]*|", birth_name_pattern, "|SITE[A-Z0-9]*|.*IDN|COUNTRY.*|CNTRY.*|ZIP.*|POSTAL.*|",
+    "SEX.*|GENDER.*|RACE.*|ETHNIC.*|HEIGHT.*|HGT.*|HTS?|HTBL|WEIGHT.*|WGT.*|WTS?|WTBL|BWT?|BMI.*|BSA.*|CRCL.*|EGFR.*)$"
   )
   grepl(looks, x, ignore.case = TRUE, useBytes = TRUE) & !grepl("U$", x, ignore.case = TRUE, useBytes = TRUE)
 }
+
+# Names that look like a birth date (see look_alike_names()), as a regular
+# expression without anchors, matched ignoring case.
+birth_name_pattern <- ".*BRTH.*|.*BIRTH.*|DOB.*"
 
 # Warnings about what the profile may have missed (columns that look like
 # quasi-identifiers without a rule are found by audit_release()): `keep`
@@ -1370,7 +1594,11 @@ ladder_search <- function(table, qvar, mq, qis, k_target, rank, max_suppressed) 
     if (!all(ok)) {
       skipped <- c(skipped, paste0(qis[[q]]$name, ": ", paste(vapply(qis[[q]]$ladder[!ok], describe_ladder_step, character(1)), collapse = ", ")))
       qis[[q]]$ladder <- qis[[q]]$ladder[ok]
-      cache <- cache[!vapply(strsplit(names(cache), " "), function(x) mq[as.integer(x[1])] == q, logical(1))]
+      # Values cached for this quasi-identifier's measures were at the old
+      # levels (none when no step applied, as on a factor).
+      if (length(cache) > 0) {
+        cache <- cache[!vapply(strsplit(names(cache), " "), function(x) mq[as.integer(x[1])] == q, logical(1))]
+      }
     }
   }
   if (length(skipped) > 0) {
@@ -1631,7 +1859,8 @@ derive_columns <- function(profile, qis, before, data, key, touched) {
       if (!profile_in_scope(profile$datasets[[i]], ds, attr(profile, "scope")) || !profile$test_col[i] %in% names(df)) next
       for (col in names(df)[profile_match(profile$variable[i], names(df))]) {
         targets <- c(targets, list(list(
-          dataset = ds, column = col, rule = i, type = "test", test_col = profile$test_col[i], test = profile$test[i]
+          dataset = ds, column = col, rule = i, type = "test", test_col = profile$test_col[i], test = profile$test[i],
+          pattern = TRUE
         )))
       }
     }

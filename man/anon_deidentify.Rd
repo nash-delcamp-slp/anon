@@ -186,18 +186,39 @@ only when the risk measured on the released data meets the target and
 \code{\link[=anon_suppress]{anon_suppress()}} found no other reason not to (copies of a
 quasi-identifier that differ, birth dates next to \code{AGE}, values of removed
 subjects left); reasons are in \code{settings$deidentify$not_met}. No
-quasi-identifier found in the data is a reason too. Last, an audit walks
-every dataset at every depth for what the steps left as it was, each
-kind named in a warning and a reason: columns and supplemental
-qualifiers that look like quasi-identifiers without a rule (see
-\code{\link[=anon_profile]{anon_profile()}}); datasets without the key (and no \code{"also"} column that
-ties their rows to subjects) holding columns the profile names or that
-look like quasi-identifiers; profile date columns that weren't offset
-(such as a number of days); and quasi-identifier or derived columns
-holding lists.
+quasi-identifier found in the data is a reason too. So is each kind of
+identifier or date that \code{\link[=anon_subject_ids]{anon_subject_ids()}} and \code{\link[=anon_subject_dates]{anon_subject_dates()}}
+name in their warnings as left in the data (their settings' \code{findings}):
+original keys or related IDs in other columns or inside text, columns
+named like an identifier in another case, datasets without the key
+holding identifiers or dates, dates that weren't shifted (dates inside
+free text, text dates outside \verb{*DTC} and the profile's \code{"date"} rules,
+numbers with a SAS date format, bare years kept), objects that can't be
+de-identified, value labels holding keys or dates, and text that can't be
+searched. A date column that holds one value in every row (such as a
+dictionary version, \code{"2019-09"}, in a dataset without the key) can't tell
+subjects apart and isn't a reason; identifiers always are. No date parser
+is guessed: SAS datetimes held as text in a result column (such as
+\code{AVALC} of the \code{FPPDTM1} parameter of ADaM's ADAB) aren't shifted, are
+named in a warning, and the target is not met; remove them or convert
+them first. Last, an audit walks every dataset at every depth for what
+the steps left as it was, each kind named in a warning and a reason:
+columns, supplemental qualifiers and elements of list columns that look
+like quasi-identifiers without a rule (see \code{\link[=anon_profile]{anon_profile()}}); datasets
+without the key (and no \code{"also"} columns that tie their rows to subjects)
+holding columns the profile names or that look like quasi-identifiers;
+profile date columns that weren't offset (such as a number of days);
+quasi-identifier or derived columns holding lists, and elements of list
+columns that a rule matches; attributes of quasi-identifier, derived and
+test result columns other than those that describe them (label, formats,
+value labels and missing-value codes, class, levels, names, time zone and
+the type's structural attributes), which can hold their original values
+and are left as they are; and data frames held in attributes whose
+columns the profile names or that look like quasi-identifiers.
 
-\strong{Residual signals.} Meeting the target is about the quasi-identifiers
-only. Other things a person might know single subjects out too: treatment
+\strong{Residual signals.} Meeting the target covers the quasi-identifiers
+(measured), and the identifiers and dates the steps find (above). Other
+things a person might know single subjects out too: treatment
 duration (the profile's \code{"duration"} rules, which offsetting doesn't
 change; in days and in the rule's bands), the number of rows a subject
 has in each dataset, the visits (\code{VISITNUM}, \code{AVISITN}) and study days

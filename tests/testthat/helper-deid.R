@@ -1229,12 +1229,18 @@ deid_profile_run <- function(profile) {
   function(data) anon_deidentify(data, profile, max_risk = 1/2, keep_secrets = TRUE, seed = deid_seeds[1])
 }
 # What the fixture holds that the profiles can't protect, released as it
-# is: anon_deidentify()'s final audit names it in warnings, and each kind is
-# a reason the target isn't met (the measured risk meets it). `notes` has no
-# key and holds an original key in another case and a date (and `qc`, a
-# date column of the ADaM profile's `*DT`); dm.SEXF is a sex without a rule;
-# vs.usubjid is the key in another case; ad.TRTSDT, numbers of days with a
-# SAS format, is a date of the ADaM profile that can't be offset. They are
+# is: the subject steps' warnings (`deid_flagged`) and anon_deidentify()'s
+# final audit name it, and each kind is a reason the target isn't met (the
+# measured risk meets it). From the steps: original keys and SUBJIDs in
+# text, list columns and nested data (dm.COVAL, dm.LINKS, dm.PACK, dm.COMM,
+# lof), dates in text (dm.COVAL, dm.PACK), a model in a list column
+# (dm.FIT) and an S4 object in an attribute, the key in another case
+# (vs.usubjid) and the SAS-format numbers of days ad.TRTSDT. From the audit:
+# `notes` has no key and holds an original key in another case and a date
+# (and `qc`, a date column of the ADaM profile's `*DT`); dm.SEXF is a sex
+# without a rule; vs.usubjid is the key in another case; vs.VSSTRESN, the
+# result column of the WEIGHT test, has attributes holding other data;
+# ad.TRTSDT is a date of the ADaM profile that can't be offset. They are
 # matched as patterns, so that the checks on what leaves the package still
 # see these columns.
 deid_profile_flagged <- function(adam = FALSE) {
@@ -1244,16 +1250,53 @@ deid_profile_flagged <- function(adam = FALSE) {
       if (adam) "; qc \\(RUNDT\\)", "\\. They are released as they are"
     )),
     list(pattern = "^These columns look like quasi-identifiers or birth dates but no profile rule matches them: dm\\.SEXF\\. "),
-    list(pattern = "^These columns match a profile rule but were left as they are [^:]*: vs\\.usubjid\\.$")
+    list(pattern = "^These columns match a profile rule but were left as they are [^:]*: vs\\.usubjid\\.$"),
+    list(pattern = paste0(
+      "^These attributes of quasi-identifier or derived columns were left as they are [^:]*: ",
+      "attr\\(vs\\.VSSTRESN, \"assay\"\\), attr\\(vs\\.VSSTRESN, \"DRUGQX_lot\"\\), ",
+      "attr\\(vs\\.VSSTRESN, \"DRUGQX_call\"\\), attr\\(vs\\.VSSTRESN, \"DRUGQX_env\"\\)\\. "
+    ))
   ), if (adam) list(list(pattern = "^These columns are dates in the profile but were not offset [^:]*: ad\\.TRTSDT\\. ")))
 }
 deid_profile_not_met <- function(adam = FALSE) {
   c(
+    # From the subject steps' findings.
+    "columns still hold original subject keys",
+    "columns still hold original related identifiers",
+    "columns hold dates that were not offset",
+    "columns hold objects that can't be de-identified",
+    "columns named like identifier columns in another case were not replaced",
+    # From the final audit.
     "datasets without the key hold identifiers, quasi-identifiers or dates",
     "columns that look like quasi-identifiers have no profile rule",
     if (adam) "profile date columns were not offset",
-    "columns that match a profile rule were left as they are"
+    "columns that match a profile rule were left as they are",
+    "attributes of quasi-identifier or derived columns were left as they are"
   )
+}
+
+# The profile fixture without what no profile can protect (see
+# deid_profile_flagged()): the columns and datasets holding original keys,
+# SUBJIDs and dates in text, the model, the S4 object in an attribute, the
+# key in another case, the SAS-format dates, the datasets without a key,
+# dm.SEXF, and the attributes of vs.VSSTRESN other than its label. What is
+# left can be protected, so the target must be met with no reason against
+# it.
+deid_profile_clean_fixture <- function() {
+  data <- deid_profile_fixture(adam = TRUE)
+  data$dm[c("COVAL", "LINKS", "PACK", "COMM", "FIT", "SEXF")] <- NULL
+  data$vs$usubjid <- NULL
+  attr(data$vs[[deid_keys[3]]], "note") <- NULL
+  for (a in c("assay", "DRUGQX_lot", "DRUGQX_call", "DRUGQX_env")) attr(data$vs$VSSTRESN, a) <- NULL
+  data$ad$TRTSDT <- NULL
+  data[c("notes", "qc", "lof")] <- NULL
+  data
+}
+# What the clean fixture still warns about, none of it left in the data:
+# values removed because no subject owns their row, value labels merged,
+# and a missing-value code that is another subject's key.
+deid_profile_clean_flagged <- function() {
+  Filter(function(f) is.null(f$dataset) && !identical(f$id, "s4_attribute"), deid_flagged)
 }
 deid_profile_truth <- function(original, oracle) {
   out <- data.frame(
@@ -1509,6 +1552,17 @@ deid_pipelines <- list(
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     fixture = function() deid_profile_fixture(adam = TRUE),
     flagged = deid_profile_flagged(adam = TRUE), not_met = deid_profile_not_met(adam = TRUE),
+    expected = deid_profile_expected(adam = TRUE),
+    risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
+    deidentify = deid_profile_checks(adam = TRUE)
+  ),
+  # Both profiles on the fixture without what no profile can protect: the
+  # target is met, with no reason against it.
+  deidentify_clean = list(
+    run = deid_profile_run(c(anon_profile_sdtm(min_n = 2), anon_profile_adam(min_n = 2))),
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    fixture = deid_profile_clean_fixture,
+    flagged = deid_profile_clean_flagged(), not_met = character(0),
     expected = deid_profile_expected(adam = TRUE),
     risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
     deidentify = deid_profile_checks(adam = TRUE)

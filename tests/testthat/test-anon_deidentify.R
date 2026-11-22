@@ -1033,3 +1033,165 @@ test_that("renal function parameters of a BDS dataset are derived from height, w
   expect_true(all(is.na(l$AVAL[l$PARAMCD == "CRCL"])))
   expect_identical(sort(l$AVAL[l$PARAMCD == "ALT"]), 20 + 1:n)
 })
+
+test_that("what the subject steps leave in the data is a reason the target isn't met", {
+  n <- 6
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3), RFSTDTC = format(as.Date("2021-03-01") + 1:n))
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"))
+  met <- function(...) {
+    w <- capture_warnings(r <- anon_deidentify(list(...), profile, max_risk = 1/3, seed = 1))
+    list(w = w, s = r$settings$deidentify, steps = r$settings)
+  }
+  # Original keys in free text.
+  x <- dm
+  x$COMMENT <- paste("same patient as", x$USUBJID)
+  r <- met(dm = x)
+  expect_true(any(grepl("still contain original `USUBJID` values[^:]*: dm.COMMENT", r$w)))
+  expect_identical(r$s$not_met, "columns still hold original subject keys")
+  # The step records it, without values.
+  f <- r$steps$subject_ids$findings
+  expect_identical(as.list(f[1, ]), list(kind = "keys_left", dataset = "dm", column = "COMMENT", n_values = 6L, single_value = FALSE))
+  # Dates inside free text, and a SAS datetime held as text in a result.
+  x <- dm
+  x$NOTE <- paste("seen on", x$RFSTDTC)
+  x$AVALC <- c("09FEB2014:23:30:00", rep("", n - 1))
+  r <- met(dm = x)
+  expect_identical(r$s$not_met, "columns hold dates that were not offset")
+  f <- r$steps$subject_dates$findings
+  expect_identical(f$column[f$kind == "dates_unshifted"], c("NOTE", "AVALC"))
+  # Date columns in a dataset without the key, and a list column of models.
+  lots <- data.frame(RUN = 1:3, RUNDATE = as.Date("2021-01-01") + 1:3)
+  x <- tibble::as_tibble(dm)
+  x$FIT <- lapply(1:n, function(i) structure(list(coefficients = c(AGE = i)), class = "lm"))
+  r <- met(dm = x, lots = lots)
+  expect_setequal(r$s$not_met, c(
+    "datasets without the key hold identifiers, quasi-identifiers or dates", "columns hold objects that can't be de-identified"
+  ))
+  # A date with one value in every row (a dictionary version) can't tell
+  # subjects apart: not a reason.
+  r <- met(dm = dm, dict = data.frame(version = rep("2019-09", 3), TERM = c("a", "b", "c")))
+  expect_true(any(grepl("Datasets without `USUBJID`[^:]*: dict \\(version\\)", r$w)))
+  expect_true(r$s$meets_target)
+  # An identifier with one value in every row is still one.
+  r <- met(dm = dm, dict = data.frame(PATIENT = rep(dm$USUBJID[1], 3)))
+  expect_identical(r$s$not_met, "columns still hold original subject keys")
+})
+
+test_that("attributes holding data, and data frames held in attributes, are reasons the target isn't met", {
+  n <- 6
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3), SEX = rep(c("F", "M"), 3))
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"), anon_profile_rule("SEX", "quasi"))
+  x <- dm
+  attr(x$AGE, "label") <- "Age"
+  attr(x$AGE, "raw") <- 30 + 1:n
+  attr(x$SEX, "who") <- stats::setNames(30 + 1:n, x$USUBJID)
+  w <- capture_warnings(r <- anon_deidentify(list(dm = x), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl('left as they are and can hold their original values: attr\\(dm.AGE, "raw"\\), attr\\(dm.SEX, "who"\\)\\.', w)))
+  expect_identical(r$settings$deidentify$not_met, "attributes of quasi-identifier or derived columns were left as they are")
+  # A label alone is fine.
+  attr(dm$AGE, "label") <- "Age"
+  expect_true(deid_quiet(anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))$settings$deidentify$meets_target)
+  # A data frame held in a dataset's attribute, holding quasi-identifiers.
+  x <- dm
+  attr(x, "source") <- data.frame(SUBJ = 1:n, AGE = 30 + 1:n, HEIGHTCM = 170 + 1:n, NOTE = "x")
+  w <- capture_warnings(r <- anon_deidentify(list(dm = x), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl('held in attributes[^:]*: attr\\(dm, "source"\\)\\$AGE, attr\\(dm, "source"\\)\\$HEIGHTCM\\.', w)))
+  expect_identical(r$settings$deidentify$not_met, "data frames held in attributes hold identifiers, quasi-identifiers or dates")
+})
+
+test_that("elements of list columns named like quasi-identifiers or by a rule are reasons the target isn't met", {
+  n <- 6
+  dm <- tibble::tibble(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3))
+  dm$INFO <- lapply(1:n, function(i) list(AGE = 30 + i, more = list(HEIGHT = 170 + i, NOTE = "x")))
+  dm$MEAS <- lapply(1:n, function(i) c(VISIT = 1, WEIGHT = 70 + i))
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no profile rule matches them: dm.INFO\\[\\[\\]\\]\\$HEIGHT, dm.MEAS\\[\\[\\]\\]\\$WEIGHT\\.", w)))
+  expect_true(any(grepl("left as they are \\([^)]*\\): dm.INFO\\[\\[\\]\\]\\$AGE\\.", w)))
+  expect_setequal(r$settings$deidentify$not_met, c(
+    "columns that look like quasi-identifiers have no profile rule", "columns that match a profile rule were left as they are"
+  ))
+})
+
+test_that("a dataset without the key is mapped only when every `also` value in a row points to one subject", {
+  n <- 12
+  adsl <- data.frame(USUBJID = sprintf("01-%03d", 1:n), SUBJID = sprintf("%03d", 1:n), USUBJIDN = 100 + 1:n, AGE = c(31:36, 51:56))
+  nm <- data.frame(SUBJID = adsl$SUBJID, USUBJIDN = adsl$USUBJIDN, AGE = adsl$AGE)
+  run <- function(nm) {
+    w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl, nm = nm), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+    list(r = r, mapped = !any(r$data$nm$SUBJID %in% adsl$SUBJID))
+  }
+  # A missing value is no information: the other column ties the row.
+  x <- nm
+  x$USUBJIDN[2] <- NA
+  expect_true(run(x)$mapped)
+  # A value pointing to another subject than the row's other column, even
+  # with a missing value elsewhere: not mapped, and the target isn't met.
+  x$USUBJIDN[3] <- adsl$USUBJIDN[4]
+  out <- run(x)
+  expect_false(out$mapped)
+  expect_true("datasets without the key hold identifiers, quasi-identifiers or dates" %in% out$r$settings$deidentify$not_met)
+  # A value no subject holds, in a column the other ties completely.
+  x <- nm
+  x$SUBJID[1] <- "999"
+  out <- run(x)
+  expect_false(out$mapped)
+  expect_false(out$r$settings$deidentify$meets_target)
+  # The log says how the rows were tied, under the IDs step, and names no
+  # key column the released dataset doesn't have.
+  out <- run(nm)
+  log <- out$r$log[out$r$log$dataset %in% "nm", ]
+  expect_false(any(log$variable %in% "USUBJID"))
+  expect_identical(log$step[grepl("tied to subjects through `SUBJID`", log$detail)], "subject_ids")
+})
+
+test_that("derived test codes follow the rule's pattern, ignoring case", {
+  n <- 12
+  adsl <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = 30 + 1:n, SEX = rep(c("F", "M"), 6), WEIGHTBL = 60 + 1:n * 1.3)
+  adlb <- data.frame(USUBJID = rep(adsl$USUBJID, 3), PARAMCD = rep(c("crcl", "EGFRCKD", "ALT"), each = n), AVAL = c(80 + 1:n, 90 + 1:n, 20 + 1:n))
+  p <- c(anon_profile_adam(3), anon_profile(anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "EGFR*", from = "AGE"), name = "x"))
+  r <- deid_quiet(anon_deidentify(list(adsl = adsl, adlb = adlb), p, max_risk = 1/3, seed = 1))
+  l <- r$data$adlb
+  expect_true(all(is.na(l$AVAL[l$PARAMCD %in% c("crcl", "EGFRCKD")])))
+  expect_identical(sort(l$AVAL[l$PARAMCD == "ALT"]), 20 + 1:n)
+})
+
+test_that("birth dates, body weights, countries and postal codes under other names are look-alikes", {
+  n <- 6
+  dm <- data.frame(
+    USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3), DOB = format(as.Date("1990-01-01") + 1:n),
+    BW = 60 + 1:n, BWT = 61 + 1:n, CNTRY = rep(c("CAN", "ISL"), 3), ZIP = sprintf("9%04d", 1:n), POSTALCD = sprintf("H%dA", 1:n)
+  )
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi", ladder = list(anon_band(10))))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no profile rule matches them: dm.DOB, dm.BW, dm.BWT, dm.CNTRY, dm.ZIP, dm.POSTALCD\\.", w)))
+  # A birth date under another name, next to a generalized AGE.
+  expect_true(any(grepl("Birth dates more precise than a year[^:]*: dm.DOB\\.", w)))
+  expect_false(r$settings$deidentify$meets_target)
+  # A look-alike whose one value hides others in its factor levels.
+  x <- dm[c("USUBJID", "AGE")]
+  x$WEIGHTX <- factor(rep("NA", n), levels = c("NA", "71.2", "80.4"))
+  w <- capture_warnings(anon_deidentify(list(dm = x), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no profile rule matches them: dm.WEIGHTX\\.", w)))
+})
+
+test_that("a factor quasi-identifier that no ladder step applies to is suppressed only", {
+  n <- 12
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = factor(rep(c(30, 31, 50, 52), 3)), SEX = rep(c("F", "M"), 6))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), anon_profile_sdtm(3), max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("ladder steps don't apply[^:]*: AGE: ", w)))
+  expect_s3_class(r$data$dm$AGE, "factor")
+  expect_true(r$settings$deidentify$meets_target)
+})
+
+test_that("a codelist without the key can be kept with a rule limited to it", {
+  n <- 12
+  adsl <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 6), SEX = rep(c("F", "M"), 6))
+  fmt <- data.frame(SEX = c("F", "M"), SEXN = 1:2)
+  r <- deid_quiet(anon_deidentify(list(adsl = adsl, fmt = fmt), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+  expect_false(r$settings$deidentify$meets_target)
+  p <- c(anon_profile_adam(3), anon_profile(anon_profile_rule(c("SEX", "SEXN"), "keep", datasets = "fmt"), name = "codelists"))
+  r <- deid_quiet(anon_deidentify(list(adsl = adsl, fmt = fmt), p, max_risk = 1/3, seed = 1))
+  expect_true(r$settings$deidentify$meets_target)
+  expect_identical(r$data$fmt, fmt)
+})

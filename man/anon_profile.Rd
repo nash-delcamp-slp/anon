@@ -45,8 +45,9 @@ warnings when profiles are combined.}
 
 \item{variable}{Names of the variables the rule applies to: an exact name
 (\code{"AGE"}), an SDTM domain wildcard where \verb{--} stands for the two-letter
-domain prefix (\code{"--DTC"} matches \code{VSDTC} and \code{LBDTC}, \code{"--STDTC"}
-matches \code{AESTDTC} and \code{RFSTDTC}), or a pattern with \code{*} (any characters)
+domain prefix, in capitals (\code{"--DTC"} matches \code{VSDTC} and \code{LBDTC},
+\code{"--STDTC"} matches \code{AESTDTC} and \code{RFSTDTC}, \code{"--DY"} matches \code{VSDY}
+but not \code{body}), or a pattern with \code{*} (any characters)
 and \verb{?} (one character), such as \code{"*DT"}. Several names make one rule
 each, sharing the other arguments. For a test (\code{test_col} given), the
 result column (\code{"VSSTRESN"}, \code{"AVAL"}).}
@@ -146,7 +147,8 @@ rule came from). \code{as.data.frame()} returns it as a data frame to edit, and
 than test rules) whose \code{variable} and \code{datasets} match it, a rule limited
 to datasets wins over one that isn't, an exact name over a pattern, and a
 later rule over an earlier one. Variable and dataset names and patterns
-are matched ignoring case (\code{"RACE"} matches \code{race}). Test rules apply to the rows of their test in every dataset
+are matched ignoring case (\code{"RACE"} matches \code{race}), except the domain
+prefix that \verb{--} stands for, which is two capital letters. Test rules apply to the rows of their test in every dataset
 (in \code{datasets}) with the test and result columns.
 
 \strong{Companion variables.} ADaM names a variable's numeric code \code{XN} and its
@@ -160,23 +162,33 @@ A rule that matches a companion's name wins, in the datasets it covers.
 Columns matched by no rule are kept as they are, except that dates are
 offset and subject IDs replaced wherever \code{\link[=anon_subject_dates]{anon_subject_dates()}} and
 \code{\link[=anon_subject_ids]{anon_subject_ids()}} find them. \code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns,
-at any depth, whose names look like an age, a birth date, a site, a
-numeric ID (\verb{*IDN}), a country, a sex or gender, a race (\code{RACE1},
-\code{RACEOTH}), an ethnicity, a height, a weight, a BMI, a body surface area,
-a creatinine clearance or an eGFR, in any case (units, named \verb{*U}, aside),
-and that no rule matches, unless they hold no value, or one value that at
-least as many subjects as the target's group size share; such a column is
-a reason the target is not met. It also warns about \code{"keep"} rules that
-win over a quasi-identifier's rule for a column.
+at any depth, whose names look like an age, a birth date (\verb{*BRTH*},
+\verb{*BIRTH*}, \verb{DOB*}), a site, a numeric ID (\verb{*IDN}), a country (\verb{COUNTRY*},
+\verb{CNTRY*}), a ZIP or postal code (\verb{ZIP*}, \verb{POSTAL*}), a sex or gender, a
+race (\code{RACE1}, \code{RACEOTH}), an ethnicity, a height (\code{HT}, \code{HTS} too), a
+weight (\code{WT}, \code{WTS}, \code{BW}, \code{BWT} too), a BMI, a body surface area, a creatinine clearance or an eGFR, in
+any case (units, named \verb{*U}, aside), and that no rule matches, unless they
+hold no value, or one value (and no other factor level, value label or
+missing-value code) that at least as many subjects as the target's group
+size share; such a column is a reason the target is not met. So is an
+element of a list column (a plain list or vector held in it, at any depth)
+named like one, or matched by a rule other than \code{"keep"}. It also warns
+about \code{"keep"} rules that win over a quasi-identifier's rule for a column.
 
 \strong{Datasets without the key.} A dataset without the key column whose
-every row holds, in an \code{"also"} column (such as \code{SUBJID}, or \code{USUBJIDN}),
-a value that the datasets with the key give one subject, is processed as a
-dataset with the key (rows tied to those subjects) and released without
-the key column. Any other dataset without the key that holds a column
-matched by a \code{"key"}, \code{"also"}, \code{"key_cols"}, \code{"quasi"}, \code{"derived"},
-\code{"date"} or \code{"duration"} rule, or that looks like a quasi-identifier, is
-released as it is and is a reason the target is not met.
+every row holds, in its \code{"also"} columns (such as \code{SUBJID}, or
+\code{USUBJIDN}), a value that the datasets with the key give one subject, and
+no value that points to no subject, to several or to another subject, is
+processed as a dataset with the key (rows tied to those subjects) and
+released without the key column. Any other dataset without the key that
+holds a column matched by a \code{"key"}, \code{"also"}, \code{"key_cols"}, \code{"quasi"},
+\code{"derived"}, \code{"date"} or \code{"duration"} rule, or that looks like a
+quasi-identifier, is released as it is and is a reason the target is not
+met. A codelist or lookup table without the key (such as a format table
+holding \code{SEX} and \code{SEXN}, or age bands with \code{AGEGR1}) holds no subject's
+values: keep it knowingly with a \code{"keep"} rule limited to that dataset,
+such as \code{anon_profile_rule(c("SEX", "SEXN"), "keep", datasets = "fmt")}
+combined with the profile. The rule then applies only there.
 
 \strong{Dates.} \code{\link[=anon_deidentify]{anon_deidentify()}} offsets dates with
 \code{\link[=anon_subject_dates]{anon_subject_dates()}}'s own detection (every Date and date-time column
