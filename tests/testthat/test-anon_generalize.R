@@ -139,6 +139,15 @@ test_that("anon_fold() in anon_generalize() counts subjects across the datasets 
   expect_false(any(grepl("ASIAN|BLACK", c(result$log$detail, unlist(result$settings)))))
   expect_output(print(result), "generalize")
 
+  # Subjects are counted across the datasets: ASIAN has one subject in dm
+  # and another only in adsl, so it is kept in both.
+  adsl <- tibble::tibble(USUBJID = c(data$dm$USUBJID, "S07"), RACE = c(data$dm$RACE, "ASIAN"))
+  out <- anon_generalize(list(dm = data$dm, adsl = adsl), rules = list(
+    dm = list(RACE = anon_fold(2, "OTHER")), adsl = list(RACE = anon_fold(2, "OTHER"))
+  ))$data
+  expect_identical(out$dm$RACE, c("WHITE", "WHITE", "WHITE", "ASIAN", "WHITE", "OTHER"))
+  expect_identical(out$adsl$RACE, c(out$dm$RACE, "ASIAN"))
+
   # Rows are counted by subject: a category on two rows of one subject is
   # small.
   vs <- data.frame(USUBJID = c("a", "a", "b", "c"), POS = c("X", "X", "Y", "Y"))
