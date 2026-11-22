@@ -17,7 +17,8 @@ anon_report(
   df_classes = NULL,
   check_names = TRUE,
   check_labels = TRUE,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  fidelity = NULL
 )
 }
 \arguments{
@@ -104,6 +105,10 @@ user-defined missing values. Default is \code{TRUE}.}
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
 This argument overrides the global option.}
+
+\item{fidelity}{Optional result of \code{\link[=anon_check_fidelity]{anon_check_fidelity()}} for the
+de-identification step the report describes, added to its
+De-identification section.}
 }
 \value{
 An object of class \code{"anon_report"} containing the names of the
@@ -111,8 +116,26 @@ selected objects (\code{object_names}), an object inventory and an environment
 summary for them, with your rules applied to all of it, object names and
 a step's dataset names (\code{step$dm}) included: every part shows the same
 redacted names, made unique when two redact alike (\code{"[DRUG]"},
-\code{"[DRUG] 1"}). \code{selection} takes the objects' real names.
+\code{"[DRUG] 1"}). \code{selection} takes the objects' real names. For a
+de-identification step, also \code{deidentification} (see Details).
 }
 \description{
 Build a report for selected objects, applying your redaction rules
+}
+\details{
+\strong{De-identification.} When \code{envir} is a de-identification step (such as
+an \code{\link[=anon_deidentify]{anon_deidentify()}} result), or holds one, the report gains a
+\code{deidentification} element telling whoever reads the copy what was
+changed: \code{caveats} (short notes generated from the step's log and
+settings, such as "Dates are shifted by a per-subject offset ..."),
+\code{risk} before and after (smallest group, subjects below the target,
+maximum risk), \code{meets_target} and \code{not_met}, \code{settings} (rule parameters),
+\code{levels} (the level each quasi-identifier was released at),
+\code{profile_rules}, \code{signals} (residual signals, counts only), \code{steps} (the
+step log) and \code{fidelity}, if given. It holds counts, names and rule
+parameters only, with your rules applied as to the rest of the report;
+never data values, pseudonym maps, date offsets or original keys, even
+when the step kept its secrets. With several steps, \code{deidentification}
+holds one such section per step, named as the report names the step, and
+\code{fidelity} can't be given.
 }

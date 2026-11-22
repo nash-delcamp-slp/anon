@@ -646,6 +646,27 @@ for (pipeline_name in names(deid_pipelines)) {
     }
   })
 
+  # anon_check_fidelity() on the fixture: no check fails. The harness's own
+  # checks of the same properties, above and below, stay independent of it.
+  test_that(paste0(pipeline_name, ": anon_check_fidelity() finds no regression against the fixture"), {
+    data <- pipeline$fixture()
+    step <- deid_run(pipeline, data)$step
+    fidelity <- anon_check_fidelity(data, step, key = key)
+    failed <- fidelity[fidelity$status == "fail", , drop = FALSE]
+    expect_identical(paste(failed$dataset, failed$check, failed$detail, sep = ": "), character(0))
+    # The result names no original key, real date or user term (the original's
+    # names that hold them are counted, not shown), as text or serialized, nor
+    # does a report that includes it.
+    report <- anon_report(deid_drop_flagged(step, pipeline$flagged), fidelity = fidelity)
+    shown <- list(
+      print = list(text = capture.output(print(fidelity)), patterns = FALSE),
+      json = list(text = as.character(as_anon_json(fidelity)), patterns = FALSE),
+      serialize = list(raw = serialize(fidelity, NULL), patterns = FALSE),
+      report = list(text = as.character(as_anon_json(report)), raw = serialize(report, NULL), patterns = FALSE)
+    )
+    expect_equal(deid_leaks(shown), character(0))
+  })
+
   test_that(paste0(pipeline_name, ": datasets still join and study days stay consistent"), {
     out <- deid_run(pipeline, pipeline$fixture())$step$data
     keys <- as.character(out$dm[[key]])

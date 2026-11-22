@@ -113,6 +113,10 @@ as_anon_payload.anon_report <- function(x, path = "$") {
     kind = "anon_report"
   )
 
+  if (!is.null(x$deidentification)) {
+    payload$deidentification <- serialize_deid_sections(x$deidentification, path = paste0(path, "$deidentification"))
+  }
+
   if (!is.null(x$inventory)) {
     payload$inventory <- serialize_table_payload(
       x$inventory,
@@ -182,7 +186,8 @@ build_anon_prompt_bundle_payload <- function(
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,
-  include_comparison = TRUE
+  include_comparison = TRUE,
+  include_deidentification = TRUE
 ) {
   payload <- list(
     schema_version = anon_json_schema_version(),
@@ -192,6 +197,13 @@ build_anon_prompt_bundle_payload <- function(
 
   if (!is.null(report)) {
     report_payload <- list()
+
+    if (isTRUE(include_deidentification) && !is.null(report$deidentification)) {
+      report_payload$deidentification <- serialize_deid_sections(
+        report$deidentification,
+        path = "$.report$deidentification"
+      )
+    }
 
     if (isTRUE(include_inventory) && !is.null(report$inventory)) {
       report_payload$inventory <- serialize_table_payload(
@@ -370,6 +382,10 @@ serialize_supported_value <- function(x, path = "$") {
 
   if (inherits(x, "anon_risk")) {
     return(as_anon_payload.anon_risk(x, path = path))
+  }
+
+  if (inherits(x, "anon_fidelity")) {
+    return(as_anon_payload.anon_fidelity(x, path = path))
   }
 
   if (inherits(x, "anon_deid_step")) {

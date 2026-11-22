@@ -54,12 +54,34 @@ anon_inventory <- function(
 #' @inheritParams anon
 #' @inheritParams anon_data_summary
 #'
+#' @param fidelity Optional result of [anon_check_fidelity()] for the
+#'   de-identification step the report describes, added to its
+#'   De-identification section.
+#'
+#' @details
+#' **De-identification.** When `envir` is a de-identification step (such as
+#' an [anon_deidentify()] result), or holds one, the report gains a
+#' `deidentification` element telling whoever reads the copy what was
+#' changed: `caveats` (short notes generated from the step's log and
+#' settings, such as "Dates are shifted by a per-subject offset ..."),
+#' `risk` before and after (smallest group, subjects below the target,
+#' maximum risk), `meets_target` and `not_met`, `settings` (rule parameters),
+#' `levels` (the level each quasi-identifier was released at),
+#' `profile_rules`, `signals` (residual signals, counts only), `steps` (the
+#' step log) and `fidelity`, if given. It holds counts, names and rule
+#' parameters only, with your rules applied as to the rest of the report;
+#' never data values, pseudonym maps, date offsets or original keys, even
+#' when the step kept its secrets. With several steps, `deidentification`
+#' holds one such section per step, named as the report names the step, and
+#' `fidelity` can't be given.
+#'
 #' @return An object of class `"anon_report"` containing the names of the
 #'   selected objects (`object_names`), an object inventory and an environment
 #'   summary for them, with your rules applied to all of it, object names and
 #'   a step's dataset names (`step$dm`) included: every part shows the same
 #'   redacted names, made unique when two redact alike (`"[DRUG]"`,
-#'   `"[DRUG] 1"`). `selection` takes the objects' real names.
+#'   `"[DRUG] 1"`). `selection` takes the objects' real names. For a
+#'   de-identification step, also `deidentification` (see Details).
 #'
 #' @export
 anon_report <- function(
@@ -78,8 +100,16 @@ anon_report <- function(
   df_classes = NULL,
   check_names = TRUE,
   check_labels = TRUE,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  fidelity = NULL
 ) {
+  if (!is.null(fidelity) && !inherits(fidelity, "anon_fidelity")) {
+    stop("`fidelity` must be the result of anon_check_fidelity().", call. = FALSE)
+  }
+  steps <- report_deid_steps(envir, selection)
+  if (!is.null(fidelity) && length(steps) != 1) {
+    stop("`fidelity` needs a report of exactly one de-identification step.", call. = FALSE)
+  }
   objects <- normalize_object_source(envir, selection = selection)
   summarized <- summarize_objects(
     objects,
@@ -110,6 +140,28 @@ anon_report <- function(
     inventory = inventory,
     data_summary = summarized$summary
   )
+
+  if (length(steps) > 0) {
+    # The section gets the report's rules, as the data summary does.
+    sections <- lapply(steps, deid_section, fidelity = fidelity)
+    redacted <- anon(
+      list(names = names(steps), sections = unname(sections)),
+      pattern_list = c(pattern_list, getOption("anon.pattern_list", default = list())),
+      default_replacement = default_replacement,
+      check_approximate = check_approximate,
+      max_distance = max_distance,
+      df_variable_names = FALSE,
+      df_classes = FALSE,
+      check_names = FALSE,
+      nlp_auto = nlp_auto
+    )
+    sections <- lapply(unclass(redacted$sections), unclass)
+    report$deidentification <- if (length(steps) == 1) {
+      sections[[1]]
+    } else {
+      stats::setNames(sections, make.unique(as.character(redacted$names), sep = " "))
+    }
+  }
 
   structure(report, class = c("anon_report", "anon_context", "list"))
 }
@@ -166,6 +218,10 @@ anon_compare_text <- function(before, after) {
 #'   section when `report` is provided.
 #' @param include_text Logical indicating whether to include `text`.
 #' @param include_comparison Logical indicating whether to include `comparison`.
+#' @param include_deidentification Logical indicating whether to include the
+#'   report's De-identification section (see [anon_report()]), when it has
+#'   one. It comes first, before the inventory, so that the caveats about the
+#'   de-identified copy are read before the data.
 #'
 #' @return A length-one character vector of class `"anon_prompt_bundle"`.
 #'
@@ -179,7 +235,8 @@ anon_prompt_bundle <- function(
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,
-  include_comparison = TRUE
+  include_comparison = TRUE,
+  include_deidentification = TRUE
 ) {
   format <- match.arg(format)
 
@@ -191,7 +248,8 @@ anon_prompt_bundle <- function(
     include_inventory = include_inventory,
     include_data_summary = include_data_summary,
     include_text = include_text,
-    include_comparison = include_comparison
+    include_comparison = include_comparison,
+    include_deidentification = include_deidentification
   )
 
   if (format == "json") {
@@ -218,6 +276,17 @@ anon_prompt_bundle <- function(
     }
 
     if (!is.null(report)) {
+      if (isTRUE(include_deidentification) && !is.null(report$deidentification)) {
+        sections <- c(
+          sections,
+          format_section(
+            "De-identification",
+            format_deid_sections_text(report$deidentification),
+            format = format
+          )
+        )
+      }
+
       if (isTRUE(include_inventory) && !is.null(report$inventory)) {
         sections <- c(
           sections,

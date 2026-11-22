@@ -14,6 +14,10 @@
   `anon_generalize()` and `anon_suppress()` bring the measured risk down.
 * `anon_deidentify()` de-identifies SDTM and ADaM datasets in one call, with
   `anon_profile_sdtm()`, `anon_profile_adam()` or both combined.
+* `anon_check_fidelity()` checks that code tested on a de-identified copy should
+  run on the original, and `anon_report()` and `anon_prompt_bundle()` gain a
+  De-identification section with caveats for the agent, risk, settings and the
+  step log.
 * `anon()` redacts a copy of an environment, and text at any depth in
   attributes; reports and the app show object names redacted.
 * Environment summarization with `anon_report()` and `anon_data_summary()` to
