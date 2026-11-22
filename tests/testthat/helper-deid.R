@@ -1146,6 +1146,17 @@ deid_anon_env <- function(step, closures = "copy") {
   inner$note <- "DRUGQX note"
   inner$outer <- e
   assign("box", list(inner = inner), envir = e)
+  # A function's `...` holding a user-pattern term, as data (the frame) and
+  # as a closure's frame: anon() must rebuild it redacted. (The function
+  # making them is made in the global environment, so that the frames'
+  # parent isn't this function's frame.)
+  with_dots <- local(function(...) {
+    force(list(...))
+    list(frame = environment(), fn = function() c(...))
+  }, globalenv())
+  made <- with_dots(deid_patterns[[1]])
+  assign("dots_frame", made$frame, envir = e)
+  assign("dots_fn", made$fn, envir = e)
   # The objects, saved (`own` and `box` are left out: saving them saves `e`
   # itself).
   snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), c("own", "box")), envir = e), NULL)
@@ -1156,7 +1167,7 @@ deid_anon_env <- function(step, closures = "copy") {
     !identical(inner$note, "DRUGQX note") || !identical(inner$outer, e)) {
     stop("anon() changed the environment it was given")
   }
-  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "own", "reader", "sourced", "step")))) {
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "dots_fn", "dots_frame", "own", "reader", "sourced", "step")))) {
     stop("anon() returned an environment holding other objects than expected")
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
@@ -1168,6 +1179,9 @@ deid_anon_env <- function(step, closures = "copy") {
   } else if (!identical(environment(a$own), a) || identical(reader_env, holder) ||
     !is.null(unclass(reader_env$step)$secrets)) {
     stop("anon() didn't replace the closures' environments with redacted copies")
+  }
+  if (closures == "copy" && !identical(a$dots_fn(), names(deid_patterns)[1])) {
+    stop("anon() didn't rebuild a closure's `...` redacted")
   }
   if (identical(a$box$inner, inner) || !identical(a$box$inner$outer, a)) {
     stop("anon() didn't copy the nested environment, mapping its reference to the copy")

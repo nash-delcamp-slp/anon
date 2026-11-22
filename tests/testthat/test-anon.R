@@ -1366,7 +1366,7 @@ test_that("closures = \"detach\" gives copied environments the global environmen
   })
   expect_identical(parent.env(out), globalenv())
   expect_false(grepl("JanePlain", saved(out)))
-  expect_match(w, "global environment instead of their own[^:]*: the parent of the environment", all = FALSE)
+  expect_match(w, "parents of these environments were replaced by the global environment[^:]*: the environment\\.", all = FALSE)
   nested <- suppressWarnings(anon(list(e = make_env()), closures = "detach"))
   expect_identical(parent.env(nested$e), globalenv())
   expect_false(grepl("JanePlain", saved(nested)))
@@ -1490,4 +1490,106 @@ test_that("an invalid closures leaves no state behind", {
   expect_error(anon("a", closures = "bogus"), "should be one of")
   expect_null(copying$memo)
   expect_null(copying$closures)
+})
+
+test_that("a function's `...` is rebuilt redacted in copied frames", {
+  value <- paste0("DRUG", "QX")
+  factory <- local(function(...) {
+    force(list(...))
+    function() c(...)
+  }, globalenv())
+  frame_of <- local(function(...) {
+    force(list(...))
+    environment()
+  }, globalenv())
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  pl <- list("[DRUG]" = "DRUGQX")
+  f <- factory(value, note = value)
+  out <- suppressWarnings(anon(list(f = f), pattern_list = pl))
+  expect_identical(out$f(), c("[DRUG]", note = "[DRUG]"))
+  expect_false(grepl("DRUGQX", saved(out)))
+  expect_identical(f(), c(value, note = value))
+  for (mode in c("copy", "detach")) {
+    out <- suppressWarnings(anon(list(fr = frame_of(value)), pattern_list = pl, closures = mode))
+    expect_false(grepl("DRUGQX", saved(out)), info = mode)
+    expect_identical(evalq(list(...), out$fr), list("[DRUG]"), info = mode)
+  }
+  # A `...` whose value can't be computed isn't copied.
+  broken <- local(function(...) environment(), globalenv())(stop("fails"))
+  w <- character(0)
+  out <- withCallingHandlers(anon(list(b = broken)), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  expect_false(exists("...", envir = out$b, inherits = FALSE))
+  expect_match(w, "couldn't be read[^:]*: `b\\$\\.\\.\\.`", all = FALSE)
+  # NLP reads the values.
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types = NULL, return_list = FALSE) {
+    out <- stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+    if ("PERSON" %in% entity_types) out$PERSON <- intersect("JohnSmith", collect_text(x))
+    if (return_list) out else unlist(out)
+  })
+  e <- new.env(parent = globalenv())
+  e$fr <- frame_of("JohnSmith")
+  out <- suppressWarnings(anon(e, nlp_auto = nlp_auto(person = TRUE)))
+  expect_identical(evalq(list(...), out$fr), list("[PERSON]"))
+})
+
+test_that("an S4 object containing an environment is copied once, keeping its class and slots", {
+  where <- new.env()
+  methods::setClass("AnonTestBox", contains = "environment", slots = c(note = "character"), where = where)
+  make <- local(function(class_def) {
+    secret <- "SECRETKEY-1"
+    b <- methods::new(class_def, note = "DRUGQX note")
+    assign("v", "DRUGQX", envir = b@.xData)
+    b
+  }, globalenv())
+  b <- make(methods::getClass("AnonTestBox", where = where))
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  pl <- list("[DRUG]" = "DRUGQX")
+  for (mode in c("copy", "detach")) {
+    out <- suppressWarnings(anon(list(b = b), pattern_list = pl, closures = mode))
+    expect_true(isS4(out$b), info = mode)
+    expect_identical(out$b@note, "[DRUG] note", info = mode)
+    expect_identical(get("v", envir = out$b), "[DRUG]", info = mode)
+    expect_identical(out$b@.xData, as.environment(out$b), info = mode)
+    expect_identical(parent.env(out$b@.xData), globalenv(), info = mode)
+    expect_false(grepl("DRUGQX|SECRETKEY", saved(out)), info = mode)
+  }
+  top <- suppressWarnings(anon(b, pattern_list = pl))
+  expect_true(methods::is(top, "AnonTestBox"))
+  expect_identical(top@note, "[DRUG] note")
+  expect_identical(get("v", envir = b), "DRUGQX")
+})
+
+test_that("formulas' own text attributes are redacted, and terms keep what models need", {
+  pl <- list("[DRUG]" = "DRUGQX")
+  fo <- structure(stats::as.formula("y ~ x", env = globalenv()), note = "DRUGQX note")
+  out <- suppressWarnings(anon(list(fo = fo), pattern_list = pl))
+  expect_identical(attr(out$fo, "note"), "[DRUG] note")
+  expect_s3_class(out$fo, "formula")
+  tt <- structure(stats::terms(stats::as.formula("y ~ x", env = globalenv())), note = "DRUGQX")
+  out <- suppressWarnings(anon(list(tt = tt), pattern_list = pl))
+  expect_identical(attr(out$tt, "note"), "[DRUG]")
+  expect_identical(attr(out$tt, "term.labels"), "x")
+  expect_identical(attr(out$tt, "variables"), attr(tt, "variables"))
+  fit <- stats::lm(stats::as.formula("mpg ~ wt", env = globalenv()), data = mtcars)
+  out <- suppressWarnings(anon(list(fit = fit), pattern_list = pl))
+  expect_equal(stats::predict(out$fit, newdata = data.frame(wt = 3)), stats::predict(fit, newdata = data.frame(wt = 3)))
+})
+
+test_that("anon() names a raw field of a record", {
+  r <- vctrs::new_rcrd(list(a = as.raw(1:2), b = 1:2))
+  expect_warning(anon(list(r = r)), "can't redact.*`r\\$a`")
+})
+
+test_that("a secrets environment met as a parent becomes the global environment", {
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("REALKEY-01", "REALKEY-02"))), keep_secrets = TRUE, seed = 1)
+  child <- new.env(parent = step$secrets)
+  child$n <- 2
+  g <- local(function() n + 1, globalenv())
+  environment(g) <- child
+  out <- suppressWarnings(anon(list(g = g)))
+  expect_identical(parent.env(environment(out$g)), globalenv())
+  expect_identical(out$g(), 3)
 })

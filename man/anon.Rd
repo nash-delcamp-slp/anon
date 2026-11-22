@@ -161,7 +161,11 @@ sharing. Functions and calls lose their source references (\code{srcref},
 which can hold the text of the whole file they were sourced from,
 comments included), wherever \code{anon()} finds them: functions then print as
 deparsed code (S4 functions, such as generics and methods, stay S4). A
-function's own attributes are redacted like any object's. Reference class
+function's own attributes are redacted like any object's, and so are a
+formula's or a call's, except its environment and, for a terms object,
+the attributes models rely on (\code{variables}, \code{predvars}, \code{term.labels},
+\code{factors}, \code{dataClasses}, \code{order}, \code{intercept}, \code{response}, \code{specials},
+\code{offset}). Reference class
 objects (made with \code{\link[methods:refClass]{methods::setRefClass()}}) and their generators can't be
 copied without breaking them, and are dropped, with a warning. These
 rules apply to such an object given to \code{anon()} directly too.
@@ -217,9 +221,11 @@ each environment copied once per call so that environments that refer to
 each other, or that several objects share, map to one copy; such a copy
 keeps its class and other attributes (redacted), and its parent is the
 parent's copy (or the global environment, as above) when the parent isn't
-kept by reference; an S4 object that contains an environment keeps its S4
-bit, and its parent (a frame of the methods package) becomes the global
-environment. The global, base and
+kept by reference. An S4 object that contains an environment keeps its
+class and slots (redacted), with its environment replaced by a redacted
+copy whose parent is the global environment (the original's is a frame of
+the methods package); so does one given to \code{anon()} directly. A function's
+\code{...} in a copied frame is rebuilt from its values, redacted. The global, base and
 empty environments, packages and namespaces are kept by reference. A
 closure, formula, terms object or quosure whose environment R doesn't save
 by reference (such as a function's frame) is handled as \code{closures} says,
