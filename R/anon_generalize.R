@@ -265,7 +265,7 @@ print.anon_rule_values <- function(x, ...) {
 #'
 #' @export
 anon_generalize <- function(data, rules, key = "USUBJID", keep_secrets = FALSE) {
-  single <- is.data.frame(data)
+  single <- is.data.frame(if (inherits(data, "anon_deid_step")) data$data else data)
   input <- as_dataset_list(data)
   data <- input$data
   check_key_name(key)
