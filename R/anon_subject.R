@@ -63,8 +63,24 @@
 #' `key_cols` must not overlap.
 #'
 #' Original keys in text that describes the data are replaced with the
-#' subject's pseudonym, in every dataset (with or without `key`), when they
-#' appear as a whole value or a whole word: in the attributes of columns, data
+#' subject's pseudonym (a numeric key with its number), and original values of
+#' `also` columns with the pseudonym's number as their column gets it (with
+#' the same zero padding), in every dataset (with or without `key`), when they
+#' appear as a whole value or a whole word, not next to a letter or digit (so
+#' a number only as a whole number), compared without leading or trailing
+#' spaces, and next to `","` or `"."` too (`"AB-1001,AB-1002"`,
+#' `"AB-1001.1"`, `"77010001,5"`: such text is ambiguous and is rewritten).
+#' Values made only of digits could be part of a number, so two rules apply
+#' to them: after a digit and `"."` (the fraction of `"25.701054"` or
+#' `"10.10005"`) they are found only when the number before the `"."` is
+#' itself found as a key or `also` value (after a digit and `","`, as in
+#' `"9999,10000"`, they are found);
+#' and values of `also` columns before `"."` or `","` and a digit (`"10001.5"`)
+#' only when the number after it is found, or, in names, before `"."` and
+#' digits at the end (as `make.unique()` names elements). In names, keys and
+#' `also` values as `make.names()` writes them (as `data.frame()` names
+#' columns: `"X77010001"`, `"AB.1001"`) are rewritten too, to their
+#' replacement as `make.names()` writes it. They are replaced in the attributes of columns, data
 #' frames and the list of datasets (such as `label`, `comment` or a custom
 #' note), at any depth (text in list or factor attributes, the values of data
 #' frames held in attributes, names of attribute vectors, attributes of
@@ -104,8 +120,22 @@
 #' rewritten. A dataset with nothing to rewrite is returned as the same
 #' object, so `:=` on a data.table changes the input too; once a later step
 #' changes it, its `.internal.selfref` is stale (call `data.table::setDT()`).
-#' Keys made only of digits, and numeric keys, are not rewritten, for the same
-#' reason they are not searched for below. The log has one row per dataset
+#' Keys made only of digits, numeric keys and values of `also` columns are
+#' searched for and rewritten only when at least 5 characters long (digits
+#' count): shorter ones match too many unrelated numbers and codes. A value of
+#' an `also` column that belongs to more than one subject becomes the
+#' column's name in brackets, such as `"[SUBJID]"` (whose number to give it
+#' isn't known), and a warning counts those found. A
+#' value found in both a text and a numeric `also` column becomes the text
+#' column's form (the padded number). In
+#' names (column, row and dataset names, vector and list names and dimnames,
+#' at any depth), a key or `also` value followed by digits at the end of the
+#' name, as `unlist()` names the elements of a list named by key (`"AB-1001"`
+#' gives `"AB-10011"`, `"AB-10012"`), becomes its replacement followed by the
+#' same digits, unless the whole name is itself a key (the longest key wins).
+#' This can't tell such a suffix from a name that happens to continue a key
+#' with digits (for a numeric key, a longer number): such names are rewritten
+#' all the same. The log has one row per dataset
 #' with such rewrites (and one for the list of datasets), with counts by kind;
 #' this and earlier steps' logs and settings are renamed and rewritten to
 #' match. The same text is rewritten inside nested data (packed data frame
@@ -171,8 +201,10 @@
 #' column `sub` of the data frames in list column `column`, and deeper as
 #' `dataset.column[sub][[]][subsub]`), in any dataset, that still contains
 #' original key values as whole
-#' values or as whole words inside text (checked for character keys that are
-#' not made only of digits, since numbers match many unrelated codes), and
+#' values or as whole words inside text, or followed by digits at the end of a
+#' value (searched for as described above; values are not rewritten), and, in
+#' a second warning, original values of `also` columns (such as `SUBJID`) the
+#' same way; and
 #' any dataset without `key` that has a column named like `key`, `also` or
 #' `key_cols` in any case. In datasets with `key`, and in nested data frames
 #' with a subject, a column named like one of them in another case (such as
@@ -182,12 +214,13 @@
 #' names can hold them.
 #' Columns of S4 objects are not searched or changed, and are named in a
 #' warning as data that can't be checked.
-#' Original values of `also` columns (such as `SUBJID`) elsewhere are not
-#' checked, because short numbers match many unrelated values. Missing values in
+#' Missing values in
 #' `also` columns stay missing. In `key`, `also` and `key_cols` columns, haven
 #' user-defined missing values (`na_values`, `na_range`) become plain missing
 #' values and the codes are dropped, because a code can't be told apart from a
-#' real identifier.
+#' real identifier; a warning names the columns where a value that became
+#' missing this way is also a subject key elsewhere (both steps warn for the
+#' `key` column).
 #'
 #' Random numbers come from R's random number generator. If your script calls
 #' [set.seed()] before this step, anyone with the script and the data can
@@ -242,7 +275,7 @@ anon_subject_ids <- function(
   for (ds in names(tables)) {
     for (t in seq_along(tables[[ds]])) {
       if (tables[[ds]][[t]]$keyed) {
-        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, also, key_cols))
+        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, also, key_cols), ids = c(key, also, key_cols))
       }
     }
   }
@@ -263,6 +296,7 @@ anon_subject_ids <- function(
   )
   removed_also <- 0
   removed_key_cols <- 0
+  also_values <- list()
   details <- c(key = "replaced with pseudonyms", also = "replaced with the pseudonym number", key_cols = "replaced with pseudonyms")
 
   for (ds in names(tables)) {
@@ -291,6 +325,15 @@ anon_subject_ids <- function(
         unmapped <- is.na(idx) & present
         also_idx <- ifelse(present, idx, NA_integer_)
         removed_also <- removed_also + sum(unmapped)
+        # In text, a value becomes what its column gets: the padded number, or
+        # the number in a numeric column.
+        mapped <- !is.na(also_idx)
+        is_number <- is.numeric(df[[col]])
+        new_value <- if (is_number) as.character(numbers) else padded
+        also_values[[length(also_values) + 1]] <- list(
+          column = col, value = normalize_keys(df[[col]])[mapped], idx = also_idx[mapped],
+          new = new_value[also_idx[mapped]], numeric = is_number
+        )
         df[[col]] <- replace_ids(df[[col]], also_idx, padded, numbers, remove = unmapped, missing = table_missing(tb, df[[col]]))
         replaced <- c(replaced, match(col, cols))
         tally$add(table_column_path(tb, match(col, cols)), "also", list(changed = sum(!is.na(also_idx)), removed = sum(unmapped)))
@@ -332,13 +375,25 @@ anon_subject_ids <- function(
       data[[ds]] <- sort_by_new_key(data[[ds]], tabs[[1]]$idx, numbers)
     }
   }
-  # Keys made only of digits, and numeric keys, match too much to be searched
-  # for in text; other attributes are still dropped when asked.
-  searched <- !any_numeric_key(frames, key) && length(searchable_keys(keys)) > 0
-  rewrite <- if (searched) key_rewriter(keys, pseudonyms) else identity
+  # Keys, and the original values of `also` columns, are rewritten in text
+  # that describes the data: a key to its pseudonym (a numeric key to its
+  # number), a related ID to the pseudonym's number as its column got it.
+  # Values made only of digits, and related IDs, are searched for only when
+  # long enough (see searchable_keys()); other attributes are still dropped
+  # when asked.
+  numeric <- any_numeric_key(frames, key)
+  new_ids <- if (numeric) as.character(numbers) else pseudonyms
+  searchable <- searchable_keys(keys, numeric)
+  related <- related_id_map(also_values, searchable$text)
+  ids <- c(searchable$text, related$values)
+  replacements <- c(new_ids[searchable$idx], related$new)
+  searched <- length(ids) > 0
+  rewrite <- id_rewriter(ids, replacements, related$values)
+  rewrite_names <- id_rewriter(ids, replacements, related$values, names = TRUE)
   nested_key <- setdiff(datasets_with_key(tables), keyed)
   rewritten <- rewrite_described_text(
-    data, rewrite, log, "original keys replaced with pseudonyms", other = other_attributes
+    data, rewrite, log, "original keys replaced with pseudonyms",
+    other = other_attributes, rewrite_names = rewrite_names
   )
   data <- rewritten$data
   log <- rewritten$log
@@ -347,7 +402,8 @@ anon_subject_ids <- function(
   log <- deid_log_unkeyed(log, data, keyed, key, rewritten$rename(nested_key))
   # Warnings print locations, whose names can hold keys and dates (which this
   # step doesn't rewrite in data but must not print).
-  locate <- function(x) format_locations(x, function(text) date_rewriter(rewrite(text)))
+  rewrite_path <- path_rewriter(rewrite_names)
+  locate <- function(x) format_locations(x, function(text) date_rewriter(rewrite_path(text)))
 
   if (removed_also > 0) {
     warning(
@@ -363,9 +419,12 @@ anon_subject_ids <- function(
       call. = FALSE
     )
   }
-  if (!all(vapply(frames, function(df) is.numeric(df[[key]]), logical(1)))) {
-    warn_leftover_keys(data, key, keys, skip = c(also, key_cols), locate = locate)
-  }
+  warn_missing_code_keys(tables, keys, locate = locate)
+  warn_leftover_keys(
+    data, key, searchable$text,
+    skip = c(also, key_cols), locate = locate, related = related$values, related_cols = related$columns
+  )
+  warn_ambiguous_related(related, also, ids, replacements, rewritten$texts, rewritten$name_texts)
   warn_id_name_variants(data, c(key, also, key_cols), locate = locate)
   warn_unkeyed_identifiers(data, key, c(also, key_cols), check_dates = FALSE, locate = locate)
   warn_merged_codes(rewritten$merged, rewritten$deduplicated, locate = locate)
@@ -378,8 +437,7 @@ anon_subject_ids <- function(
   }
 
   secrets <- if (isTRUE(keep_secrets)) {
-    new_ids <- if (any_numeric_key(frames, key)) numbers else pseudonyms
-    list(subject_ids = tibble::tibble(key = keys, pseudonym = new_ids))
+    list(subject_ids = tibble::tibble(key = keys, pseudonym = if (numeric) numbers else pseudonyms))
   }
   settings <- list(subject_ids = list(
     key = key, also = also, key_cols = key_cols, prefix = prefix,
@@ -400,6 +458,12 @@ anon_subject_ids <- function(
 #' each participant.
 #'
 #' @inheritParams anon_subject_ids
+#' @param also Names of related identifier columns (default `"SUBJID"`), as in
+#'   [anon_subject_ids()]. This step doesn't replace them; their values are
+#'   masked in the locations its warnings and errors print, each as the
+#'   column's name in brackets (such as `"[SUBJID]"`). When `data` is the
+#'   result of [anon_subject_ids()], that step's `also` is used instead (and
+#'   its values are already replaced). Recorded in the settings.
 #' @param vars Names of date columns to shift. By default, every character or
 #'   factor column whose name ends in `DTC` (any case; ISO 8601 dates, as in
 #'   SDTM) and every Date, POSIXct or POSIXlt column, in each dataset whose
@@ -517,7 +581,9 @@ anon_subject_ids <- function(
 #' list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with [iconv()]) and run the
 #' step again. Every location printed in the steps' warnings and errors has
 #' keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-#' step shows original keys as `"[KEY]"`. It names the columns inside nested
+#' step shows original keys as `"[KEY]"` and the original values of the
+#' `also` columns in data with subjects as the column's name in brackets
+#' (`"[SUBJID]"`). It names the columns inside nested
 #' data by position (`dataset.column[2]`, `dataset.column[[]][2]`), in
 #' warnings and in the log, so that a column is named the same way whether or
 #' not [anon_subject_ids()], which rewrites keys in nested names, ran first.
@@ -548,7 +614,8 @@ anon_subject_dates <- function(
   partial = c("shift", "remove"),
   keep_secrets = FALSE,
   seed = NULL,
-  other_attributes = c("rewrite", "drop")
+  other_attributes = c("rewrite", "drop"),
+  also = "SUBJID"
 ) {
   partial <- match.arg(partial)
   other_attributes <- match.arg(other_attributes)
@@ -556,7 +623,14 @@ anon_subject_dates <- function(
 
   input <- as_dataset_list(data)
   data <- input$data
-  ids_done <- !is.null(input$previous) && any(startsWith(names(input$previous$settings), "subject_ids"))
+  ids_runs <- if (!is.null(input$previous)) startsWith(names(input$previous$settings), "subject_ids") else logical(0)
+  ids_done <- any(ids_runs)
+  # The related-ID columns: those of an earlier anon_subject_ids() run, which
+  # replaced them; otherwise `also`, used only to mask their values in the
+  # locations printed.
+  if (ids_done) {
+    also <- unique(unlist(lapply(input$previous$settings[ids_runs], `[[`, "also"), use.names = FALSE))
+  }
   # Columns inside nested data are named by position, so that a column is
   # named the same way whether or not the IDs step, which rewrites original
   # keys in nested names, ran first.
@@ -567,16 +641,31 @@ anon_subject_dates <- function(
   for (ds in names(tables)) {
     for (t in seq_along(tables[[ds]])) {
       if (tables[[ds]][[t]]$keyed) {
-        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, vars))
+        tables[[ds]][[t]] <- zap_table_user_missing(tables[[ds]][[t]], c(key, vars), ids = key)
       }
     }
   }
   frames <- key_frames(tables, key)
   keys <- subject_keys(frames, key)
   # Warnings and errors print locations, whose names can hold dates and,
-  # unless the IDs step already ran, original keys: these are shown as
-  # "[KEY]".
-  mask_keys <- if (ids_done) identity else key_rewriter(keys, rep("[KEY]", length(keys)))
+  # unless the IDs step already ran, original keys and related IDs: keys are
+  # shown as "[KEY]", and the values of each `also` column in keyed data as
+  # the column's name in brackets ("[SUBJID]").
+  mask_keys <- if (ids_done) {
+    identity
+  } else {
+    masked <- searchable_keys(keys, any_numeric_key(frames, key))$text
+    also_values <- lapply(also, function(col) {
+      values <- unlist(lapply(tables, function(tabs) {
+        lapply(Filter(function(tb) tb$keyed && col %in% names(tb$df), tabs), function(tb) normalize_keys(tb$df[[col]]))
+      }), use.names = FALSE)
+      list(value = values, column = col, idx = 0L, new = paste0("[", col, "]"), numeric = FALSE)
+    })
+    related <- related_id_map(also_values, masked)
+    ids <- c(masked, related$values)
+    replacements <- c(rep("[KEY]", length(masked)), related$new)
+    path_rewriter(id_rewriter(ids, replacements, related$values, names = TRUE))
+  }
   locate <- function(x) format_locations(x, function(text) date_rewriter(mask_keys(text)))
 
   # Date columns of every table in keyed data, the datasets' own by name.
@@ -718,6 +807,7 @@ anon_subject_dates <- function(
       call. = FALSE
     )
   }
+  warn_missing_code_keys(tables, keys, positional = TRUE, locate = locate)
   warn_unshifted_iso_dates(data, date_vars, key, vars, locate = locate)
   warn_unkeyed_identifiers(data, key, character(0), check_dates = TRUE, locate = locate)
   warn_kept_codes(rewritten$kept, "dates", locate = locate)
@@ -731,7 +821,7 @@ anon_subject_dates <- function(
     list(date_offsets = tibble::tibble(key = keys, offset_days = offsets))
   }
   settings <- list(subject_dates = list(
-    key = key, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
+    key = key, also = also, vars = vars, max_days = max_days, min_days = min_days, partial = partial,
     keep_secrets = isTRUE(keep_secrets), seeded = !is.null(seed), other_attributes = other_attributes
   ))
   settings <- rewritten$settings(settings)
@@ -984,16 +1074,51 @@ zap_user_missing <- function(x) {
 }
 
 # zap_user_missing() on the columns of a table named in `cols`, recording
-# them as changed.
-zap_table_user_missing <- function(tb, cols) {
+# them as changed. For the identifier columns among them (`ids`), the values
+# that were missing-value codes are recorded in `tb$zapped` (column position
+# and values as text), for warn_missing_code_keys().
+zap_table_user_missing <- function(tb, cols, ids = character(0)) {
   for (j in which(names(tb$df) %in% cols)) {
     x <- .subset2(tb$df, j)
     if (inherits(x, "haven_labelled_spss")) {
+      if (names(tb$df)[j] %in% ids) {
+        values <- vctrs::vec_data(x)
+        codes <- unique(normalize_keys(values[is.na(x) & !is.na(values)]))
+        if (length(codes) > 0) {
+          tb$zapped <- c(tb$zapped, list(list(j = j, codes = codes)))
+        }
+      }
       tb$df[[j]] <- zap_user_missing(x)
       tb$changed <- union(tb$changed, j)
     }
   }
   tb
+}
+
+# Warn about identifier columns whose values were missing-value codes that
+# are also subject keys (found in key columns elsewhere): those values became
+# missing (see zap_user_missing()), though they may name a subject. `tables`
+# are the datasets' tables after zap_table_user_missing(); `positional` names
+# nested columns by position, as the dates step does.
+warn_missing_code_keys <- function(tables, keys, positional = FALSE, locate = identity) {
+  hits <- character(0)
+  for (ds in names(tables)) {
+    for (tb in tables[[ds]]) {
+      for (z in tb$zapped) {
+        if (any(z$codes %in% keys)) {
+          hits <- c(hits, location(ds, table_column_path(tb, z$j, positional)))
+        }
+      }
+    }
+  }
+  if (length(hits) > 0) {
+    warning(
+      "These identifier columns had missing-value codes that are also subject keys elsewhere: ",
+      paste(unique(locate(hits)), collapse = ", "),
+      ". Those values became missing, as missing-value codes in identifier columns do; check that they really are missing.",
+      call. = FALSE
+    )
+  }
 }
 
 # Value labels (haven "labels") describe the original values, so they are
@@ -1301,19 +1426,83 @@ shift_detail <- function(shifted) {
   paste(c(paste0(shifted$shifted, " value(s) shifted"), removed), collapse = ", ")
 }
 
-# Warn about text columns, in any dataset, that still contain original keys as
-# whole values or as whole words inside text. Columns named like the key or the
-# `skip` columns, in any case, are not checked: they were just replaced, or
-# warn_id_name_variants() or warn_unkeyed_identifiers() names them. Keys made
-# only of digits are not searched for, as they match many unrelated numbers.
-# List columns and columns of nested data frames are searched too (see
-# dataset_tables()). `locate` rewrites the printed locations.
-warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = identity) {
-  keys <- searchable_keys(keys)
-  if (length(keys) == 0) {
+# The original values of `also` columns (`also_values`: a list of `column`,
+# `value` as text, subject index `idx`, replacement `new` and whether the
+# column is `numeric`, for the rows with a subject), for the text search and
+# rewrite. Values are searched without leading or trailing spaces. A value
+# equal to a searched key (`key_texts`) is left to the key. A value found in
+# both a text and a numeric column becomes the text column's form (the padded
+# number), whatever the order of the datasets. A value that belongs to more
+# than one subject can't be given one subject's number: it becomes the name
+# of its column in brackets ("[SUBJID]"). Returns the values to rewrite (`values`, valid UTF-8 and at
+# least `min_searched_id_chars` characters long) with their replacements
+# (`new`), the `ambiguous` ones among them, and the names of the columns they
+# came from (`columns`).
+related_id_map <- function(also_values, key_texts) {
+  pull <- function(field) unlist(lapply(also_values, function(a) rep_len(a[[field]], length(a$value))), use.names = FALSE)
+  value <- trimws(as_utf8(pull("value")))
+  column <- as.character(pull("column"))
+  idx <- as.integer(pull("idx"))
+  new <- as.character(pull("new"))
+  numeric <- as.logical(pull("numeric"))
+  columns <- unique(unlist(lapply(also_values, function(a) if (length(a$value) > 0) a$column)))
+  ok <- searchable_text(value) & nchar(value) >= min_searched_id_chars & !value %in% key_texts
+  order <- order(numeric[ok])
+  value <- value[ok][order]
+  idx <- idx[ok][order]
+  new <- new[ok][order]
+  column <- column[ok][order]
+  subjects <- tapply(idx, value, function(i) length(unique(i)))
+  ambiguous <- names(subjects)[subjects > 1]
+  first <- !duplicated(value)
+  shared <- value %in% ambiguous
+  new[shared] <- paste0("[", column[shared], "]")
+  list(values = value[first], new = new[first], ambiguous = ambiguous, columns = columns)
+}
+
+# Warn when original values of `also` columns that belong to more than one
+# subject (rewritten as "[SUBJID]" or the like, see related_id_map()) were
+# rewritten in text that describes the data (`texts` and `name_texts`, as
+# rewrite_described_text() saw them before the rewrite), found as the rewrite
+# finds them (id_finder(), with every id and its `replacements`). Only their
+# number is printed: they are identifiers.
+warn_ambiguous_related <- function(related, also, ids, replacements, texts, name_texts) {
+  if (length(related$ambiguous) == 0) {
     return(invisible())
   }
-  key_pattern <- key_text_regex(keys)
+  found_ids <- function(texts, names) {
+    if (length(texts) == 0) {
+      return(character(0))
+    }
+    ids[id_finder(ids, replacements, related$values, names)(texts)$idx]
+  }
+  n <- length(intersect(c(found_ids(texts, FALSE), found_ids(name_texts, TRUE)), related$ambiguous))
+  if (n == 0) {
+    return(invisible())
+  }
+  warning(
+    n, " original value(s) of ", paste0("`", also, "`", collapse = ", "),
+    " belong to more than one subject, so they were replaced with the column's name in brackets (such as \"[SUBJID]\") in attributes and names, ",
+    "not with a subject's number.",
+    call. = FALSE
+  )
+}
+
+# Warn about text columns, in any dataset, that still contain original keys
+# (`keys`, the texts chosen by searchable_keys()) as whole values or as whole
+# words inside text, or followed by digits at the end of a value (as unlist()
+# names the elements of a list named by key); and, in a second warning,
+# original values of `also` columns (`related`, from columns `related_cols`)
+# the same way. Columns named like the key or
+# the `skip` columns, in any case, are not checked: they were just replaced, or
+# warn_id_name_variants() or warn_unkeyed_identifiers() names them. List
+# columns and columns of nested data frames are searched too (see
+# dataset_tables()). `locate` rewrites the printed locations.
+warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = identity,
+                               related = character(0), related_cols = character(0)) {
+  if (length(keys) == 0 && length(related) == 0) {
+    return(invisible())
+  }
   # The texts of every location are searched in one call (nested data can
   # print one location for many tables).
   where <- character(0)
@@ -1330,14 +1519,23 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
     }
   }
   values <- lapply(texts, valid_utf8_text)
-  all_values <- unlist(values, use.names = FALSE)
-  distinct <- unique(all_values)
-  found <- distinct[stringi::stri_detect_regex(distinct, key_pattern) %in% TRUE]
-  hit <- vapply(values, function(v) any(v %in% found), logical(1))
-  hits <- unique(where[hit])
-  nested <- any(is_nested[hit])
-  if (length(hits) > 0) {
-    advice <- if (nested) {
+  distinct <- unique(unlist(values, use.names = FALSE))
+  # Matched as the rewrite matches names (see id_matcher()), and also
+  # followed by digits at the end of a value.
+  ids <- c(keys, related)
+  found <- if (length(distinct) > 0) {
+    id_matcher(ids, related, glued = TRUE)(distinct)
+  } else {
+    list(owner = integer(0), idx = integer(0))
+  }
+  is_key <- found$idx <= length(keys)
+  located <- function(found) {
+    hit <- vapply(values, function(v) any(v %in% found), logical(1))
+    list(hits = unique(where[hit]), nested = any(is_nested[hit]))
+  }
+  keys_found <- located(distinct[unique(found$owner[is_key])])
+  if (length(keys_found$hits) > 0) {
+    advice <- if (keys_found$nested) {
       paste0(
         ". Add text or factor columns to `key_cols` if they hold only keys; redact or remove the others, ",
         "including list columns and the columns of nested data frames (shown as `ds.col[sub]` in packed ",
@@ -1348,7 +1546,16 @@ warn_leftover_keys <- function(data, key, keys, skip = character(0), locate = id
     }
     warning(
       "These columns still contain original `", key, "` values, possibly inside text: ",
-      paste(locate(hits), collapse = ", "), advice,
+      paste(locate(keys_found$hits), collapse = ", "), advice,
+      call. = FALSE
+    )
+  }
+  related_found <- located(distinct[unique(found$owner[!is_key])])
+  if (length(related_found$hits) > 0) {
+    warning(
+      "These columns still contain original ", paste0("`", related_cols, "`", collapse = " or "),
+      " values (related identifiers), possibly inside text: ",
+      paste(locate(related_found$hits), collapse = ", "), ". Redact or remove them.",
       call. = FALSE
     )
   }
@@ -1364,21 +1571,44 @@ name_key <- function(x) {
   x
 }
 
-# Keys that are searched for in text: valid UTF-8 and not made only of digits,
-# since numbers match many unrelated codes.
-searchable_keys <- function(keys) {
-  keys <- valid_utf8_text(keys)
-  keys[!grepl("^[0-9]+$", keys)]
+# Identifiers made only of digits (numeric keys too, written as text), and
+# related identifiers (`also`, such as SUBJID) whatever they hold, are
+# searched for in text only from this many characters: shorter values match
+# too many unrelated numbers and codes.
+min_searched_id_chars <- 5L
+
+# Keys that are searched for in text, as a data frame of `text` (the key as
+# searched: valid UTF-8, without leading or trailing spaces) and `idx` (its
+# position in `keys`, the first when two keys read the same once trimmed):
+# keys holding a character other than a digit, or at least
+# `min_searched_id_chars` characters long. Numeric keys (written as text by
+# key_as_character()) need that many characters in any case.
+searchable_keys <- function(keys, numeric = FALSE) {
+  text <- trimws(as_utf8(keys))
+  ok <- searchable_text(text) & nzchar(text) &
+    (nchar(text) >= min_searched_id_chars | (!numeric & !grepl("^[0-9]+$", text)))
+  ok <- ok & !duplicated(ifelse(ok, text, NA_character_), incomparables = NA)
+  data.frame(text = text[ok], idx = which(ok), stringsAsFactors = FALSE)
 }
 
-# An ICU regular expression matching any of `keys` as a whole value or a whole
-# word inside text.
-key_text_regex <- function(keys) {
-  # Longest first, so that a key that starts another ("S-1" and "S-1-2") doesn't
-  # match inside it.
-  keys <- keys[order(-nchar(keys))]
-  paste0(whole_value_prefix, "(?:", paste(escape_regex_chars(keys), collapse = "|"), ")", whole_value_suffix)
+# An ICU regular expression matching any of `ids` (keys and related
+# identifiers) as a whole value or a whole word inside text: not next to a
+# letter or digit, so a number is found only as a whole number. Every id
+# searched for holds a character other than a digit or is at least
+# `min_searched_id_chars` long, so it is found next to "," or "." too (in
+# lists such as "AB-1,AB-2", in `make.unique()` names such as "AB-1.1", and
+# in "77010001,5", which may be a decimal: such text is ambiguous, and is
+# rewritten). `ending` is what must follow an id; `glued_ending` instead
+# finds ids followed by digits at the end of the text.
+key_text_regex <- function(ids, ending = id_suffix) {
+  # Longest first, so that an id that starts another ("S-1" and "S-1-2")
+  # doesn't match inside it.
+  ids <- ids[order(-nchar(ids))]
+  paste0(id_prefix, "(?:", paste(escape_regex_chars(ids), collapse = "|"), ")", ending)
 }
+id_prefix <- "(?<![[:alnum:]])"
+id_suffix <- "(?![[:alnum:]])"
+glued_ending <- "[0-9]+\\z"
 
 # Rewriting text that describes the data ----------------------------------
 
@@ -1441,28 +1671,173 @@ is_column_reference <- function(x, name) {
     (name %in% c("sorted", "index") && inherits(x, "data.table"))
 }
 
-# A function that replaces each of `keys` found as a whole value or a whole
-# word in text with that subject's pseudonym, in one pass. Keys made only of
-# digits are left alone, as in warn_leftover_keys().
-key_rewriter <- function(keys, pseudonyms) {
-  searchable <- searchable_keys(keys)
-  if (length(searchable) == 0) {
+# A function that finds `ids` (keys and related identifiers, as chosen by
+# searchable_keys() and related_id_map()) in text (valid UTF-8): as whole
+# values or whole words (see key_text_regex()), longest first, and with
+# `glued` also followed by digits at the end of the text ("<key>1", as
+# unlist() names elements). Ids made only of digits could be part of a
+# number, so these are found under two rules, and a match is kept only when
+# the largest set of matches that satisfies both keeps it:
+# - after "<digit>." (the fraction of a number, such as "25.701054", or
+#   "1.100011" in a name), only when the match that ends just before the "."
+#   is kept ("10001.10002"); after "<digit>," the text is ambiguous (a list
+#   such as "9999,10000", or a decimal comma) and the id is kept;
+# - for the related identifiers among them (`related`, such as SUBJID values),
+#   before ".<digit>" or ",<digit>" (the integer part of a decimal, such as
+#   "10001.5"), only when the match that starts just after the separator is
+#   kept or, with `names`, when "." and digits follow up to the end of the
+#   text (as make.unique() names elements). A key before ".<digit>" or
+#   ",<digit>" ("77010001,5", "AB-1001.1") is kept: such text is ambiguous,
+#   and is rewritten.
+# Returns, for each match, the text it is in (`owner`), its start and end
+# (`at`), the id (`idx`, its position in `ids`) and the digits that follow it
+# (`tail`).
+id_matcher <- function(ids, related = character(0), glued = FALSE, names = FALSE) {
+  # With `glued`, one pattern for both, so that a longer id followed by digits
+  # wins over a shorter id followed by a separator ("S-1-21" is "S-1-2" and
+  # "1", not "S-1" and "-21").
+  ending <- if (glued) paste0("(?:", id_suffix, "|", glued_ending, ")") else id_suffix
+  pattern <- key_text_regex(ids, ending)
+  none <- list(owner = integer(0), at = matrix(integer(0), 0, 2), idx = integer(0), tail = character(0))
+  function(text) {
+    located <- stringi::stri_locate_all_regex(text, pattern, omit_no_match = TRUE)
+    n <- vapply(located, nrow, integer(1))
+    if (sum(n) == 0) {
+      return(none)
+    }
+    at <- do.call(rbind, located[n > 0])
+    owner <- rep(which(n > 0), n[n > 0])
+    m <- stringi::stri_sub(text[owner], at[, 1], at[, 2])
+    idx <- match(m, ids)
+    tail <- rep("", length(m))
+    # An id followed by digits: the longest id the match is made of followed
+    # by digits, as the pattern chose it.
+    todo <- which(is.na(idx))
+    if (length(todo) > 0) {
+      digits <- nchar(stringi::stri_extract_first_regex(m[todo], "[0-9]+$"))
+      digits[is.na(digits)] <- 0L
+      for (k in seq_len(max(digits))) {
+        try <- todo[is.na(idx[todo]) & digits >= k]
+        j <- match(substr(m[try], 1, nchar(m[try]) - k), ids)
+        idx[try] <- j
+        tail[try[!is.na(j)]] <- substring(m[try[!is.na(j)]], nchar(m[try[!is.na(j)]]) - k + 1)
+      }
+    }
+    ok <- !is.na(idx)
+    g <- which(ok & grepl("^[0-9]+$", ids[idx]))
+    if (length(g) > 0) {
+      char <- function(i, pos) stringi::stri_sub(text[owner[i]], pos, pos)
+      digit <- function(x) grepl("^[0-9]$", x)
+      sep <- function(x) x %in% c(".", ",")
+      start <- at[g, 1]
+      end <- at[g, 2] - nchar(tail[g])
+      before <- start > 2 & char(g, start - 1) == "." & digit(char(g, start - 2))
+      after <- ids[idx[g]] %in% related & !nzchar(tail[g]) & sep(char(g, end + 1)) & digit(char(g, end + 2))
+      if (names) {
+        rest <- stringi::stri_sub(text[owner[g]], end + 1)
+        after <- after & !grepl("^[.][0-9]+$", rest)
+      }
+      # The neighbouring matches across the separator.
+      kept <- which(ok)
+      prev <- kept[match(paste(owner[g], start - 2), paste(owner[kept], at[kept, 2]))]
+      nxt <- kept[match(paste(owner[g], end + 2), paste(owner[kept], at[kept, 1]))]
+      repeat {
+        drop <- ok[g] & ((before & (is.na(prev) | !ok[prev])) | (after & (is.na(nxt) | !ok[nxt])))
+        if (!any(drop)) break
+        ok[g[drop]] <- FALSE
+      }
+    }
+    list(owner = owner[ok], at = at[ok, , drop = FALSE], idx = idx[ok], tail = tail[ok])
+  }
+}
+
+# The ids found in texts by the rewrite (see id_rewriter()): a function of
+# texts (valid UTF-8) giving id_matcher()'s matches, with `idx` the position
+# in `ids` (a make.names() form counts as its id) and `new` the
+# replacement. With `names`, the make.names() forms of ids are looked for only
+# in texts that could hold one (holding "X" or "."), as make.names() writes
+# them with an "X" in front or "." for other characters.
+id_finder <- function(ids, replacements, related = character(0), names = FALSE) {
+  find <- id_matcher(ids, related, glued = names, names = names)
+  find_forms <- NULL
+  origin <- seq_along(ids)
+  all_replacements <- replacements
+  if (names) {
+    variants <- make.names(ids)
+    extra <- variants != ids & !variants %in% ids & !duplicated(variants)
+    if (any(extra)) {
+      origin <- c(origin, which(extra))
+      all_replacements <- c(replacements, make.names(replacements)[extra])
+      find_forms <- id_matcher(c(ids, variants[extra]), related, glued = TRUE, names = TRUE)
+    }
+  }
+  function(text) {
+    if (is.null(find_forms)) {
+      found <- find(text)
+    } else {
+      forms <- grepl("X", text, fixed = TRUE) | grepl(".", text, fixed = TRUE)
+      plain <- find(text[!forms])
+      found <- find_forms(text[forms])
+      plain$owner <- which(!forms)[plain$owner]
+      found$owner <- which(forms)[found$owner]
+      found <- list(
+        owner = c(plain$owner, found$owner), at = rbind(plain$at, found$at),
+        idx = c(plain$idx, found$idx), tail = c(plain$tail, found$tail)
+      )
+    }
+    found$new <- paste0(all_replacements[found$idx], found$tail)
+    found$idx <- origin[found$idx]
+    found
+  }
+}
+
+# A function that replaces each of `ids` found by id_matcher() (with `names`,
+# also followed by digits at the end of the text, see id_matcher()) with its
+# replacement (`replacements`) followed by the same digits. A name made of an
+# id followed by digits is ambiguous (a key followed by a position, or
+# another number that starts with a key); it is rewritten, unless the whole
+# name is itself an id. With `names`, an id as make.names() writes it (as
+# data.frame() names columns: "X77010001", "AB.1001") becomes its
+# replacement as make.names() writes it ("X1", "SUBJ.1").
+id_rewriter <- function(ids, replacements, related = character(0), names = FALSE) {
+  if (length(ids) == 0) {
     return(identity)
   }
-  lookup <- stats::setNames(pseudonyms[match(searchable, as_utf8(keys))], searchable)
-  pattern <- key_text_regex(searchable)
+  find <- id_finder(ids, replacements, related, names)
   function(x) {
     text <- as_utf8(x)
     hit <- which(searchable_text(text))
-    hit <- hit[stringi::stri_detect_regex(text[hit], pattern)]
-    for (i in hit) {
-      at <- stringi::stri_locate_all_regex(text[i], pattern)[[1]]
-      for (j in rev(seq_len(nrow(at)))) {
-        stringi::stri_sub(text[i], at[j, 1], at[j, 2]) <- lookup[[stringi::stri_sub(text[i], at[j, 1], at[j, 2])]]
+    found <- find(text[hit])
+    if (length(found$idx) == 0) {
+      return(x)
+    }
+    by_text <- split(seq_along(found$owner), found$owner)
+    owners <- as.integer(names(by_text))
+    for (k in seq_along(by_text)) {
+      i <- hit[[owners[[k]]]]
+      for (r in rev(by_text[[k]])) {
+        stringi::stri_sub(text[i], found$at[r, 1], found$at[r, 2]) <- found$new[[r]]
       }
       x[i] <- text[i]
     }
     x
+  }
+}
+
+# A rewriter for the parts of printed locations ("col", "col[sub]",
+# "col[[]][sub]"): each name in them goes through `rewrite_names` on its own,
+# so that the end of a name is found (see id_rewriter()).
+path_rewriter <- function(rewrite_names) {
+  function(x) {
+    tokens <- stringi::stri_extract_all_regex(x, "[^\\[\\]]+|[\\[\\]]")
+    n <- lengths(tokens)
+    flat <- unlist(tokens, use.names = FALSE)
+    name <- !is.na(flat) & !flat %in% c("[", "]")
+    flat[name] <- rewrite_names(flat[name])
+    flat[is.na(flat)] <- ""
+    out <- vapply(split(flat, rep(seq_along(x), n)), paste, character(1), collapse = "", USE.NAMES = FALSE)
+    out[is.na(x)] <- NA_character_
+    out
   }
 }
 
@@ -1492,32 +1867,45 @@ date_rewriter <- function(x) {
 # datasets and columns in it and rewrites its details. Returns the data, the
 # log, functions that rename datasets and columns in another step's log and
 # rewrite settings, the number of texts that can't be searched (not valid
-# UTF-8) by location, and the columns whose value-label or missing-value codes
-# were kept (see rewrite_codes()).
-rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, other = "rewrite") {
+# UTF-8) by location, the columns whose value-label or missing-value codes
+# were kept (see rewrite_codes()), and the distinct texts searched (`texts`).
+# Names (column, row, dataset and attribute names, vector and list names and
+# dimnames, at any depth) go through `rewrite_names` instead.
+rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, other = "rewrite",
+                                   rewrite_names = rewrite) {
   # Every text is rewritten in one call, so that regular expressions are
   # compiled once and repeated text is rewritten once.
-  seen <- list()
-  rewrite_datasets(new_rewrite_context(function(x) {
-    seen[[length(seen) + 1]] <<- as.character(x)
-    x
-  }, dates, other), data)
-  texts <- unique(as_utf8(unlist(seen, use.names = FALSE)))
-  texts <- texts[searchable_text(texts)]
-  new_texts <- rewrite(texts)
-  changed <- new_texts != texts
-  texts <- texts[changed]
-  new_texts <- new_texts[changed]
-  lookup <- function(x) {
-    text <- as_utf8(x)
-    ok <- which(searchable_text(text))
-    i <- match(text[ok], texts)
-    hit <- ok[!is.na(i)]
-    x[hit] <- new_texts[i[!is.na(i)]]
-    x
+  seen <- list(text = list(), names = list())
+  collect <- function(kind) {
+    function(x) {
+      seen[[kind]][[length(seen[[kind]]) + 1]] <<- as.character(x)
+      x
+    }
   }
+  rewrite_datasets(new_rewrite_context(collect("text"), dates, other, collect("names")), data)
+  # A lookup from each distinct searchable text to its rewrite, for the texts
+  # that change.
+  rewrite_once <- function(seen, rewrite) {
+    texts <- unique(as_utf8(unlist(seen, use.names = FALSE)))
+    texts <- texts[searchable_text(texts)]
+    new_texts <- rewrite(texts)
+    changed <- new_texts != texts
+    list(all = texts, texts = texts[changed], new = new_texts[changed])
+  }
+  lookup_of <- function(done) {
+    function(x) {
+      text <- as_utf8(x)
+      ok <- which(searchable_text(text))
+      i <- match(text[ok], done$texts)
+      hit <- ok[!is.na(i)]
+      x[hit] <- done$new[i[!is.na(i)]]
+      x
+    }
+  }
+  text_done <- rewrite_once(seen$text, rewrite)
+  names_done <- rewrite_once(seen$names, rewrite_names)
 
-  ctx <- new_rewrite_context(lookup, dates, other)
+  ctx <- new_rewrite_context(lookup_of(text_done), dates, other, lookup_of(names_done))
   ctx$relabel <- rewrite
   out <- rewrite_datasets(ctx, data)
   rename <- function(ds) {
@@ -1539,25 +1927,39 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
   same <- vapply(split(renamed_new, renamed_old), function(v) length(unique(v)) == 1, logical(1))
   first <- !duplicated(renamed_old) & renamed_old %in% names(same)[same]
   setting_map <- stats::setNames(renamed_new[first], renamed_old[first])
+  # Settings, details and logged paths hold names: their parts go through the
+  # names rewriter, so that they read as the renamed data.
+  rewrite_path <- path_rewriter(rewrite_names)
   rename_settings_text <- function(x) {
     known <- !is.na(x) & x %in% names(setting_map)
     x[known] <- unname(setting_map[x[known]])
-    rewrite(x)
+    rewrite_path(x)
   }
+  # Details are the package's own text and counts, with names quoted ("") or
+  # in backticks: only those are rewritten.
   rename_detail <- function(x) {
     for (old in names(setting_map)) {
       x <- gsub(paste0("\"", old, "\""), paste0("\"", setting_map[[old]], "\""), x, fixed = TRUE, useBytes = TRUE)
     }
-    rewrite(x)
+    quoted <- "\"[^\"]*\"|`[^`]*`"
+    has <- which(!is.na(x) & stringi::stri_detect_regex(x, quoted))
+    for (i in has) {
+      at <- stringi::stri_locate_all_regex(x[i], quoted)[[1]]
+      for (j in rev(seq_len(nrow(at)))) {
+        inner <- stringi::stri_sub(x[i], at[j, 1] + 1, at[j, 2] - 1)
+        stringi::stri_sub(x[i], at[j, 1] + 1, at[j, 2] - 1) <- rewrite_path(inner)
+      }
+    }
+    x
   }
-  # Columns inside nested data are logged by path ("col[[]][sub]"), rewritten
-  # as text.
+  # Columns inside nested data are logged by path ("col[[]][sub]"), each name
+  # in it rewritten.
   rename_log <- function(log) {
     for (r in which(!is.na(log$dataset))) {
       log$dataset[r] <- rename(log$dataset[r])
       variable <- log$variable[r]
       log$variable[r] <- if (!is.na(variable) && !variable %in% names(out$columns[[log$dataset[r]]])) {
-        rewrite(variable)
+        rewrite_path(variable)
       } else {
         rename_columns(variable, log$dataset[r])
       }
@@ -1590,7 +1992,8 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
     data = out$data, log = log, rename = rename, rename_columns = rename_columns, rename_log = rename_log,
     settings = function(settings) rapply(settings, rename_settings_text, classes = "character", how = "replace"),
     invalid = ctx$invalid, kept = unique(ctx$kept), merged = unique(ctx$merged),
-    deduplicated = unique(ctx$deduplicated), s4 = unique(ctx$s4)
+    deduplicated = unique(ctx$deduplicated), s4 = unique(ctx$s4),
+    texts = text_done$all, name_texts = names_done$all
   )
 }
 
@@ -1609,10 +2012,11 @@ rewrite_previous_step <- function(previous, rewritten) {
 # "drop"`), and recording the texts that can't be searched by `where` (the
 # location being rewritten: "dataset.column", "dataset", or "(list)" for the
 # list of datasets) and where codes were kept or merged. `relabel` rewrites the
-# labels joined when codes are merged.
-new_rewrite_context <- function(rewrite, dates = FALSE, other = "rewrite") {
+# labels joined when codes are merged. Names go through `rewrite_names`.
+new_rewrite_context <- function(rewrite, dates = FALSE, other = "rewrite", rewrite_names = rewrite) {
   ctx <- new.env(parent = emptyenv())
   ctx$rewrite <- rewrite
+  ctx$rewrite_names <- rewrite_names
   ctx$dates <- dates
   ctx$other <- other
   ctx$counts <- c(attributes = 0, value_labels = 0, names = 0, dropped = 0)
@@ -1626,8 +2030,9 @@ new_rewrite_context <- function(rewrite, dates = FALSE, other = "rewrite") {
   ctx
 }
 
-# Rewrite text, counting the changes as `kind` (not counted when NULL).
-rewrite_text <- function(ctx, x, kind) {
+# Rewrite text, counting the changes as `kind` (not counted when NULL). Names
+# (kind "names", or `name` TRUE) go through `ctx$rewrite_names`.
+rewrite_text <- function(ctx, x, kind, name = identical(kind, "names")) {
   if (!is.character(x) || length(x) == 0) {
     return(x)
   }
@@ -1635,7 +2040,7 @@ rewrite_text <- function(ctx, x, kind) {
   if (length(bad) > 0) {
     ctx$invalid[[ctx$where]] <- unique(c(ctx$invalid[[ctx$where]], bad))
   }
-  new <- ctx$rewrite(x)
+  new <- if (name) ctx$rewrite_names(x) else ctx$rewrite(x)
   if (!is.null(kind)) {
     ctx$counts[[kind]] <- ctx$counts[[kind]] + sum(!is.na(x) & x != new)
   }
@@ -1649,7 +2054,7 @@ rewrite_text <- function(ctx, x, kind) {
 rewrite_datasets <- function(ctx, data) {
   old <- names(data)
   ctx$where <- "(list)"
-  new <- unique_rewritten(rewrite_text(ctx, old, NULL), old)
+  new <- unique_rewritten(rewrite_text(ctx, old, NULL, name = TRUE), old)
   counts <- list()
   columns <- list()
   for (i in seq_along(data)) {

@@ -13,7 +13,8 @@ anon_subject_dates(
   partial = c("shift", "remove"),
   keep_secrets = FALSE,
   seed = NULL,
-  other_attributes = c("rewrite", "drop")
+  other_attributes = c("rewrite", "drop"),
+  also = "SUBJID"
 )
 }
 \arguments{
@@ -86,6 +87,13 @@ rewritten); \code{groups} on grouped and rowwise tibbles; \code{sorted},
 formats, and a numeric \code{display_width}, on vectors. Elsewhere an
 attribute with one of these names is text (for example free-text \code{units}
 on a number). The log counts the attributes dropped in each dataset.}
+
+\item{also}{Names of related identifier columns (default \code{"SUBJID"}), as in
+\code{\link[=anon_subject_ids]{anon_subject_ids()}}. This step doesn't replace them; their values are
+masked in the locations its warnings and errors print, each as the
+column's name in brackets (such as \code{"[SUBJID]"}). When \code{data} is the
+result of \code{\link[=anon_subject_ids]{anon_subject_ids()}}, that step's \code{also} is used instead (and
+its values are already replaced). Recorded in the settings.}
 }
 \value{
 An object of class \code{"anon_deid_step"}, as for \code{\link[=anon_subject_ids]{anon_subject_ids()}}.
@@ -182,7 +190,9 @@ texts and name the columns, or datasets (\code{"(list)"} for attributes of the
 list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with \code{\link[=iconv]{iconv()}}) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (\code{"<e9>"}): this
-step shows original keys as \code{"[KEY]"}. It names the columns inside nested
+step shows original keys as \code{"[KEY]"} and the original values of the
+\code{also} columns in data with subjects as the column's name in brackets
+(\code{"[SUBJID]"}). It names the columns inside nested
 data by position (\code{dataset.column[2]}, \code{dataset.column[[]][2]}), in
 warnings and in the log, so that a column is named the same way whether or
 not \code{\link[=anon_subject_ids]{anon_subject_ids()}}, which rewrites keys in nested names, ran first.

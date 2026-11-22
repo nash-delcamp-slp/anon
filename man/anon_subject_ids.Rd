@@ -97,8 +97,24 @@ and are removed (set to missing), with a warning. \code{key}, \code{also} and
 \code{key_cols} must not overlap.
 
 Original keys in text that describes the data are replaced with the
-subject's pseudonym, in every dataset (with or without \code{key}), when they
-appear as a whole value or a whole word: in the attributes of columns, data
+subject's pseudonym (a numeric key with its number), and original values of
+\code{also} columns with the pseudonym's number as their column gets it (with
+the same zero padding), in every dataset (with or without \code{key}), when they
+appear as a whole value or a whole word, not next to a letter or digit (so
+a number only as a whole number), compared without leading or trailing
+spaces, and next to \code{","} or \code{"."} too (\code{"AB-1001,AB-1002"},
+\code{"AB-1001.1"}, \code{"77010001,5"}: such text is ambiguous and is rewritten).
+Values made only of digits could be part of a number, so two rules apply
+to them: after a digit and \code{"."} (the fraction of \code{"25.701054"} or
+\code{"10.10005"}) they are found only when the number before the \code{"."} is
+itself found as a key or \code{also} value (after a digit and \code{","}, as in
+\code{"9999,10000"}, they are found);
+and values of \code{also} columns before \code{"."} or \code{","} and a digit (\code{"10001.5"})
+only when the number after it is found, or, in names, before \code{"."} and
+digits at the end (as \code{make.unique()} names elements). In names, keys and
+\code{also} values as \code{make.names()} writes them (as \code{data.frame()} names
+columns: \code{"X77010001"}, \code{"AB.1001"}) are rewritten too, to their
+replacement as \code{make.names()} writes it. They are replaced in the attributes of columns, data
 frames and the list of datasets (such as \code{label}, \code{comment} or a custom
 note), at any depth (text in list or factor attributes, the values of data
 frames held in attributes, names of attribute vectors, attributes of
@@ -138,8 +154,22 @@ are handled like other names and stay marked as \code{"bytes"} unless
 rewritten. A dataset with nothing to rewrite is returned as the same
 object, so \verb{:=} on a data.table changes the input too; once a later step
 changes it, its \code{.internal.selfref} is stale (call \code{data.table::setDT()}).
-Keys made only of digits, and numeric keys, are not rewritten, for the same
-reason they are not searched for below. The log has one row per dataset
+Keys made only of digits, numeric keys and values of \code{also} columns are
+searched for and rewritten only when at least 5 characters long (digits
+count): shorter ones match too many unrelated numbers and codes. A value of
+an \code{also} column that belongs to more than one subject becomes the
+column's name in brackets, such as \code{"[SUBJID]"} (whose number to give it
+isn't known), and a warning counts those found. A
+value found in both a text and a numeric \code{also} column becomes the text
+column's form (the padded number). In
+names (column, row and dataset names, vector and list names and dimnames,
+at any depth), a key or \code{also} value followed by digits at the end of the
+name, as \code{unlist()} names the elements of a list named by key (\code{"AB-1001"}
+gives \code{"AB-10011"}, \code{"AB-10012"}), becomes its replacement followed by the
+same digits, unless the whole name is itself a key (the longest key wins).
+This can't tell such a suffix from a name that happens to continue a key
+with digits (for a numeric key, a longer number): such names are rewritten
+all the same. The log has one row per dataset
 with such rewrites (and one for the list of datasets), with counts by kind;
 this and earlier steps' logs and settings are renamed and rewritten to
 match. The same text is rewritten inside nested data (packed data frame
@@ -205,8 +235,10 @@ and factor levels, at any depth), or column of a nested data frame (named as
 column \code{sub} of the data frames in list column \code{column}, and deeper as
 \code{dataset.column[sub][[]][subsub]}), in any dataset, that still contains
 original key values as whole
-values or as whole words inside text (checked for character keys that are
-not made only of digits, since numbers match many unrelated codes), and
+values or as whole words inside text, or followed by digits at the end of a
+value (searched for as described above; values are not rewritten), and, in
+a second warning, original values of \code{also} columns (such as \code{SUBJID}) the
+same way; and
 any dataset without \code{key} that has a column named like \code{key}, \code{also} or
 \code{key_cols} in any case. In datasets with \code{key}, and in nested data frames
 with a subject, a column named like one of them in another case (such as
@@ -216,12 +248,13 @@ redacted or removed. Locations printed in warnings have keys rewritten, as
 names can hold them.
 Columns of S4 objects are not searched or changed, and are named in a
 warning as data that can't be checked.
-Original values of \code{also} columns (such as \code{SUBJID}) elsewhere are not
-checked, because short numbers match many unrelated values. Missing values in
+Missing values in
 \code{also} columns stay missing. In \code{key}, \code{also} and \code{key_cols} columns, haven
 user-defined missing values (\code{na_values}, \code{na_range}) become plain missing
 values and the codes are dropped, because a code can't be told apart from a
-real identifier.
+real identifier; a warning names the columns where a value that became
+missing this way is also a subject key elsewhere (both steps warn for the
+\code{key} column).
 
 Random numbers come from R's random number generator. If your script calls
 \code{\link[=set.seed]{set.seed()}} before this step, anyone with the script and the data can
