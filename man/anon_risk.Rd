@@ -94,8 +94,10 @@ own, as sdcMicro does for suppressed cells. Subjects with the same values
 are counted together, so the work grows with the number of distinct
 combinations that have a missing value times the number of distinct
 combinations (at most the number of subjects squared, times the number of
-quasi-identifiers); a few thousand subjects take well under a second.
-Without missing values it gives the same result as \code{"value"}.
+quasi-identifiers). With 3,000 subjects, 7 quasi-identifiers and a few
+hundred blanked cells, \code{anon_risk()}, which repeats the count once for each
+quasi-identifier left out (\code{drivers}), takes about a second. Without
+missing values it gives the same result as \code{"value"}.
 
 Risk is measured on one value per subject for each quasi-identifier. A copy
 shared with others usually contains every row of a dataset (for example
