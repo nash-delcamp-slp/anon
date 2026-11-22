@@ -381,8 +381,23 @@ for (pipeline_name in names(deid_pipelines)) {
   if (isTRUE(pipeline$keep_secrets)) {
     test_that(paste0(pipeline_name, ": redacted copies made with anon() carry no secrets"), {
       step <- deid_run(pipeline, pipeline$fixture())$step
-      expect_null(anon(step)$secrets)
-      expect_null(anon(list(a = list(step = step)))$a$step$secrets)
+      # The S4 object, the call and the function the fixture holds in
+      # attributes are named in one warning, which must name nothing else.
+      s4_only <- function(expr) {
+        expected <- c("`VSSTRESN` (attribute `DRUGQX_call`)", "`VSSTRESN@DRUGQX_env$f`")
+        withCallingHandlers(expr, warning = function(w) {
+          m <- conditionMessage(w)
+          listed <- sub("\\. Remove .*$", "", sub("^anon\\(\\) can't redact [^:]*: ", "", m))
+          locations <- strsplit(listed, ", ", fixed = TRUE)[[1]]
+          s4 <- grepl("^`[^`]*` \\(attribute `note`\\)$", locations)
+          if (!grepl("\n", m) && startsWith(m, "anon() can't redact") && sum(s4) == 1 &&
+            setequal(locations[!s4], expected)) {
+            invokeRestart("muffleWarning")
+          }
+        })
+      }
+      expect_null(s4_only(anon(step))$secrets)
+      expect_null(s4_only(anon(list(a = list(step = step))))$a$step$secrets)
     })
 
     test_that(paste0(pipeline_name, ": offsets and pseudonyms don't follow a pattern"), {
@@ -626,9 +641,10 @@ for (pipeline_name in names(deid_pipelines)) {
         return()
       }
       step <- deid_drop_flagged(run$step, pipeline$flagged)
-      results <- deid_run_exits(step)
+      exits <- deid_gap_exits()
+      results <- deid_run_exits(step, exits)
       errored <- names(results)[vapply(results, function(r) r$errored, logical(1))]
-      expected <- union(deid_expected_errors(step), gap$errors)
+      expected <- union(deid_expected_errors(step, exits), gap$errors)
       unexpected <- setdiff(errored, expected)
       expect(
         length(unexpected) == 0,

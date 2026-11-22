@@ -128,29 +128,28 @@ test_that("as_anon_json() errors on unsupported custom classes", {
   )
 })
 
-test_that("anon_report() forwards example options, nlp_auto and column rules to anon_data_summary()", {
+test_that("anon_report() forwards example options, nlp_auto and column rules to the data summary", {
   summary_call <- new.env(parent = emptyenv())
 
   local_mocked_bindings(
-    anon_data_summary = function(
-      envir,
-      selection = NULL,
-      pattern_list = list(),
-      default_replacement = "[REDACTED]",
-      example_values_n = 0,
-      example_rows = NULL,
-      check_approximate = FALSE,
-      max_distance = 2,
-      nlp_auto = NULL,
-      df_variable_names = NULL,
-      df_classes = NULL
+    summarize_objects = function(
+      objects,
+      pattern_list,
+      default_replacement,
+      example_values_n,
+      example_rows,
+      check_approximate,
+      max_distance,
+      nlp_auto,
+      df_variable_names,
+      df_classes
     ) {
       summary_call$df_variable_names <- df_variable_names
       summary_call$df_classes <- df_classes
       summary_call$example_values_n <- example_values_n
       summary_call$example_rows <- example_rows
       summary_call$nlp_auto <- nlp_auto
-      structure(
+      summary <- structure(
         list(summary = tibble::tibble(
           total_objects = 1,
           data_frames = 0,
@@ -159,6 +158,7 @@ test_that("anon_report() forwards example options, nlp_auto and column rules to 
         )),
         class = c("anon_data_summary", "anon_context", "list")
       )
+      list(summary = summary, object_names = names(objects))
     }
   )
 
@@ -287,4 +287,45 @@ test_that("anon_inventory() keeps its columns when there are no objects", {
     default_replacement = "[REDACTED]"
   ))
   expect_equal(nrow(state$inventory), 0)
+})
+
+test_that("anon_report() redacts object names and a step's dataset names, and selects by real names", {
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = "A-1"), DRUGQX_vs = data.frame(USUBJID = "A-1")), seed = 1)
+  objs <- list(STUDYQX_step = step, DRUGQX_dm = data.frame(x = "a"))
+  pl <- list("[DRUG]" = "DRUGQX", "[STUDY]" = "STUDYQX")
+  report <- anon_report(objs, selection = c("STUDYQX_step", "DRUGQX_dm"), pattern_list = pl)
+  expect_identical(report$object_names, c("[STUDY]_step$dm", "[STUDY]_step$[DRUG]_vs", "[DRUG]_dm"))
+  expect_identical(report$inventory$name, report$object_names)
+  expect_named(report$data_summary$data_frames$variables, report$object_names)
+  text <- c(
+    capture.output(print(report)), as_anon_json(report),
+    vapply(c("markdown", "text", "json"), function(f) as.character(anon_prompt_bundle(report, format = f)), character(1))
+  )
+  expect_false(any(grepl("DRUGQX|STUDYQX", text)))
+  expect_true(any(grepl("Variable Details ([DRUG]_dm)", text, fixed = TRUE)))
+})
+
+test_that("every part of a report shows the names the data summary shows", {
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types = NULL, return_list = FALSE) {
+    out <- stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+    if ("PERSON" %in% entity_types && any(grepl("JohnSmith", collect_text(x)))) out$PERSON <- "JohnSmith"
+    if (return_list) out else unlist(out)
+  })
+  objs <- list(JohnSmith_dm = data.frame(x = 1), Alice = data.frame(y = 1), ALICE = "b")
+  report <- anon_report(objs, pattern_list = list(PERSON = "Alice"), nlp_auto = nlp_auto(person = TRUE))
+  expect_identical(report$object_names, c("[PERSON]_dm", "PERSON", "PERSON 1"))
+  expect_identical(report$inventory$name, report$object_names)
+  json <- jsonlite::fromJSON(as_anon_json(report))
+  expect_named(json$data_summary$data_frames$variables, c("[PERSON]_dm", "PERSON"))
+  expect_false(any(grepl("JohnSmith|Alice", c(capture.output(print(report)), as_anon_json(report)), ignore.case = TRUE)))
+})
+
+test_that("JSON writes text marked bytes", {
+  x <- c("caf\xc3\xa9", "SECRET\x92s")
+  Encoding(x) <- "bytes"
+  report <- suppressWarnings(anon_report(list(d = data.frame(t = x)), example_values_n = 2))
+  json <- as_anon_json(report)
+  expect_match(json, "café", fixed = TRUE)
+  expect_match(json, "SECRET<92>s", fixed = TRUE)
+  expect_match(as.character(anon_prompt_bundle(report, format = "json")), "SECRET<92>s", fixed = TRUE)
 })

@@ -12,7 +12,8 @@ anon_options(
   nlp_auto,
   nlp_default_replacements,
   example_values_n,
-  example_rows
+  example_rows,
+  closures
 )
 }
 \arguments{
@@ -43,6 +44,9 @@ this value.}
 \item{example_rows}{Default \code{example_rows} spec used by \code{\link[=anon_data_summary]{anon_data_summary()}}
 and \code{\link[=anon_report]{anon_report()}}. Stored in \code{anon.example_rows}. Use
 \code{\link[=anon_example_rows]{anon_example_rows()}} to build this value.}
+
+\item{closures}{Default \code{closures} used by \code{\link[=anon]{anon()}} (\code{"copy"} or
+\code{"detach"}). Stored in \code{anon.closures}.}
 }
 \value{
 If called with no arguments, a named list of current supported
@@ -66,6 +70,7 @@ Supported options are:
 \item \code{anon.nlp_default_replacements}
 \item \code{anon.example_values_n}
 \item \code{anon.example_rows}
+\item \code{anon.closures}
 }
 
 Use \code{NULL} to clear an option. For structured option values, these helpers

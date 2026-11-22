@@ -25,6 +25,8 @@
 #' @param example_rows Default `example_rows` spec used by [anon_data_summary()]
 #'   and [anon_report()]. Stored in `anon.example_rows`. Use
 #'   [anon_example_rows()] to build this value.
+#' @param closures Default `closures` used by [anon()] (`"copy"` or
+#'   `"detach"`). Stored in `anon.closures`.
 #'
 #' @return If called with no arguments, a named list of current supported
 #'   `anon.*` options. Otherwise, the previous values for the updated options,
@@ -40,6 +42,7 @@
 #' - `anon.nlp_default_replacements`
 #' - `anon.example_values_n`
 #' - `anon.example_rows`
+#' - `anon.closures`
 #'
 #' Use `NULL` to clear an option. For structured option values, these helpers
 #' are available:
@@ -67,7 +70,8 @@ anon_options <- function(
   nlp_auto,
   nlp_default_replacements,
   example_values_n,
-  example_rows
+  example_rows,
+  closures
 ) {
   option_map <- list()
 
@@ -137,6 +141,17 @@ anon_options <- function(
     )
   }
 
+  if (!missing(closures)) {
+    if (!is.null(closures)) {
+      closures <- match.arg(closures, c("copy", "detach"))
+    }
+    option_map <- append_option_value(
+      option_map,
+      name = "anon.closures",
+      value = closures
+    )
+  }
+
   if (length(option_map) == 0L) {
     return(get_anon_options())
   }
@@ -153,7 +168,8 @@ anon_option_names <- function() {
     "anon.nlp_auto",
     "anon.nlp_default_replacements",
     "anon.example_values_n",
-    "anon.example_rows"
+    "anon.example_rows",
+    "anon.closures"
   )
 }
 

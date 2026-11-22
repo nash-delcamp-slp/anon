@@ -315,6 +315,24 @@ deid_fixture <- function() {
   # are replaced.
   stats::contrasts(vs$USUBJID) <- stats::contr.treatment(levels(vs$USUBJID))
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
+  # User-pattern terms in attributes that aren't text: SPSS variable labels
+  # held in a list (as haven and foreign write them), a factor with an
+  # attribute of its own, and the name of an attribute. anon() must redact
+  # them.
+  attr(vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
+  attr(vs$VSSTRESN, "assay") <- structure(factor("DRUGQX assay"), lab = "STUDYQX lab")
+  attr(vs$VSSTRESN, "DRUGQX_lot") <- "L1"
+  # A call held in an attribute named with a user-pattern term: anon() can't
+  # redact the call, and must name the attribute redacted in its warning.
+  attr(vs$VSSTRESN, "DRUGQX_call") <- quote(f(x))
+  # An environment held in an attribute named with a user-pattern term, which
+  # holds a function: anon() copies the environment and names the function
+  # by a path built from the redacted attribute name.
+  held <- new.env(parent = emptyenv())
+  # (Made with as.function(), so that it has no source reference holding
+  # this file's text, which the steps keep.)
+  held$f <- as.function(alist(1), envir = globalenv())
+  attr(vs$VSSTRESN, "DRUGQX_env") <- held
   # Text that isn't valid UTF-8 (a stray Windows-1252 apostrophe) holding a
   # user-pattern term, in values and a label: anon() must still redact it.
   vs$VSCOM <- rep(c("DRUGQX\x92s note", "none"), n)
@@ -900,6 +918,10 @@ deid_rewrite_attributes <- function(x, oracle, frame = FALSE, structural = deid_
 # A value held in an attribute: its text and its attributes, at any depth.
 # Date and date-time values become "[DATE]".
 deid_rewrite_value <- function(v, oracle) {
+  # Environments are left as they are, as the steps leave them.
+  if (is.environment(v)) {
+    return(v)
+  }
   if (inherits(v, c("Date", "POSIXt"))) {
     return(rep("[DATE]", length(v)))
   }
@@ -928,22 +950,7 @@ deid_rewrite_value <- function(v, oracle) {
 # (for example because they drop the attribute). When a fix makes a gap stop
 # leaking or stop breaking its exits, its test fails: move the planting into
 # deid_fixture() (with the expected handling) and remove the gap.
-deid_known_gaps <- list(
-  # anon() redacts character attributes but not other ones: list-valued, such
-  # as `variable.labels` (haven/foreign SPSS) or readr's `spec`, or
-  # factor-valued. Pipelines that drop other attributes remove them.
-  list_attribute_pattern = list(
-    sentinel = "DRUGQX",
-    pattern_exits_only = TRUE,
-    handled_by = "ids_then_dates_drop",
-    plant = function(d) {
-      attr(d$vs, "variable.labels") <- list(VSSTRESN = "DRUGQX result")
-      # A factor held in an attribute, which anon() doesn't redact either.
-      attr(d$vs$VSSTRESN, "assay") <- factor("DRUGQX assay")
-      d
-    }
-  )
-)
+deid_known_gaps <- list()
 
 # Strings that must not appear in anything that leaves the package: keys and
 # related IDs (also without separators, and the numeric keys of
@@ -1078,8 +1085,9 @@ deid_complete_pipeline <- function(pipeline) {
 # Each exit has `fn` (takes a step, returns text, or raw bytes for
 # serialized objects: what a user could print, save, paste into a prompt or
 # see in the app), `patterns` (TRUE if it applies `deid_patterns`, so
-# user-pattern terms must be gone too) and `errors` (TRUE, or a function of
-# the step, if it is expected to error; its error message is then checked).
+# user-pattern terms must be gone too), `errors` (TRUE, or a function of
+# the step, if it is expected to error; its error message is then checked)
+# and `gaps` (FALSE to leave it out of the known-gap tests).
 # Messages and warnings raised by an exit are checked as well.
 # `anon_secrets()` and serialize() of a step with secrets are left out on
 # purpose: they are documented to hold the secrets.
@@ -1090,6 +1098,122 @@ deid_dput <- function(x) {
 deid_env_with <- function(step) {
   e <- new.env()
   assign("step", step, envir = e)
+  e
+}
+
+# An environment holding `step`, its `dm` (under a name holding a
+# user-pattern term), a closure whose environment holds the step, one whose
+# environment is the environment itself, a function whose source reference
+# holds a key, an environment in a list holding a user-pattern term and the
+# environment itself, and, for a step with secrets, the secrets read with
+# anon_secrets() (also in an attribute of `dm`) and the step's secrets
+# environment, redacted with anon(): the copy must be a new environment
+# holding the step (still a step, without secrets), the data frame, the
+# functions and the list, under the expected names, without the secrets;
+# the closure must be on a redacted copy of its environment; saving the copy
+# must not save the original environments or the source; and the
+# environment given must not change.
+# With `closures = "detach"`, the closures must refer to the global
+# environment instead, and the environment's parent is an environment
+# holding the original keys, which saving the copy must not save (its parent
+# is then the global environment). With "copy", the parent is the global
+# environment: a parent that isn't is copied, redacted by patterns only.
+deid_anon_env <- function(step, closures = "copy") {
+  parent <- globalenv()
+  if (closures == "detach") {
+    parent <- new.env(parent = globalenv())
+    parent$original_keys <- deid_all_keys
+  }
+  e <- new.env(parent = parent)
+  assign("step", step, envir = e)
+  dm <- step$data$dm
+  if (!is.null(step$secrets)) {
+    attr(dm, "keys") <- anon_secrets(step)
+    assign("keys", anon_secrets(step), envir = e)
+    assign("vault", step$secrets, envir = e)
+  }
+  assign("DRUGQX_dm", dm, envir = e)
+  holder <- new.env(parent = globalenv())
+  holder$step <- step
+  reader <- function() nrow(step$data$dm)
+  environment(reader) <- holder
+  assign("reader", reader, envir = e)
+  own <- function() length(ls())
+  environment(own) <- e
+  assign("own", own, envir = e)
+  assign("sourced", eval(parse(text = paste0("function() 1 # ", deid_keys[1]), keep.source = TRUE), globalenv()), envir = e)
+  inner <- new.env(parent = globalenv())
+  inner$note <- "DRUGQX note"
+  inner$outer <- e
+  assign("box", list(inner = inner), envir = e)
+  # A function's `...` holding a user-pattern term, as data (the frame) and
+  # as a closure's frame: anon() must rebuild it redacted. (The function
+  # making them is made in the global environment, so that the frames'
+  # parent isn't this function's frame.)
+  with_dots <- local(function(...) {
+    force(list(...))
+    list(frame = environment(), fn = function() c(...))
+  }, globalenv())
+  made <- with_dots(deid_patterns[[1]])
+  assign("dots_frame", made$frame, envir = e)
+  assign("dots_fn", made$fn, envir = e)
+  # An empty `...`, and one holding a call that would save the frame making
+  # the copy if it were run.
+  assign("dots_empty", with_dots()$frame, envir = e)
+  assign("dots_call", with_dots(quote(environment()))$frame, envir = e)
+  # The objects, saved (`own` and `box` are left out: saving them saves `e`
+  # itself).
+  snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), c("own", "box")), envir = e), NULL)
+  before <- snapshot()
+  a <- anon(e, pattern_list = deid_patterns, closures = closures)
+  if (!is.environment(a) || identical(a, e)) stop("anon() didn't return a new environment")
+  if (!is.null(attributes(e)) || !identical(snapshot(), before) || !identical(environment(e$own), e) ||
+    !identical(inner$note, "DRUGQX note") || !identical(inner$outer, e)) {
+    stop("anon() changed the environment it was given")
+  }
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "dots_call", "dots_empty", "dots_fn", "dots_frame", "own", "reader", "sourced", "step")))) {
+    stop("anon() returned an environment holding other objects than expected")
+  }
+  if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
+  reader_env <- environment(a$reader)
+  if (closures == "detach") {
+    if (!identical(reader_env, globalenv()) || !identical(environment(a$own), globalenv())) {
+      stop("anon(closures = \"detach\") didn't give the closures the global environment")
+    }
+  } else if (!identical(environment(a$own), a) || identical(reader_env, holder) ||
+    !is.null(unclass(reader_env$step)$secrets)) {
+    stop("anon() didn't replace the closures' environments with redacted copies")
+  }
+  # Column rules reach a data frame held in a closure's `...`.
+  ruled <- anon(list(fn = with_dots(step$data$dm)$fn), df_variable_names = "USUBJID", closures = closures)
+  if (closures == "copy" && !all(ruled$fn()$USUBJID == "[REDACTED]")) {
+    stop("anon() didn't apply the column rules inside `...`")
+  }
+  if (!identical(eval(as.call(list(base::list, quote(...))), a$dots_call), list(quote(environment())))) {
+    stop("anon() ran a call held in `...`")
+  }
+  if (closures == "copy" && !identical(a$dots_fn(), names(deid_patterns)[1])) {
+    stop("anon() didn't rebuild a closure's `...` redacted")
+  }
+  if (identical(a$box$inner, inner) || !identical(a$box$inner$outer, a)) {
+    stop("anon() didn't copy the nested environment, mapping its reference to the copy")
+  }
+  copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
+  if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
+  # The text, then the saved copy as bytes (as the other serialized exits).
+  text <- c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies))
+  c(charToRaw(paste(text, collapse = "\n")), as.raw(0x0a), serialize(a, NULL))
+}
+
+# An environment whose object names and step dataset names hold user-pattern
+# terms: the step under such a name, one of its datasets renamed with such a
+# name (its datasets are then named like "STUDYQX_step$dm" and
+# "STUDYQX_step$DRUGQX_vs"), and a data frame.
+deid_env_named <- function(step) {
+  names(step$data)[names(step$data) == "vs"] <- "DRUGQX_vs"
+  e <- new.env()
+  assign("STUDYQX_step", step, envir = e)
+  assign("DRUGQX_dm", step$data$dm, envir = e)
   e
 }
 
@@ -1167,6 +1291,42 @@ deid_exits <- list(
     },
     patterns = TRUE
   ),
+  anon_env = list(fn = deid_anon_env, patterns = TRUE),
+  anon_env_detach = list(fn = function(step) deid_anon_env(step, closures = "detach"), patterns = TRUE, gaps = FALSE),
+  # Reports, prompt bundles and what the app shows, on objects and step
+  # datasets named with user-pattern terms. Reports and the app are given the
+  # real names to select, and must select every object. Not run for the known
+  # gaps, which it doesn't concern.
+  report_names = list(
+    fn = function(step) {
+      e <- deid_env_named(step)
+      n_objects <- length(step$data) + 1
+      out <- character(0)
+      for (rows in list(3, anon_example_rows(n = 3, key = "USUBJID"))) {
+        report <- anon_report(
+          e, selection = c("STUDYQX_step", "DRUGQX_dm"), pattern_list = deid_patterns,
+          example_values_n = 5, example_rows = rows
+        )
+        if (length(report$object_names) != n_objects) stop("anon_report() didn't select every object by its real name")
+        bundles <- vapply(c("markdown", "text", "json"), function(f) {
+          as.character(anon_prompt_bundle(report = report, format = f))
+        }, character(1))
+        out <- c(out, capture.output(print(report)), as_anon_json(report), bundles, deid_dput(unclass(report)))
+      }
+      state <- anon_app_initial_state(e, pattern_list = deid_patterns, initial_selection = c("STUDYQX_step", "DRUGQX_dm"))
+      if (length(state$selected) != n_objects ||
+        !setequal(app_selected_names(state, state$selected), c(paste0("STUDYQX_step$", names(e$STUDYQX_step$data)), "DRUGQX_dm"))) {
+        stop("The app didn't select every object by its real name")
+      }
+      c(
+        out,
+        capture.output(print(anon_inventory(e, pattern_list = deid_patterns))),
+        deid_dput(state[c("inventory", "choices", "selected")])
+      )
+    },
+    patterns = TRUE,
+    gaps = FALSE
+  ),
   risk = list(
     fn = function(step) {
       risk <- anon_risk(step, quasi = list(dm = "AGE"))
@@ -1176,12 +1336,15 @@ deid_exits <- list(
 )
 
 # Names of the exits expected to error on a step.
-deid_expected_errors <- function(step) {
-  expected <- vapply(deid_exits, function(e) {
+deid_expected_errors <- function(step, exits = deid_exits) {
+  expected <- vapply(exits, function(e) {
     isTRUE(if (is.function(e$errors)) e$errors(step) else e$errors)
   }, logical(1))
-  names(deid_exits)[expected]
+  names(exits)[expected]
 }
+
+# The exits run for the known gaps: all but those marked `gaps = FALSE`.
+deid_gap_exits <- function() Filter(function(e) !isFALSE(e$gaps), deid_exits)
 
 # Run a pipeline, collecting its warnings and messages instead of printing
 # them.
@@ -1221,8 +1384,8 @@ deid_drop_flagged <- function(step, flagged = deid_flagged) {
 # Run every exit on a step: a list with each exit's text (including messages,
 # warnings and any error), its raw bytes if it returned raw, whether it
 # errored, and whether it applies `deid_patterns`.
-deid_run_exits <- function(step) {
-  lapply(deid_exits, function(exit) {
+deid_run_exits <- function(step, exits = deid_exits) {
+  lapply(exits, function(exit) {
     conditions <- character(0)
     errored <- FALSE
     out <- withCallingHandlers(

@@ -15,6 +15,7 @@ anon(
   check_names = TRUE,
   check_labels = TRUE,
   nlp_auto = getOption("anon.nlp_auto"),
+  closures = getOption("anon.closures", default = "copy"),
   .self = FALSE,
   .pattern_replacements = NULL,
   .compiled = NULL,
@@ -22,7 +23,8 @@ anon(
 )
 }
 \arguments{
-\item{x}{The object to anonymize. Can be a character vector, factor, data frame, or list.}
+\item{x}{The object to anonymize. Can be a character vector, factor, data
+frame, list, de-identification step or environment.}
 
 \item{pattern_list}{A list of patterns to search for and replace. Can include:
 \itemize{
@@ -68,8 +70,11 @@ vectors and columns; a data.table's key and indices follow its column
 names). Default is \code{TRUE}.}
 
 \item{check_labels}{Logical indicating whether to anonymize labels
-(attributes) of columns and data frames: variable and data frame labels,
-comments and other character attributes that aren't structural, haven
+(attributes) of columns, lists and data frames: variable and data frame
+labels, comments and other attributes that aren't structural (text at
+any depth in them, such as lists like SPSS \code{variable.labels} or readr's
+\code{spec}, factors, data frames, their names and their own attributes, and
+the names of these attributes), haven
 value labels (the label names, and the label values when they are text)
 and text user-defined missing values (\code{na_values}, and the ends of a
 text \code{na_range}), on vectors and columns wherever \code{anon()} reaches them
@@ -79,7 +84,7 @@ for the object's class (see the \code{other_attributes} argument of
 contrasts matrix, which follow its levels. Value labels whose codes the
 redaction made equal are merged into one entry, their original labels
 joined with \code{" / "} and then redacted, with a warning naming the column as
-it is named in the output (or a list element, as \code{col[2]}); equal
+it is named in the output (or a list element, as \code{col[2]} or \code{col$name}); equal
 missing-value codes are deduplicated without a warning, as which values
 are missing doesn't change. A text \code{na_range} whose redacted ends would be
 in descending order is kept, with a warning. Whatever \code{check_labels}
@@ -89,6 +94,14 @@ user-defined missing values. Default is \code{TRUE}.}
 \item{nlp_auto}{List of logical values with names corresponding to entity names. Can be
 generated with \code{\link[=nlp_auto]{nlp_auto()}} and can be set as the \code{anon.nlp_auto} global option.
 This argument overrides the global option.}
+
+\item{closures}{What a closure, formula, terms object or quosure whose
+environment R doesn't save by reference (such as a function's frame)
+refers to in the result: \code{"copy"} (the default) gives it that
+environment's redacted copy, so it keeps working; \code{"detach"} gives it
+the global environment, so no data of that environment is kept, and it
+no longer finds what it needs there. See "Environments" below. Can be
+set as the \code{anon.closures} global option.}
 
 \item{.self}{Logical for internal use only. Used in recursive calls. Default is \code{FALSE}.
 When \code{TRUE}, warnings are collected as attributes instead of being issued immediately
@@ -109,7 +122,9 @@ list column's element, \code{"col[2]"}), for warnings. Default is \code{NULL}.}
 An object of class \code{anon_context} with the same structure as \code{x} but with sensitive
 information replaced. For a de-identification step (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}), the step
 itself is returned with its data redacted, the patterns also applied to its log and
-settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}. If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
+settings, and its secrets dropped (read them from the original step); combine \code{step$data} rather than the step with \code{c()}.
+For an environment, a new environment holding redacted copies of its
+objects (see "Environments" below). If approximate matches are found and \code{.self} is \code{FALSE}, warnings are issued.
 If \code{.self} is \code{TRUE}, warnings are attached as an attribute.
 }
 \description{
@@ -127,6 +142,41 @@ anonymization based on variable names or classes and warnings about approximate 
 \item List columns are redacted element by element, nested data frames included, and keep
 their class (\code{AsIs}, vctrs \code{list_of}, whose prototype is redacted like the elements)
 }
+
+Lists, list columns and the classed lists they hold (such as fitted
+models) keep their attributes and class, with their elements and
+attributes redacted. Records (vctrs \code{rcrd}) and \code{POSIXlt} date-times have
+their text fields and attributes redacted. Environments held inside other
+objects are replaced by redacted copies (see "Environments" below).
+Objects \code{anon()} can't search for text (functions, calls and formulas,
+such as a model's \code{call} or a model frame's \code{terms} attribute, whose code
+and the constants in it are kept, objects embedded in that code or in a
+function's formals, environments included, whatever \code{closures} says, S4
+and S7 objects (such as ggplot2 4 plots), raw vectors (which may hold
+serialized data), and the global, base and package environments and
+namespaces, which are kept by reference) are left as they are, and one warning lists where they
+are (by element name where there is one, as \code{fit$call}; the first ten, and
+how many more): remove them, or rebuild them from redacted data, before
+sharing. Functions and calls lose their source references (\code{srcref},
+which can hold the text of the whole file they were sourced from,
+comments included), wherever \code{anon()} finds them: functions then print as
+deparsed code (S4 functions, such as generics and methods, stay S4). A
+function's own attributes are redacted like any object's, and so are a
+formula's or a call's, except its environment and, for a terms object,
+the attributes models rely on (\code{variables}, \code{predvars}, \code{term.labels},
+\code{factors}, \code{dataClasses}, \code{order}, \code{intercept}, \code{response}, \code{specials},
+\code{offset}). Reference class
+objects (made with \code{\link[methods:refClass]{methods::setRefClass()}}) and their generators can't be
+copied without breaking them, and are dropped, with a warning. These
+rules apply to such an object given to \code{anon()} directly too.
+
+Secrets read from a de-identification step with \code{\link[=anon_secrets]{anon_secrets()}}, and a
+step's secrets environment, are dropped wherever \code{anon()} finds them
+(attributes included, where a step's secrets are dropped too, and as the
+environment of a closure or formula, or as an environment's parent), with
+a warning (a step's own secrets are dropped as described under Value).
+External pointers and weak references are kept without a warning: they
+hold no text, and are saved as null.
 
 Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
@@ -146,6 +196,73 @@ Replacement functions can be provided in \code{df_variable_names} and \code{df_c
 The returned object has class \code{anon_context} which allows it to be combined with other
 objects returned by \code{anon()} using \code{c()}.
 }
+\section{Environments}{
+
+For an environment, \code{anon()} returns a new environment holding a redacted
+copy of each of its objects (hidden ones included), named as \code{check_names}
+says (with NLP entities found in the names too); the environment given and
+its objects are not changed. Its class and other attributes are not kept:
+the copy is a plain environment (of class \code{anon_context}).
+
+The copy's parent is the environment's parent when R saves that parent by
+reference (the global, base or empty environment, a package or a
+namespace). Any other parent, such as a function's frame, would be saved
+with the copy, and the objects it holds with it, so, with \code{closures = "copy"}, the copy's parent is that parent's redacted copy, made the same
+way (and so on up the chain): the result can then hold redacted copies of
+objects that weren't in the environment given, such as those of the
+function whose frame is the parent (\code{new.env()} called inside a function
+has that call's frame as its parent). With \code{closures = "detach"}, the
+copy's parent is then the global environment, with a warning.
+
+A de-identification step in it is redacted as above, its secrets dropped.
+Environments held in it, or anywhere \code{anon()} reaches (lists, list
+columns, attributes), are replaced by redacted copies made the same way,
+each environment copied once per call so that environments that refer to
+each other, or that several objects share, map to one copy; such a copy
+keeps its class and other attributes (redacted), and its parent is the
+parent's copy (or the global environment, as above) when the parent isn't
+kept by reference. An S4 object that contains an environment keeps its
+class and slots (redacted), with its environment replaced by a redacted
+copy whose parent is the global environment (the original's is a frame of
+the methods package); so does one given to \code{anon()} directly. A function's
+\code{...} in a copied frame is rebuilt from its values, redacted. The global, base and
+empty environments, packages and namespaces are kept by reference. A
+closure, formula, terms object or quosure whose environment R doesn't save
+by reference (such as a function's frame) is handled as \code{closures} says,
+wherever \code{anon()} finds it (in environments, lists, list columns and
+attributes, such as a model's \code{terms}), with a warning naming them:
+\itemize{
+\item \code{"copy"} (the default) gives it that environment's redacted copy
+(with that environment's parents, as above): it keeps working, on the
+redacted objects, and saving the copy doesn't save the original's data.
+But the copy then holds the environment the closure was created in
+(such as the frame of the function call that made it) and, in turn, the
+environments that one was created in, up to the first one R saves by
+reference (the global environment, a package or a namespace). Their
+objects are redacted by your patterns only: values that match no
+pattern are kept.
+\item \code{"detach"} gives it the global environment: none of that
+environment's objects is kept, at the cost of closures, formulas and
+models that need them (they may fail, or find other objects of the same
+name in the global environment). It is the strict choice: the parents
+of the environments \code{anon()} copies become the global environment too.
+}
+The environment given to \code{anon()}, and environments held in it as data,
+are copied whatever \code{closures} says. Objects that rely on reference
+semantics (such as R6 objects, their generators and inheritance, and
+closures from function factories such as memoised functions) work on
+their copy, which is no longer linked to the original; their active
+bindings are not copied, and nothing in the copy is locked. Objects nested
+several hundred levels deep (such as a long chain of environments) are an
+error. Reading the objects forces promises.
+Active bindings (reading one would run its function) and objects that
+can't be read (a missing argument, or a promise whose code fails) are not
+copied, with a warning. The copy is not locked, whether or not the
+environment given is. A name that redacts to nothing is replaced by
+\code{"[unnamed 1]"} and so on. Names that redact alike are made unique
+(\code{"[DRUG]"}, \code{"[DRUG] 1"}), as in reports.
+}
+
 \section{Global Options}{
 
 The following global options affect function behavior:
@@ -156,6 +273,7 @@ The following global options affect function behavior:
 \item{\code{anon.df_variable_names}}{Global variable name specifications to combine with (after)
 \code{df_variable_names} parameter.}
 \item{\code{anon.df_classes}}{Global class specifications to combine with (after) \code{df_classes} parameter.}
+\item{\code{anon.closures}}{Default \code{closures} (\code{"copy"} or \code{"detach"}).}
 \item{\code{anon.nlp_auto}}{List of logical values indicating which NLP entity types should be
 automatically redacted. Use \code{\link[=nlp_auto]{nlp_auto()}} to generate this list. Override the option by setting the \code{nlp_auto} argument.}
 \item{\code{anon.nlp_default_replacements}}{Default NLP replacement labels. Use

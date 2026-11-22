@@ -26,3 +26,10 @@ The \code{anon} Shiny app provides a local, session-oriented workflow for review
 environment, selecting objects, cleaning text, and generating redacted
 structural reports suitable for prompt building.
 }
+\details{
+The app lists objects by their names with your patterns applied (as
+\code{\link[=anon_inventory]{anon_inventory()}} shows them) and never sends the real names to the
+browser; error messages about objects go through the same patterns. NLP
+entities are applied when a report is built, so the report can redact a
+name that the object list still shows.
+}

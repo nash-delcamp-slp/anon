@@ -1,5 +1,17 @@
 # Helper function to collect all text from an object
 collect_text <- function(x) {
+  # Functions, environments and other objects anon() can't redact hold no
+  # text it can search, and are not entered.
+  if (is_unredactable(x)) {
+    return(character(0))
+  }
+  # A record's text is that of its text fields.
+  if (inherits(x, "vctrs_rcrd")) {
+    fields <- unclass(x)
+    attributes(fields) <- NULL
+    return(collect_text(Filter(function(f) is.character(f) || is.factor(f) || is.list(f), fields)))
+  }
+
   # Handle missing values and empty input
   if (length(x) == 0 || all(is.na(x))) {
     return(character(0))
@@ -31,7 +43,7 @@ collect_text <- function(x) {
   } else if (is_container_list(x)) {
     # Recursively extract text from list elements
     text <- unique(unlist(
-      lapply(x, collect_text),
+      lapply(seq_along(x), function(i) if (!identical(x[[i]], quote(expr = ))) collect_text(x[[i]])),
       use.names = FALSE
     ))
   } else {
