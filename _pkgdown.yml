@@ -47,11 +47,15 @@ reference:
       Measure re-identification risk from quasi-identifiers across linked
       datasets, pseudonymize subjects and offset their dates consistently
       across datasets, and generalize or suppress quasi-identifiers to bring
-      the risk under a target.
+      the risk under a target, step by step or in one call with an SDTM or
+      ADaM profile.
     contents:
+      - anon_deidentify
+      - anon_profile
       - anon_risk
       - anon_risk_subjects
       - anon_quasi_values
+      - anon_quasi_duration
       - anon_subject_ids
       - anon_subject_dates
       - anon_generalize

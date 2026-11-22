@@ -150,6 +150,14 @@ anon_suppress <- function(
   k_target <- risk_k_target(max_risk)
   check_key_name(key)
   inputs <- risk_inputs(data, quasi, key)
+  duration <- is.na(inputs$sources$column) & is.na(inputs$sources$test_col)
+  if (any(duration)) {
+    stop(
+      "`", inputs$sources$variable[duration][1], "` is an `anon_quasi_duration()`, which can be measured ",
+      "but not suppressed: dates aren't blanked.",
+      call. = FALSE
+    )
+  }
   single <- is.data.frame(if (inherits(data, "anon_deid_step")) data$data else data)
   input <- as_dataset_list(data)
   data <- input$data
@@ -161,35 +169,16 @@ anon_suppress <- function(
   keys <- inputs$table[[key]]
   n <- length(keys)
 
-  # The released patterns: each value as a code (a missing value is a
-  # value), cells blanked by an earlier step 0, a value of their own.
-  codes <- released_codes(inputs$table[qnames], inputs$blanked)
-  # A real missing value can't be blanked: nothing would change in the data.
-  real_na <- vapply(inputs$table[qnames], vctrs::vec_detect_missing, logical(n))
-  real_na <- matrix(real_na, n) & codes != 0L
-  codes[real_na] <- -abs(codes[real_na])
+  codes <- suppress_codes(inputs$table[qnames], inputs$blanked)
   blanked <- matrix(FALSE, n, length(qnames))
   before <- risk_summary(pattern_group_sizes(codes), max_risk, k_target, length(qnames))
   dropped <- character(0)
   not_met <- character(0)
 
   if (method == "cells") {
-    while (n >= k_target) {
-      k <- pattern_group_sizes(codes)
-      small <- which(k < k_target)
-      open <- which(colSums(codes[small, , drop = FALSE] > 0L) > 0)
-      if (length(small) == 0 || length(open) == 0) break
-      choice <- suppress_step(codes, small, open, k_target, rank)
-      cells <- cbind(choice$rows, choice$q)
-      codes[cells] <- 0L
-      blanked[cells] <- TRUE
-    }
-    if (n >= k_target) {
-      filled <- fill_from_donors(codes, k_target, rank)
-      codes[filled] <- 0L
-      blanked[filled] <- TRUE
-    }
-    still <- which(pattern_group_sizes(codes) < k_target)
+    cells <- suppress_cells(codes, k_target, rank)
+    blanked <- cells$blanked
+    still <- cells$still
     if (length(still) > 0) {
       if (unresolved == "drop") {
         dropped <- keys[still]
@@ -369,6 +358,45 @@ anon_suppress <- function(
 }
 
 # helpers -----------------------------------------------------------------
+
+# The released patterns of a quasi-identifier table: each value as a code (a
+# missing value is a value), cells blanked by an earlier step (`blanked`) 0,
+# a value of their own. A real missing value can't be blanked (nothing would
+# change in the data), so its code is negative.
+suppress_codes <- function(table, blanked) {
+  n <- nrow(table)
+  codes <- released_codes(table, blanked)
+  real_na <- vapply(table, vctrs::vec_detect_missing, logical(n))
+  real_na <- matrix(real_na, n) & codes != 0L
+  codes[real_na] <- -abs(codes[real_na])
+  codes
+}
+
+# Local suppression on released patterns (see suppress_codes()): blank cells
+# step by step (suppress_step()), then fill the groups still too small from
+# donors (fill_from_donors()). Returns the codes after blanking, which cells
+# were blanked (a logical matrix) and the rows still in groups smaller than
+# the target (`still`).
+suppress_cells <- function(codes, k_target, rank) {
+  n <- nrow(codes)
+  blanked <- matrix(FALSE, n, ncol(codes))
+  while (n >= k_target) {
+    k <- pattern_group_sizes(codes)
+    small <- which(k < k_target)
+    open <- which(colSums(codes[small, , drop = FALSE] > 0L) > 0)
+    if (length(small) == 0 || length(open) == 0) break
+    choice <- suppress_step(codes, small, open, k_target, rank)
+    cells <- cbind(choice$rows, choice$q)
+    codes[cells] <- 0L
+    blanked[cells] <- TRUE
+  }
+  if (n >= k_target) {
+    filled <- fill_from_donors(codes, k_target, rank)
+    codes[filled] <- 0L
+    blanked[filled] <- TRUE
+  }
+  list(codes = codes, blanked = blanked, still = which(pattern_group_sizes(codes) < k_target))
+}
 
 # Each quasi-identifier's rank from least (1) to most useful.
 suppress_rank <- function(order, qnames) {

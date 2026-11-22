@@ -285,6 +285,96 @@ anon_quasi_values <- function(dataset, test_col, tests, result_col, filter = NUL
   )
 }
 
+#' Specify a duration between two dates as a quasi-identifier
+#'
+#' Describes a duration in days between two dates of each subject, banded,
+#' such as treatment duration from `RFSTDTC` to `RFENDTC` in SDTM `dm`, for
+#' use in [anon_risk()]. Durations are not changed by date offsetting (a
+#' subject's dates all move together), so they can single subjects out even
+#' when the other quasi-identifiers meet the target.
+#'
+#' @param dataset Name of the dataset in the list passed to [anon_risk()].
+#' @param start,end Names of the columns holding the start and end dates:
+#'   Date or POSIXct columns, or ISO 8601 text (only full dates count; partial
+#'   dates give a missing duration).
+#' @param width Width of the bands of days, a positive number: the duration
+#'   `end - start` in days becomes the lower bound of its band, as
+#'   [anon_band()] does with `bottom = 0`.
+#' @param name Name of the resulting quasi-identifier.
+#'
+#' @details
+#' Each subject's duration comes from its first row (in row order) with both
+#' dates. A subject without both dates has a missing duration, which is a
+#' value of its own. The duration can only be measured: [anon_generalize()]
+#' and [anon_suppress()] don't change dates, and changing them would break
+#' study days (`--DY`). [anon_deidentify()] reports it among the residual
+#' signals.
+#'
+#' @return An object of class `"anon_quasi_duration"`.
+#'
+#' @examples
+#' dm <- data.frame(
+#'   USUBJID = c("a", "b", "c"),
+#'   RFSTDTC = c("2014-01-02", "2014-02-10", "2014-03-01"),
+#'   RFENDTC = c("2014-06-30", "2014-08-01", "2014-03-20")
+#' )
+#' anon_risk(dm, quasi = anon_quasi_duration("data", "RFSTDTC", "RFENDTC", width = 28), max_risk = 1/2)
+#'
+#' @export
+anon_quasi_duration <- function(dataset, start, end, width = 7, name = "DURATION") {
+  for (arg in c("dataset", "start", "end", "name")) {
+    value <- get(arg)
+    if (!is.character(value) || length(value) != 1 || is.na(value) || !nzchar(value)) {
+      stop("`", arg, "` must be a single string.", call. = FALSE)
+    }
+  }
+  check_rule_number(width, "width")
+  if (width <= 0) {
+    stop("`width` must be greater than 0.", call. = FALSE)
+  }
+  structure(
+    list(dataset = dataset, start = start, end = end, width = width, names = name),
+    class = "anon_quasi_duration"
+  )
+}
+
+#' @export
+print.anon_quasi_duration <- function(x, ...) {
+  cat("Quasi-identifier duration from `", x$dataset, "`: ", x$names, " = days from ", x$start, " to ", x$end,
+      ", in bands of ", format(x$width), "\n", sep = "")
+  invisible(x)
+}
+
+# Each subject's duration in days (end - start) from its first row with both
+# dates, as the lower bound of its band.
+quasi_duration_by_subject <- function(df, spec, key, keys) {
+  missing <- setdiff(c(spec$start, spec$end), names(df))
+  if (length(missing) > 0) {
+    stop("Column `", missing[1], "` not found in `", dataset_label(spec$dataset), "`.", call. = FALSE)
+  }
+  days <- as.numeric(duration_dates(df[[spec$end]]) - duration_dates(df[[spec$start]]))
+  k <- normalize_keys(df[[key]])
+  ok <- !is.na(k) & !is.na(days)
+  first <- ok & !duplicated(ifelse(ok, k, NA_character_), incomparables = NA)
+  value <- floor(round(days[first] / spec$width, 9)) * spec$width
+  stats::setNames(list(value[match(keys, k[first])]), spec$names)
+}
+
+# Dates of a Date, POSIXct or ISO 8601 text column as Date (full dates only).
+duration_dates <- function(x) {
+  if (inherits(x, "Date")) {
+    return(x)
+  }
+  if (inherits(x, c("POSIXct", "POSIXlt"))) {
+    # The calendar date in the column's own time zone.
+    return(as.Date(format(x, "%Y-%m-%d")))
+  }
+  parsed <- parse_iso8601_dates(as.character(x))
+  out <- parsed$reference
+  out[parsed$kind != "full"] <- NA
+  out
+}
+
 #' @export
 print.anon_risk <- function(x, ...) {
   s <- x$summary
@@ -400,7 +490,7 @@ normalize_quasi_specs <- function(quasi, data, single) {
     }
     quasi <- list(data = quasi)
   }
-  if (inherits(quasi, "anon_quasi_values")) {
+  if (inherits(quasi, c("anon_quasi_values", "anon_quasi_duration"))) {
     quasi <- list(quasi)
   }
 
@@ -411,13 +501,13 @@ normalize_quasi_specs <- function(quasi, data, single) {
 
   lapply(seq_along(quasi), function(i) {
     spec <- quasi[[i]]
-    if (inherits(spec, "anon_quasi_values")) {
+    if (inherits(spec, c("anon_quasi_values", "anon_quasi_duration"))) {
       return(spec)
     }
     if (!is.character(spec) || spec_names[i] == "") {
       stop(
-        "Each element of `quasi` must be a named character vector of columns ",
-        "or an `anon_quasi_values()` specification.",
+        "Each element of `quasi` must be a named character vector of columns, ",
+        "an `anon_quasi_values()` or an `anon_quasi_duration()` specification.",
         call. = FALSE
       )
     }
@@ -461,6 +551,8 @@ build_quasi_table <- function(data, specs, key) {
     df <- data[[spec$dataset]]
     values <- if (inherits(spec, "anon_quasi_values")) {
       quasi_values_by_subject(df, spec, key, keys)
+    } else if (inherits(spec, "anon_quasi_duration")) {
+      quasi_duration_by_subject(df, spec, key, keys)
     } else {
       quasi_columns_by_subject(df, spec, key, keys)
     }
@@ -499,7 +591,14 @@ build_quasi_table <- function(data, specs, key) {
 # Where each quasi-identifier comes from, one row per variable.
 quasi_sources <- function(spec, variables) {
   values_spec <- inherits(spec, "anon_quasi_values")
-  n <- length(variables)
+  if (inherits(spec, "anon_quasi_duration")) {
+    # Measured from two date columns: neither a column nor a test that a
+    # step could generalize or blank.
+    return(tibble::tibble(
+      variable = variables, dataset = spec$dataset, column = NA_character_, test_col = NA_character_,
+      test = NA_character_, result_col = NA_character_, filtered = FALSE
+    ))
+  }
   tibble::tibble(
     variable = variables,
     dataset = spec$dataset,
@@ -663,6 +762,10 @@ suppressed_cells <- function(mask, sources, keys) {
   out <- matrix(FALSE, length(keys), nrow(sources))
   for (q in seq_len(nrow(sources))) {
     s <- sources[q, ]
+    if (is.na(s$column) && is.na(s$test_col)) {
+      # A duration: no cell of it is ever blanked.
+      next
+    }
     hit <- mask$dataset == s$dataset & if (!is.na(s$column)) {
       !is.na(mask$column) & mask$column == s$column
     } else {

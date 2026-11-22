@@ -885,6 +885,27 @@ print.anon_secrets_list <- function(x, ...) {
 #' @export
 print.anon_deid_step <- function(x, ...) {
   cat("De-identification steps:", paste(unique(x$log$step), collapse = ", "), "\n")
+  deid <- x$settings$deidentify
+  if (!is.null(deid)) {
+    describe <- function(s) {
+      if (is.null(s)) "not measured" else paste0("smallest group ", s$min_k, ", ", s$n_below_k, " subject(s) below ", deid$k_target)
+    }
+    cat("Target: maximum risk", format(deid$max_risk, digits = 7), paste0("(groups of at least ", deid$k_target, ")"), "\n")
+    cat("Risk before:", describe(deid$risk_before), "; after:", describe(deid$risk_after), "\n")
+    q <- deid$quasi
+    if (nrow(q) > 0) {
+      cat("Quasi-identifiers:", paste0(q$quasi, " (", ifelse(is.na(q$step), "as is", q$step), ")", collapse = ", "), "\n")
+    }
+    cat("Meets target:", if (isTRUE(deid$meets_target)) "yes" else paste0("no (", paste(deid$not_met, collapse = ", "), ")"), "\n")
+    single_out <- deid$signals[deid$signals$n_below_k_with_quasi > 0, , drop = FALSE]
+    if (nrow(single_out) > 0) {
+      cat(
+        "Residual signals put subjects in groups below the target with the quasi-identifiers: ",
+        paste0(single_out$signal, " in ", single_out$dataset, " (", single_out$n_below_k_with_quasi, ")", collapse = "; "),
+        ". The copy is not anonymous against someone who knows them.\n", sep = ""
+      )
+    }
+  }
   cat("Secrets:", if (is.null(x$secrets)) "not kept" else "kept (read with anon_secrets())", "\n\n")
   print(as.data.frame(x$log), row.names = FALSE)
   invisible(x)

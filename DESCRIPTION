@@ -28,6 +28,7 @@ Suggests:
     haven,
     officer,
     pdftools,
+    pharmaverseadam,
     pharmaversesdtm,
     pkgload,
     readxl,
