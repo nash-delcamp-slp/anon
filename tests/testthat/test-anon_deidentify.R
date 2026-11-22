@@ -566,11 +566,234 @@ test_that("the ADaM profile covers AAGE, EDUCLVL, HGTBL and WGTBL, and derived g
 })
 
 test_that("columns that look like quasi-identifiers without a rule, and keep rules over quasi rules, are named", {
-  dm <- data.frame(USUBJID = sprintf("S%02d", 1:6), AGE = 30, BIRTHYR = 1990, SITENO = 1, WT = 70)
+  dm <- data.frame(
+    USUBJID = sprintf("S%02d", 1:6), AGE = 30, BIRTHYR = 1990:1995, SITENO = 1:2, WT = 70,
+    PROJIDN = 7, CRCLBLU = c("mL/min", "mL/min/1.73m2"), COUNTRYL = rep(c("Canada", "Iceland"), 3), RACE2 = c("ASIAN", rep("", 5))
+  )
   profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"), anon_profile_rule("WT", "quasi"), anon_profile_rule("WT", "keep", datasets = "dm"))
-  w <- capture_warnings(anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
-  expect_true(any(grepl("look like quasi-identifiers or birth dates but no profile rule matches them: dm.BIRTHYR, dm.SITENO\\.", w)))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
+  # A unit (*U), and a column with one value in every row, aren't named.
+  expect_true(any(grepl(
+    "look like quasi-identifiers or birth dates but no profile rule matches them: dm.BIRTHYR, dm.SITENO, dm.COUNTRYL, dm.RACE2\\.", w
+  )))
   expect_true(any(grepl("kept by a `keep` rule although a quasi-identifier rule matches them too: dm.WT\\.", w)))
+  # They are released as they are: the target isn't met.
+  expect_false(r$settings$deidentify$meets_target)
+  expect_true("columns that look like quasi-identifiers have no profile rule" %in% r$settings$deidentify$not_met)
+})
+
+test_that("ADaM companions of the IDs get the pseudonym's number, and those of quasi-identifiers follow them", {
+  n <- 24
+  site <- c(rep("701", 12), rep("702", 11), "703")
+  country <- c(rep("USA", 23), "ISL")
+  adsl <- data.frame(
+    USUBJID = sprintf("01-%03d", 1:n), USUBJIDN = 1000 + 1:n, SUBJID = sprintf("%03d", 1:n), SUBJIDN = 1:n,
+    AGE = rep(c(30, 50), 12), SITEID = site, SITEIDN = as.numeric(site), COUNTRY = country,
+    COUNTRYL = c(USA = "United States", ISL = "Iceland")[country], COUNTRYN = match(country, c("USA", "ISL")),
+    stringsAsFactors = FALSE
+  )
+  adpk <- data.frame(USUBJID = rep(adsl$USUBJID, each = 2), USUBJIDN = rep(adsl$USUBJIDN, each = 2), SITEIDN = rep(adsl$SITEIDN, each = 2))
+  w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl, adpk = adpk), anon_profile_adam(3), max_risk = 1/3, seed = 1, unresolved = "keep"))
+  expect_false(any(grepl("look like quasi-identifiers", w)))
+  a <- r$data$adsl
+  # The number of the subject's pseudonym, numeric, the same in every dataset.
+  expect_type(a$USUBJIDN, "double")
+  expect_identical(a$USUBJIDN, as.numeric(sub("^SUBJ-", "", a$USUBJID)))
+  expect_identical(as.numeric(a$SUBJIDN), a$USUBJIDN)
+  p <- r$data$adpk
+  expect_identical(p$USUBJIDN, as.numeric(sub("^SUBJ-", "", p$USUBJID)))
+  # SITEIDN shows the code of the released SITEID, and is blank where it is;
+  # COUNTRYL and COUNTRYN likewise for COUNTRY.
+  expect_true(all(is.na(a$SITEIDN) == (a$SITEID == "")))
+  shown <- a$SITEID != "" & a$SITEID != "OTHER"
+  expect_identical(a$SITEIDN[shown], as.numeric(a$SITEID[shown]))
+  expect_true(all(is.na(a$SITEIDN[a$SITEID == "OTHER"])))
+  expect_true(all(is.na(p$SITEIDN) | p$SITEIDN %in% a$SITEIDN))
+  expect_true(all((a$COUNTRYL == "") == (a$COUNTRY == "")))
+  expect_false(any(a$COUNTRYL == "Iceland"))
+  expect_true(all(is.na(a$COUNTRYN) == (a$COUNTRY == "")))
+  expect_true(all(c("SITEIDN", "COUNTRYL", "COUNTRYN") %in% r$log$variable[grepl("^derived from", r$log$detail)]))
+  # A rule that matches a companion wins.
+  r2 <- deid_quiet(anon_deidentify(
+    list(adsl = adsl), c(anon_profile_adam(3), anon_profile(anon_profile_rule("COUNTRYL", "keep"))), max_risk = 1/3, seed = 1
+  ))
+  expect_identical(r2$data$adsl$COUNTRYL, adsl$COUNTRYL)
+})
+
+test_that("baseline body surface area and renal function are derived from height and weight, units kept", {
+  n <- 12
+  adsl <- data.frame(
+    USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 6), SEX = rep(c("F", "M"), each = 6),
+    WEIGHTBL = 60 + 1:n * 1.3, HEIGHTBL = 160 + 1:n, BSABL = 1.6 + 1:n / 100, BSABLU = "m2",
+    CRCLBL = 80 + 1:n, EGFRBL = 70 + 1:n, CRCLBLU = "mL/min"
+  )
+  w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+  expect_false(any(grepl("look like quasi-identifiers", w)))
+  a <- r$data$adsl
+  # Height and weight were generalized: the derived values are blanked.
+  expect_true(all(is.na(a$BSABL) & is.na(a$CRCLBL) & is.na(a$EGFRBL)))
+  expect_identical(a$BSABLU, adsl$BSABLU)
+  expect_identical(a$CRCLBLU, adsl$CRCLBLU)
+})
+
+test_that("nested copies of a quasi-identifier are generalized, suppressed and measured with it", {
+  n <- 12
+  age <- c(31, 32, 33, 34, 41, 42, 43, 44, 51, 52, 53, 79)
+  dm <- tibble::tibble(USUBJID = sprintf("S%02d", 1:n), AGE = age, RFSTDTC = "2021-01-01")
+  dm$packed <- data.frame(AGE = age)
+  dm$lst <- lapply(seq_len(n), function(i) data.frame(USUBJID = dm$USUBJID[i], AGE = age[i]))
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi", ladder = list(anon_band(10))))
+  r <- deid_quiet(anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1, unresolved = "keep"))
+  d <- r$data$dm
+  expect_identical(r$settings$deidentify$quasi$step[1], "anon_band(width = 10)")
+  expect_true(any(is.na(d$AGE)))
+  expect_identical(d$packed$AGE, d$AGE)
+  expect_identical(vapply(d$lst, function(x) x$AGE, numeric(1)), d$AGE)
+  expect_match(r$settings$deidentify$quasi$copies[1], "dm.packed.AGE, dm.lst[[]].AGE", fixed = TRUE)
+  expect_false("dm.packed" %in% names(r$data))
+  # A nested copy that shows a subject another value is measured on its own.
+  dm2 <- dm
+  dm2$packed$AGE[1] <- 79
+  r2 <- deid_quiet(anon_deidentify(list(dm = dm2), profile, max_risk = 1/3, seed = 1, unresolved = "keep"))
+  expect_identical(r2$settings$deidentify$quasi$measured[1], "dm.packed.AGE")
+  d2 <- r2$data$dm
+  released <- paste(d2$AGE, d2$packed$AGE)
+  expect_true(all(table(released) >= 3))
+  # Rows that no subject owns (no key) are blanked in the nested copies.
+  dm3 <- dm
+  dm3$USUBJID[12] <- NA
+  dm3$lst[[12]]$USUBJID <- NA_character_
+  r3 <- deid_quiet(anon_deidentify(list(dm = dm3), profile, max_risk = 1/3, seed = 1, unresolved = "keep"))
+  d3 <- r3$data$dm
+  expect_true(is.na(d3$packed$AGE[is.na(d3$USUBJID)]))
+  expect_true(any(grepl("no subject owns", r3$log$detail)))
+  # Data frames whose own key is missing in every row: no subject owns them.
+  dm5 <- dm
+  dm5$lst <- lapply(age, function(a) data.frame(USUBJID = NA_character_, AGE = a))
+  r5 <- deid_quiet(anon_deidentify(list(dm = dm5), profile, max_risk = 1/3, seed = 1, unresolved = "keep"))
+  expect_true(all(is.na(vapply(r5$data$dm$lst, function(x) x$AGE, numeric(1)))))
+  # A numeric key.
+  dm4 <- dm[c("USUBJID", "AGE", "packed")]
+  dm4$USUBJID <- 100 + seq_len(n)
+  r4 <- deid_quiet(anon_deidentify(list(dm = dm4), profile, max_risk = 1/3, seed = 1, unresolved = "keep"))
+  expect_identical(r4$data$dm$packed$AGE, r4$data$dm$AGE)
+})
+
+test_that("profile text dates lose what isn't an ISO 8601 date, as *DTC columns do", {
+  n <- 12
+  v <- c("2021-02-01", "10MAR2021", "2021", "--03-10", "2021-03-10 visit", "03/10/2021", rep("2021-02-01", 6))
+  dm <- data.frame(USUBJID = sprintf("P%02d", 1:n), AGE = rep(c(30, 50), 6), VISIT_DATE = v, CMPDTC = v, ROWNO = 1:n)
+  p <- c(anon_profile_sdtm(), anon_profile(anon_profile_rule("VISIT_DATE", "date")))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), p, max_risk = 1/6, seed = 1, unresolved = "keep"))
+  o <- r$data$dm
+  o <- o[order(o$ROWNO), ]
+  blank <- function(x) ifelse(is.na(x), "", x)
+  expect_identical(blank(o$VISIT_DATE), blank(o$CMPDTC))
+  expect_true(all(blank(o$VISIT_DATE)[!v %in% c("2021-02-01", "2021")] == ""))
+  expect_false(any(o$VISIT_DATE %in% v))
+  row <- r$log[r$log$step == "subject_dates" & r$log$variable %in% "VISIT_DATE", ]
+  expect_identical(row$n_removed, 4L)
+  expect_true(any(grepl("date columns in the profile are not recognised ISO 8601 dates", w)))
+})
+
+test_that("a profile date column doesn't drop secrets kept by earlier steps", {
+  reg <- data.frame(ID = sprintf("P%02d", 1:6), VISIT_DATE = format(as.Date("2021-03-01") + 1:6), AGE = 30)
+  p <- anon_profile(anon_profile_rule("ID", "key"), anon_profile_rule("VISIT_DATE", "date"), anon_profile_rule("AGE", "quasi"))
+  ids <- anon_subject_ids(list(reg = reg), key = "ID", also = character(0), keep_secrets = TRUE, seed = 1)
+  r <- deid_quiet(anon_deidentify(ids, p, key = "ID", max_risk = 1/3, seed = 2))
+  expect_identical(names(anon_secrets(r)), "subject_ids")
+})
+
+test_that("derived values missing in the data stay missing", {
+  n <- 12
+  age <- rep(c(30, 39, 50, 59), 3)
+  race <- c(rep("WHITE", 9), "ASIAN", "ASIAN", "BLACK OR AFRICAN AMERICAN")
+  adsl <- data.frame(
+    USUBJID = sprintf("S%02d", 1:n), AGE = age, AGEGR1 = ifelse(age < 45, "<45", ">=45"),
+    RACE = race, RACEN = match(race, c("WHITE", "ASIAN", "BLACK OR AFRICAN AMERICAN")), ROWNO = 1:n, stringsAsFactors = FALSE
+  )
+  adsl$AGEGR1[1] <- ""
+  adsl$RACEN[2] <- NA
+  profile <- deid_test_profile(
+    anon_profile_rule("AGE", "quasi", ladder = list(anon_band(10))), anon_profile_rule("AGEGR1", "derived", from = "AGE"),
+    anon_profile_rule("RACE", "quasi", ladder = list(anon_fold(3, "OTHER"))), anon_profile_rule("RACEN", "derived", from = "RACE")
+  )
+  r <- anon_deidentify(list(adsl = adsl), profile, max_risk = 1/3, max_suppressed = 1, seed = 1)
+  a <- r$data$adsl
+  a <- a[order(a$ROWNO), ]
+  expect_identical(r$settings$deidentify$quasi$level, c(1L, 1L))
+  # AGEGR1 follows each band where AGE is shown, but stays blank where it was.
+  shown <- !is.na(a$AGE)
+  expect_true(shown[1])
+  expect_identical(a$AGEGR1[shown], adsl$AGEGR1[shown])
+  expect_identical(a$AGEGR1[1], "")
+  # RACEN keeps WHITE's code, except where it was missing; OTHER has none.
+  expect_identical(a$RACEN, c(1L, NA, rep(1L, 7), NA, NA, NA))
+})
+
+test_that("dataset scopes match whatever the case of the dataset names", {
+  n <- 24
+  ids <- sprintf("P%02d", 1:n)
+  DM <- data.frame(USUBJID = ids, AGE = rep(c(30, 50), 12), RACE = c(rep("WHITE", 22), "MULTIPLE", "MULTIPLE"))
+  SUPPDM <- data.frame(USUBJID = rep(ids[23:24], each = 2), QNAM = rep(c("RACE1", "RACE2"), 2), QVAL = c("ASIAN", "WHITE", "BLACK OR AFRICAN AMERICAN", "WHITE"))
+  r <- deid_quiet(anon_deidentify(list(DM = DM, SUPPDM = SUPPDM), anon_profile_sdtm(2), max_risk = 1/4, seed = 1))
+  q <- r$settings$deidentify$quasi
+  expect_match(q$copies[q$quasi == "RACE"], "SUPPDM.QVAL (QNAM = RACE1)", fixed = TRUE)
+  expect_false(any(r$data$SUPPDM$QVAL %in% c("ASIAN", "BLACK OR AFRICAN AMERICAN")))
+  # A qualifier that looks like a quasi-identifier without a rule: the target isn't met.
+  SUPPDM2 <- rbind(SUPPDM, data.frame(USUBJID = ids[1], QNAM = "HEIGHTCM", QVAL = "171"))
+  r2 <- deid_quiet(anon_deidentify(list(DM = DM, SUPPDM = SUPPDM2), anon_profile_sdtm(2), max_risk = 1/4, seed = 1))
+  expect_true("supplemental qualifiers that look like quasi-identifiers have no profile rule" %in% r2$settings$deidentify$not_met)
+})
+
+test_that("a derived variable whose quasi-identifiers aren't in the data is blanked, with a warning", {
+  adsl <- data.frame(USUBJID = sprintf("S%02d", 1:6), AGE = rep(c(30, 50), 3), BMIBL = 20:25 + 0.5)
+  w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+  expect_true(all(is.na(r$data$adsl$BMIBL)))
+  expect_true(any(grepl("derived variables come from quasi-identifiers that aren't measured[^:]*: adsl.BMIBL\\.", w)))
+  expect_true(any(r$log$variable %in% "BMIBL" & grepl("not measured: blanked in every row", r$log$detail)))
+})
+
+test_that("a quasi-identifier whose only copy varies within a subject is reported, not an error", {
+  n <- 12
+  adae <- data.frame(USUBJID = rep(sprintf("S%02d", 1:n), each = 2), AGE = rep(20 + 1:n, each = 2) + c(0, 1), SEX = rep(c("F", "M"), n))
+  w <- capture_warnings(r <- anon_deidentify(list(adae = adae), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no copy with one value per subject and can't be measured: AGE (adae.AGE)", w, fixed = TRUE)))
+  expect_false(r$settings$deidentify$meets_target)
+  expect_false("AGE" %in% r$settings$deidentify$quasi$quasi)
+})
+
+test_that("a removed factor keeps no levels, and a second run has settings of its own", {
+  data <- deid_test_data()
+  data$dm$INVNAM <- factor(data$dm$INVNAM, levels = c("Dr Who", "Dr Unused"))
+  r <- deid_quiet(anon_deidentify(data[c("dm", "vs")], anon_profile_sdtm(3), max_risk = 1/3, seed = 1))
+  expect_identical(levels(r$data$dm$INVNAM), character(0))
+  expect_true(all(is.na(r$data$dm$INVNAM)))
+  r2 <- deid_quiet(anon_deidentify(r, anon_profile_sdtm(3), max_risk = 1/3, seed = 2))
+  expect_true(all(c("deidentify", "deidentify_1") %in% names(r2$settings)))
+  expect_identical(r2$settings$deidentify, r$settings$deidentify)
+})
+
+test_that("a derived variable follows the copy named as its quasi-identifier", {
+  n <- 12
+  age <- c(41, 42, 43, 44, 46, 47, 48, 31, 32, 33, 34, 35)
+  # AAGE's bands (20-29 for ages 41-44) lie within one AGEGR1 category; AGE's
+  # (40-49) don't.
+  aage <- c(25, 26, 27, 28, 55, 56, 57, 20, 21, 22, 23, 24)
+  adae <- data.frame(USUBJID = sprintf("S%02d", 1:n), AAGE = aage, AGE = age, AGEGR1 = ifelse(age < 45, "<45", ">=45"))
+  # AAGE's rule first: its copy comes first.
+  profile <- deid_test_profile(
+    anon_profile_rule("AAGE", "quasi", quasi_name = "AGE", ladder = list(anon_band(10))),
+    anon_profile_rule("AGE", "quasi", ladder = list(anon_band(10))),
+    anon_profile_rule("AGEGR1", "derived", from = "AGE")
+  )
+  r <- anon_deidentify(list(adae = adae), profile, max_risk = 1/3, seed = 1)
+  a <- r$data$adae
+  expect_identical(r$settings$deidentify$quasi$level, 1L)
+  expect_false(anyNA(a$AGE))
+  # 40-49 straddles the cut at 45: blanked, whatever AAGE's band.
+  expect_true(all(a$AGEGR1[a$AGE == 40] == ""))
+  expect_true(all(a$AGEGR1[a$AGE == 30] == "<45"))
 })
 
 test_that("the profile's text date columns are offset with the subject's offset", {

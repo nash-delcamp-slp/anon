@@ -41,9 +41,11 @@
 #'    columns.
 #' 3. [anon_subject_dates()] offsets every date of each subject by one
 #'    random offset (its own detection: Date and date-time columns, and text
-#'    columns named `*DTC`, at any depth); text columns of ISO 8601 dates
-#'    matched by the profile's `"date"` rules (such as `VISIT_DATE`, in the
-#'    datasets with the key) are offset by the same offsets.
+#'    columns named `*DTC`, at any depth); text columns matched by the
+#'    profile's `"date"` rules (such as `VISIT_DATE`, in the datasets with the
+#'    key) are offset by the same offsets, as `*DTC` columns are: values that
+#'    aren't ISO 8601 dates (`10MAR2021`, `03/10/2021`, `--03-10`) are
+#'    removed, with a warning, and bare years move by whole years.
 #' 4. The quasi-identifiers the profile finds are measured ([anon_risk()]).
 #'    Each is measured from its source: the copy with one value per subject
 #'    that holds a value for the most subjects. Every other copy that shows
@@ -54,7 +56,10 @@
 #'    others, so the released combination is what is measured. Copies are
 #'    never overwritten with the source's values. A column copy with more
 #'    than one value for a subject (such as `AAGE` across events) can't be
-#'    measured: a warning names it, and the target is not met.
+#'    measured: a warning names it, and the target is not met. A
+#'    quasi-identifier with no copy that holds one value per subject can't
+#'    be measured at all: a warning names it, it is released as it is, the
+#'    variables derived from it are blanked, and the target is not met.
 #' 5. **Ladder search** (greedy, as Datafly), on the measured values (one
 #'    per subject and measure). The cost of a state is the cells
 #'    suppression would blank, estimated with [anon_suppress()]'s algorithm
@@ -84,6 +89,17 @@
 #'    labels of generalized or suppressed columns keep only the values still
 #'    released. The risk is measured again.
 #'
+#' **Nested data.** Columns of the data frames nested in a dataset with the
+#' key (packed columns and the data frames in list columns, at any depth)
+#' take the dataset's rules. Those of quasi-identifiers and derived
+#' variables are measured and changed like datasets of their own, each row
+#' with the subject that owns it (see [anon_subject_ids()]): a nested copy
+#' of `AGE` is generalized and suppressed with it, and measured on its own
+#' where it shows some subject another value. They are named after where
+#' they are, such as `dm.extra` for packed column `extra` of `dm` and
+#' `dm.visits[[]]` for the data frames in list column `visits`. Rows that no
+#' subject owns are blanked in those columns, and logged.
+#'
 #' **Derived variables.** A derived variable is left as it is where no
 #' ladder step applies to its quasi-identifiers and the subject's cells of
 #' them weren't blanked. Otherwise (in every row, when a ladder step
@@ -109,14 +125,21 @@
 #' (`AVAL`, `--STRESN`), with the other results of the row. Blanking keeps
 #' values truthful: a derived value recomputed from a representative (such
 #' as a BMI from a rounded weight) would not be any subject's. `from` can
-#' name the column of a copy (`AAGEGR1` from `AAGE`).
+#' name the column of a copy (`AAGEGR1` from `AAGE`); a column copy named as
+#' the quasi-identifier (`AGE` rather than `AAGE`) is preferred. A derived
+#' value missing in the data stays missing. A derived variable whose `from`
+#' names a quasi-identifier that isn't measured (not in the data, or with no
+#' copy that can be measured, such as `BMIBL` without height and weight) is
+#' blanked in every row, with a warning.
 #'
 #' **When the target is met.** `settings$deidentify$meets_target` is `TRUE`
 #' only when the risk measured on the released data meets the target and
 #' [anon_suppress()] found no other reason not to (copies of a
 #' quasi-identifier that differ, birth dates next to `AGE`, values of removed
 #' subjects left); reasons are in `settings$deidentify$not_met`. No
-#' quasi-identifier found in the data is a reason too.
+#' quasi-identifier found in the data is a reason too, and so are columns
+#' and supplemental qualifiers that look like quasi-identifiers without a
+#' rule (see [anon_profile()]), which are released as they are.
 #'
 #' **Residual signals.** Meeting the target is about the quasi-identifiers
 #' only. Other things a person might know single subjects out too: treatment
@@ -145,7 +168,8 @@
 #'
 #' @return An object of class `"anon_deid_step"` (see [anon_subject_ids()]),
 #'   chainable with the other steps, with the steps' logs and settings
-#'   (`settings$deidentify` for this function), the record of suppressed
+#'   (`settings$deidentify` for this function; `deidentify_1` and so on when
+#'   it runs again on its own result), the record of suppressed
 #'   cells, and also `risk_before` and `risk_after` (from [anon_risk()]) and
 #'   `signals` (a tibble with `signal`, `dataset`, `n_subjects`, `n_unique`,
 #'   `n_below_k` and `n_below_k_with_quasi`). Secrets only with
@@ -198,6 +222,9 @@ anon_deidentify <- function(
     )
   }
 
+  # Rules for the ADaM companions (XN, XL, XC) of the IDs and quasi-identifiers.
+  profile <- profile_with_companions(profile, key)
+
   # A single data frame goes through the steps as a list of one, named
   # "data", and comes back as a data frame.
   previous <- if (inherits(data, "anon_deid_step")) data
@@ -213,7 +240,7 @@ anon_deidentify <- function(
   also <- profile_role_columns(profile, d, columns, "also", key)
   key_cols <- profile_role_columns(profile, d, columns, "key_cols", key)
   keyed <- names(d)[vapply(d, function(df) key %in% names(df), logical(1))]
-  warn_profile_gaps(profile, d, columns, key)
+  gaps <- warn_profile_gaps(profile, d, columns, key)
   log <- deid_log_start(
     "remove", length(subject_keys(d[keyed], key)), key, NULL,
     settings = paste0(
@@ -242,13 +269,36 @@ anon_deidentify <- function(
   if (length(extra_dates) > 0) {
     step <- shift_extra_dates(step, extra_dates, key, keep_secrets)
   }
+  warn_unshifted_profile_dates(profile, step$data, key, extra_dates)
+
+  # Quasi-identifier, derived and companion columns of data frames nested in
+  # the datasets are measured and changed as datasets of their own, and
+  # written back at the end.
+  lifted <- lift_nested_quasi(profile, step$data, key)
+  profile_scope$map <- lifted$scope
+  on.exit(profile_scope$map <- NULL, add = TRUE)
+  step$data <- lifted$data
   base <- step
-  warn_unshifted_profile_dates(profile, base$data, key, extra_dates)
 
   # 4. Quasi-identifiers and the risk before: each measured from its source
   # and from every copy that shows some subject another value (or holds
   # subjects the source doesn't).
   qis <- profile_quasi(profile, base$data, key)
+  # A quasi-identifier with no copy that holds one value per subject can't
+  # be measured at all.
+  unmeasurable <- vapply(qis, function(q) is.na(q$source), logical(1))
+  unmeasured_q <- unlist(lapply(qis[unmeasurable], function(q) {
+    paste0(q$name, " (", paste(vapply(q$copies, copy_where, character(1)), collapse = ", "), ")")
+  }))
+  qis <- qis[!unmeasurable]
+  if (length(unmeasured_q) > 0) {
+    warning(
+      "These quasi-identifiers have no copy with one value per subject and can't be measured: ",
+      paste(unmeasured_q, collapse = "; "), ". They are released as they are, and the variables derived ",
+      "from them are blanked.",
+      call. = FALSE
+    )
+  }
   measures <- quasi_measures(qis, base$data, key)
   unmeasured <- attr(measures, "unmeasured")
   if (length(unmeasured) > 0) {
@@ -374,9 +424,10 @@ anon_deidentify <- function(
   } else {
     character(0)
   }
-  if (length(unmeasured) > 0) {
+  if (length(unmeasured) > 0 || length(unmeasured_q) > 0) {
     not_met <- c(not_met, "copies of quasi-identifiers that vary within a subject aren't measured")
   }
+  not_met <- c(not_met, gaps)
   risk_after <- NULL
   if (length(active) > 0) {
     risk_after <- tryCatch(
@@ -391,7 +442,15 @@ anon_deidentify <- function(
   } else if (length(final_keys) < k_target) {
     not_met <- c(not_met, "fewer subjects than the target group size")
   }
-  signals <- residual_signals(profile, final, qis, specs[active], key, k_target)
+  signals <- residual_signals(profile, final, qis, specs[active], key, k_target, skip = names(lifted$scope))
+  lowered <- lower_nested_quasi(final$data, lifted, key, key_cols, dropped)
+  final$data <- lowered$data
+  for (row in lowered$log) {
+    final$log <- rbind(final$log, tibble::tibble(
+      step = "deidentify", dataset = row$dataset, variable = row$variable, n_changed = as.integer(row$n),
+      n_removed = 0L, detail = row$detail
+    ))
+  }
 
   log <- final$log
   first <- which(log$step == "deidentify")[1]
@@ -404,7 +463,8 @@ anon_deidentify <- function(
     if (any(signals$n_below_k_with_quasi > 0)) "; residual signals single out subjects (see `signals`)"
   )
   final$log <- log
-  final$settings$deidentify <- list(
+  settings_name <- utils::tail(make.unique(c(names(final$settings), "deidentify"), sep = "_"), 1)
+  final$settings[[settings_name]] <- list(
     key = key,
     profile = attr(profile, "profile_name"),
     profile_rules = profile_text(profile),
@@ -436,6 +496,41 @@ anon_deidentify <- function(
 # steps are made unique with "_1", "_2").
 last_setting <- function(settings, step) {
   utils::tail(names(settings)[names(settings) == step | startsWith(names(settings), paste0(step, "_"))], 1)
+}
+
+# The profile with rules for the companions (see anon_profile()) of the key,
+# of the "also" columns and of the quasi-identifier columns: for each exact
+# name X of such a rule (and `key`), XN, XL and XC, in the datasets of X's
+# rule, are "also" for the key and "also" columns and derived from X for a
+# quasi-identifier. A companion that a rule of the profile matches keeps
+# that rule.
+profile_with_companions <- function(profile, key) {
+  plain <- which(is.na(profile$test_col))
+  ruled <- function(v) any(vapply(plain, function(i) profile_match(profile$variable[i], v), logical(1)))
+  rules <- list()
+  add <- function(x, role, datasets, from = character(0)) {
+    names <- paste0(x, c("N", "L", "C"))
+    names <- names[!vapply(names, ruled, logical(1))]
+    if (length(names) > 0) {
+      rules[[length(rules) + 1]] <<- unclass_profile(anon_profile_rule(names, role, datasets = datasets, from = from))
+    }
+  }
+  if (!ruled(key)) add(key, "also", character(0))
+  for (i in plain) {
+    x <- profile$variable[i]
+    if (profile_is_pattern(x)) next
+    if (profile$role[i] %in% c("key", "also")) {
+      add(x, "also", profile$datasets[[i]])
+    } else if (profile$role[i] == "quasi") {
+      add(x, "derived", profile$datasets[[i]], from = x)
+    }
+  }
+  if (length(rules) == 0) {
+    return(profile)
+  }
+  extra <- do.call(rbind, rules)
+  extra$profile <- "companions"
+  new_profile(rbind(unclass_profile(profile), extra), attr(profile, "profile_name"))
 }
 
 # The rule (by row of the profile) that applies to each column of each
@@ -510,9 +605,9 @@ warn_unshifted_profile_dates <- function(profile, data, key, extra = list()) {
 # Blank the columns of `remove` rules in every row, in the datasets and in
 # the data frames nested in them (packed columns and list columns, at any
 # depth; a nested column takes the rules of its dataset), dropping their
-# value labels and missing-value codes, which can hold the identifier. The
-# log has one row per column (nested ones by path), and one per exact
-# `remove` name found nowhere.
+# value labels, missing-value codes and factor levels, which can hold the
+# identifier. The log has one row per column (nested ones by path), and one
+# per exact `remove` name found nowhere.
 remove_identifiers <- function(profile, data) {
   log <- list()
   found <- character(0)
@@ -524,11 +619,11 @@ remove_identifiers <- function(profile, data) {
         out <- blank_rows(f, col, seq_len(nrow_of(f)))
         f <- out$df
         x <- f[[col]]
-        if (any(c("labels", "na_values", "na_range") %in% names(attributes(x)))) {
+        if (any(c("labels", "na_values", "na_range") %in% names(attributes(x))) || is.factor(x)) {
           attr(x, "labels") <- NULL
           attr(x, "na_values") <- NULL
           attr(x, "na_range") <- NULL
-          f <- set_column(f, match(col, names(f)), x)
+          f <- set_column(f, match(col, names(f)), drop_unused_levels(x))
         }
         where <- paste0(path, if (nzchar(path)) "[" else "", col, if (nzchar(path)) "]" else "")
         found <<- c(found, col)
@@ -586,9 +681,105 @@ map_list_frames_all <- function(x, fn, path) {
   x
 }
 
+# Data frames nested in the datasets with the key (packed and list columns,
+# at any depth, see nested_tables()) that hold columns with a
+# quasi-identifier or derived rule (the rules of their dataset) are added to
+# `data` as datasets of their own, so that they are measured, generalized,
+# suppressed and derived like the others: the key of each row's subject,
+# those columns and the row's position in its nested table
+# (`.anon_nested_row`), named after where they are (`dm.extra`,
+# `dm.visits[[]]`). Rows that no subject of the dataset owns are left out
+# (and blanked by lower_nested_quasi()). `scope` maps each added dataset to its dataset, for
+# the rules' `datasets`; `tables` records, for lower_nested_quasi(), each
+# nested table's columns and the dataset it went to (none when no row has a
+# subject); `base` holds the datasets as they were.
+lift_nested_quasi <- function(profile, data, key) {
+  row_col <- ".anon_nested_row"
+  out <- list(data = data, scope = character(0), tables = list(), base = list())
+  for (ds in names(data)) {
+    df <- data[[ds]]
+    if (!key %in% names(df) || !any(vapply(df, is.list, logical(1)))) next
+    tables <- nested_tables(df, key)
+    if (length(tables) < 2) next
+    keys <- vector("list", length(tables))
+    keys[[1]] <- tables[[1]]$owners
+    for (t in seq_along(tables)[-1]) {
+      tb <- tables[[t]]
+      n <- nrow_of(tb$df)
+      keys[[t]] <- if (!tb$keyed) rep(NA_character_, n) else if (tb$owns) tb$owners else keys[[tb$parent]][tb$parent_row]
+      ruled <- profile_columns(profile, stats::setNames(list(tb$df), ds))
+      cols <- setdiff(ruled$column[ruled$role %in% c("quasi", "derived")], key)
+      cols <- cols[!vapply(cols, function(col) is.list(tb$df[[col]]), logical(1))]
+      if (length(cols) == 0) next
+      # Each row's key as the dataset holds it (same type in every dataset).
+      at <- match(keys[[t]], tables[[1]]$owners, incomparables = NA)
+      owned <- which(!is.na(at))
+      name <- NULL
+      if (length(owned) > 0) {
+        name <- make.unique(c(names(out$data), paste0(ds, ".", tb$path)), sep = "_")[length(out$data) + 1]
+        lifted <- c(
+          stats::setNames(list(vctrs::vec_slice(df[[key]], at[owned])), key),
+          lapply(stats::setNames(cols, cols), function(col) vctrs::vec_slice(tb$df[[col]], owned)),
+          stats::setNames(list(owned), row_col)
+        )
+        out$data[[name]] <- vctrs::new_data_frame(lifted, n = length(owned))
+        out$scope[[name]] <- ds
+      }
+      out$tables <- c(out$tables, list(list(
+        dataset = ds, table = t, path = tb$path, top = tb$top, columns = cols, lifted = name, n_unowned = n - length(owned)
+      )))
+      out$base[[ds]] <- df
+    }
+  }
+  out
+}
+
+# Write the released values of the lifted data frames (see
+# lift_nested_quasi()) back where they came from, and remove the lifted
+# datasets. Rows of a nested table that no subject owns are blanked in its
+# lifted columns; rows of subjects removed from the data are removed from
+# the nested data as anon_suppress() removes them. The log has a row for each
+# nested table with blanked rows that no subject owns.
+lower_nested_quasi <- function(data, lifted, key, key_cols, dropped) {
+  log <- list()
+  for (ds in unique(vapply(lifted$tables, `[[`, character(1), "dataset"))) {
+    tables <- nested_tables(lifted$base[[ds]], key)
+    entries <- Filter(function(e) e$dataset == ds, lifted$tables)
+    for (e in entries) {
+      tb <- tables[[e$table]]
+      n <- nrow_of(tb$df)
+      at <- if (is.null(e$lifted)) rep(NA_integer_, n) else match(seq_len(n), data[[e$lifted]]$.anon_nested_row)
+      for (col in e$columns) {
+        j <- match(col, names(tb$df))
+        if (!is.null(e$lifted)) {
+          tb$df <- set_column(tb$df, j, vctrs::vec_slice(data[[e$lifted]][[col]], at))
+        }
+        blanked <- blank_rows(tb$df, col, which(is.na(at)))
+        tb$df <- blanked$df
+        tb$changed <- union(tb$changed, j)
+        if (e$n_unowned > 0) {
+          log <- c(log, list(list(
+            dataset = ds, variable = paste0(e$path, "[", col, "]"), n = e$n_unowned,
+            detail = paste0("blanked in ", e$n_unowned, " nested row(s) that no subject owns (no key ties them to a subject)")
+          )))
+        }
+      }
+      tables[[e$table]] <- tb
+    }
+    written <- drop_subject_rows(assemble_tables(tables), key, key_cols, dropped)$df
+    df <- data[[ds]]
+    for (top in unique(vapply(entries, `[[`, character(1), "top"))) {
+      df <- set_column(df, match(top, names(df)), written[[top]])
+    }
+    data[[ds]] <- df
+  }
+  data[names(lifted$scope)] <- NULL
+  list(data = data, log = log)
+}
+
 # Text columns of the datasets with the key matched by a `"date"` rule that
-# the dates step doesn't detect (not named *DTC) and that hold ISO 8601
-# dates: anon_deidentify() offsets them with the same offsets.
+# the dates step doesn't detect (not named *DTC): anon_deidentify() offsets
+# them with the same offsets, as the dates step does *DTC columns.
 profile_extra_dates <- function(profile, data, key) {
   columns <- profile_columns(profile, data)
   dates <- columns[columns$role == "date", , drop = FALSE]
@@ -599,10 +790,7 @@ profile_extra_dates <- function(profile, data, key) {
     x <- df[[col]]
     if (!key %in% names(df) || col == key || grepl("DTC$", col, ignore.case = TRUE, useBytes = TRUE)) next
     if (!(is.character(x) || is.factor(x) || (inherits(x, "haven_labelled") && is.character(vctrs::vec_data(x))))) next
-    kinds <- parse_iso8601_dates(as.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else x))$kind
-    if (any(!kinds %in% c("empty", "invalid", "duration", "time_only"))) {
-      out <- c(out, list(list(dataset = dates$dataset[i], column = col)))
-    }
+    out <- c(out, list(list(dataset = dates$dataset[i], column = col)))
   }
   out
 }
@@ -629,11 +817,15 @@ with_extra_dates_muffled <- function(extra, expr) {
 
 # Offset the profile's extra date columns (see profile_extra_dates()) by each
 # subject's offset, read from the dates step's secrets, which are then
-# dropped unless `keep_secrets`.
+# dropped unless `keep_secrets` (secrets of earlier steps are kept). As in
+# *DTC columns, values that aren't ISO 8601 dates are removed and bare years
+# move by whole years.
 shift_extra_dates <- function(step, extra, key, keep_secrets) {
   secrets <- anon_secrets(step)
-  offsets <- secrets[[utils::tail(grep("^date_offsets", names(secrets), value = TRUE), 1)]]
+  offsets_name <- utils::tail(grep("^date_offsets", names(secrets), value = TRUE), 1)
+  offsets <- secrets[[offsets_name]]
   log <- step$log
+  n_invalid <- 0
   for (e in extra) {
     df <- step$data[[e$dataset]]
     k <- normalize_keys(df[[key]])
@@ -641,36 +833,53 @@ shift_extra_dates <- function(step, extra, key, keep_secrets) {
     x <- df[[e$column]]
     text <- if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else as.character(x)
     shifted <- shift_dates_by_subject(
-      x, offsets$offset_days[at], "shift", keep_non_dates = TRUE,
-      keep_years = !holds_only_years(list(df), e$column),
+      x, offsets$offset_days[at], "shift", keep_non_dates = FALSE, keep_years = FALSE,
       missing = if (is.character(x) || is.factor(x)) blank_text_value(text),
       year_sign = offsets$year_direction[at]
     )
+    n_invalid <- n_invalid + shifted$invalid
     df[[e$column]] <- shifted$values
     step$data[[e$dataset]] <- df
     log <- rbind(log, tibble::tibble(
       step = "subject_dates", dataset = e$dataset, variable = e$column, n_changed = as.integer(shifted$shifted),
       n_removed = as.integer(shifted$no_key + shifted$invalid + shifted$partial),
-      detail = paste0(shift_detail(shifted), " (a date in the profile; date values only)")
+      detail = paste0(shift_detail(shifted), " (a date in the profile)")
     ))
   }
   step$log <- log
   name <- last_setting(step$settings, "subject_dates")
   step$settings[[name]]$profile_dates <- vapply(extra, function(e) paste0(e$dataset, ".", e$column), character(1))
   if (!isTRUE(keep_secrets)) {
-    step$secrets <- NULL
+    rm(list = offsets_name, envir = step$secrets)
+    if (length(ls(step$secrets)) == 0) step$secrets <- NULL
     step$settings[[name]]$keep_secrets <- FALSE
+  }
+  if (n_invalid > 0) {
+    warning(
+      n_invalid, " value(s) of date columns in the profile are not recognised ISO 8601 dates, or would fall ",
+      "outside years 0001-9999, and were removed.",
+      call. = FALSE
+    )
   }
   step
 }
 
 # Warnings about what the profile may have missed: columns of datasets with
-# the key whose names look like an age, a birth date, a site, a height, a
-# weight or a BMI and that no rule matches; `keep` rules that win over a
-# quasi-identifier rule for a column; and QNAM values of supplemental
-# qualifier datasets that look like those and that no test rule covers.
+# the key whose names look like an age, a birth date, a site, a numeric ID, a
+# country, a race, a height, a weight, a BMI, a body surface area or a renal
+# function (units, `*U`, aside) and that no rule matches, unless they hold one
+# value in every row (which can't tell subjects apart) or nested data (whose
+# columns take the rules); `keep` rules that win
+# over a quasi-identifier rule for a column; and QNAM values of supplemental
+# qualifier datasets that look like those and that no test rule covers. The
+# unmatched columns and qualifiers are released as they are, so each is
+# returned as a reason the target is not met.
 warn_profile_gaps <- function(profile, data, columns, key) {
-  looks <- "^(A?AGE[A-Z0-9]*|.*BRTH.*|.*BIRTH.*|SITE[A-Z0-9]*|HEIGHT.*|HGT.*|HT|HTBL|WEIGHT.*|WGT.*|WT|WTBL|BMI.*)$"
+  looks <- paste0(
+    "^(A?AGE[A-Z0-9]*|.*BRTH.*|.*BIRTH.*|SITE[A-Z0-9]*|.*IDN|COUNTRY.*|RACE[0-9]+|HEIGHT.*|HGT.*|HT|HTBL|",
+    "WEIGHT.*|WGT.*|WT|WTBL|BMI.*|BSA.*|CRCL.*|EGFR.*)$"
+  )
+  look_alike <- function(x) grepl(looks, x, ignore.case = TRUE, useBytes = TRUE) & !grepl("U$", x, ignore.case = TRUE, useBytes = TRUE)
   unmatched <- character(0)
   shadowed <- character(0)
   quasi <- which(profile$role == "quasi" & is.na(profile$test_col))
@@ -678,7 +887,8 @@ warn_profile_gaps <- function(profile, data, columns, key) {
     df <- data[[ds]]
     if (!key %in% names(df)) next
     ruled <- columns$column[columns$dataset == ds]
-    odd <- setdiff(names(df)[grepl(looks, names(df), ignore.case = TRUE, useBytes = TRUE)], c(ruled, key))
+    odd <- setdiff(names(df)[look_alike(names(df))], c(ruled, key))
+    odd <- odd[vapply(odd, function(col) !is.list(df[[col]]) && vctrs::vec_unique_count(df[[col]]) > 1, logical(1))]
     unmatched <- c(unmatched, if (length(odd) > 0) paste0(ds, ".", odd))
     kept <- columns$column[columns$dataset == ds & columns$role == "keep"]
     for (col in kept) {
@@ -708,7 +918,7 @@ warn_profile_gaps <- function(profile, data, columns, key) {
     df <- data[[ds]]
     if (!all(c("QNAM", "QVAL", key) %in% names(df))) next
     qnams <- unique(as.character(df$QNAM))
-    qnams <- qnams[!is.na(qnams) & (grepl(looks, qnams, ignore.case = TRUE) | grepl("^(RACE|ETHNIC|SEX|COUNTRY)", qnams))]
+    qnams <- qnams[!is.na(qnams) & (look_alike(qnams) | grepl("^(RACE|ETHNIC|SEX|COUNTRY)", qnams))]
     covered <- vapply(qnams, function(v) {
       any(vapply(qnam_rules, function(i) profile_in_scope(profile$datasets[[i]], ds) && profile_match(profile$test[i], v), logical(1)))
     }, logical(1))
@@ -721,6 +931,10 @@ warn_profile_gaps <- function(profile, data, columns, key) {
       call. = FALSE
     )
   }
+  c(
+    if (length(unmatched) > 0) "columns that look like quasi-identifiers have no profile rule",
+    if (length(supp) > 0) "supplemental qualifiers that look like quasi-identifiers have no profile rule"
+  )
 }
 
 # The quasi-identifiers found in the data: each with its copies (columns
@@ -776,8 +990,10 @@ profile_quasi <- function(profile, data, key) {
       keys <- normalize_keys(df[[key]])[rows]
       as.numeric(length(unique(keys[!is.na(keys) & !is.na(values)])))
     }, numeric(1))
-    source <- if (any(held >= 0)) which(held == max(held))[1] else 1L
-    rule <- mine[[source]]$rule
+    # No copy with one value per subject: the quasi-identifier can't be
+    # measured (source NA).
+    source <- if (any(held >= 0)) which(held == max(held))[1] else NA_integer_
+    rule <- mine[[if (is.na(source)) 1L else source]]$rule
     list(
       name = name, copies = mine, source = source, ladder = profile$ladder[[rule]], priority = profile$priority[rule],
       first_rule = min(vapply(mine, `[[`, integer(1), "rule")), level = 0L, step = NULL, constant = FALSE
@@ -1079,11 +1295,15 @@ source_blanked_keys <- function(mask, cp) {
 }
 
 # Blank a copy for the subjects `keys` (all rows when NULL): a column, or
-# every row of a test with its other results.
+# every row of a test with its other results. A factor column blanked in
+# every row keeps no levels, which would name the removed values.
 blank_copy <- function(df, cp, key, keys) {
   rows <- if (is.null(keys)) rep(TRUE, nrow_of(df)) else normalize_keys(df[[key]]) %in% keys
   if (cp$type == "column") {
     out <- blank_rows(df, cp$column, which(rows))
+    if (is.null(keys) && is.factor(out$df[[cp$column]])) {
+      out$df <- set_column(out$df, match(cp$column, names(out$df)), drop_unused_levels(out$df[[cp$column]]))
+    }
     return(list(df = out$df, log = list(list(variable = cp$column, n = out$n))))
   }
   rows <- which(rows & test_rows(df, cp))
@@ -1094,6 +1314,19 @@ blank_copy <- function(df, cp, key, keys) {
     log <- c(log, list(list(variable = test_variable(col, cp$test_col, cp$test), n = out$n)))
   }
   list(df = df, log = log)
+}
+
+# A factor without the levels that none of its values has, keeping its other
+# attributes.
+drop_unused_levels <- function(x) {
+  if (!is.factor(x)) {
+    return(x)
+  }
+  used <- levels(x)[levels(x) %in% as.character(x)]
+  out <- match(as.character(x), used)
+  attributes(out) <- attributes(x)
+  attr(out, "levels") <- used
+  out
 }
 
 # Rows of a copy: every row for a column, the test's rows for a test.
@@ -1137,9 +1370,11 @@ quasi_touched <- function(qis, mask) {
 # applies to their quasi-identifiers and the subject's cells weren't
 # blanked; elsewhere mapped from a single quasi-identifier in the same row
 # when that is exact, else blanked. `from` names quasi-identifiers or the
-# column of one of their copies (such as AAGE).
+# column of one of their copies (such as AAGE); a derived variable with one
+# that isn't measured is blanked in every row, with a warning.
 derive_columns <- function(profile, qis, before, data, key, touched) {
   log <- list()
+  no_source <- character(0)
   qnames <- vapply(qis, `[[`, character(1), "name")
   keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
   columns <- profile_columns(profile, data[keyed])
@@ -1179,12 +1414,35 @@ derive_columns <- function(profile, qis, before, data, key, touched) {
     old_df <- before[[ds]]
     rows <- if (tg$type == "column") seq_len(nrow_of(df)) else which(test_rows(df, tg))
     if (length(rows) == 0) next
-    from <- Filter(Negate(is.null), lapply(profile$from[[tg$rule]], resolve))
-    if (length(from) == 0) next
+    from <- lapply(profile$from[[tg$rule]], resolve)
+    absent <- profile$from[[tg$rule]][vapply(from, is.null, logical(1))]
+    if (length(absent) > 0) {
+      # A quasi-identifier it is derived from isn't measured (not in the
+      # data, or with no copy that can be measured), so nothing tells whether
+      # the derived value still follows from released values: it is blanked
+      # in every row.
+      target_cols <- if (tg$type == "test") result_siblings(df, tg$column) else tg$column
+      for (col in target_cols) {
+        out <- blank_rows(df, col, rows)
+        df <- out$df
+        where <- if (tg$type == "test") test_variable(col, tg$test_col, tg$test) else col
+        no_source <- c(no_source, paste0(ds, ".", where))
+        log <- c(log, list(list(
+          dataset = ds, variable = where, n = out$n,
+          detail = paste0("derived from ", paste(absent, collapse = ", "), ", not measured: blanked in every row")
+        )))
+      }
+      data[[ds]] <- df
+      next
+    }
     labels <- vapply(from, `[[`, character(1), "label")
-    # A copy of each quasi-identifier in the same rows, if there is one.
+    # A copy of each quasi-identifier in the same rows, if there is one: for
+    # a column, the copy named as the quasi-identifier (AGE rather than AAGE)
+    # first.
     row_copy <- lapply(from, function(f) {
-      for (cp in qis[[f$q]]$copies) {
+      copies <- qis[[f$q]]$copies
+      named <- vapply(copies, function(cp) cp$type == "column" && cp$column == qis[[f$q]]$name, logical(1))
+      for (cp in copies[order(!named)]) {
         if (cp$dataset != ds) next
         if (tg$type == "column" && cp$type == "column" && (is.na(f$column) || cp$column == f$column)) return(cp)
         if (tg$type == "test" && cp$type == "test" && cp$test_col == tg$test_col && cp$test == tg$test) return(cp)
@@ -1235,12 +1493,21 @@ derive_columns <- function(profile, qis, before, data, key, touched) {
     }
     data[[ds]] <- df
   }
+  if (length(no_source) > 0) {
+    warning(
+      "These derived variables come from quasi-identifiers that aren't measured (not found in the data, or ",
+      "with no copy that holds one value per subject) and were blanked in every row: ",
+      paste(unique(no_source), collapse = ", "), ".",
+      call. = FALSE
+    )
+  }
   list(data = data, log = log)
 }
 
 # For rows where the quasi-identifier changed (`hit`): the row of the
 # original data whose derived value the row takes (`from`, 0 for none), and
-# which rows are blanked. `old`, `new`: the quasi-identifier before and
+# which rows are blanked. Only rows that had a derived value take one; a
+# missing derived value stays missing. `old`, `new`: the quasi-identifier before and
 # after; `derived`: the derived variable before; `step`: the ladder step
 # applied.
 map_derived <- function(old, new, derived, hit, step) {
@@ -1274,7 +1541,7 @@ map_derived <- function(old, new, derived, hit, step) {
     whole <- all(old_v[present] == round(old_v[present]))
     # Each category's first row, and each distinct released value's category.
     first_row <- match(cats, ifelse(ok, d_id, NA))
-    rows <- which(hit & !vctrs::vec_detect_missing(new_v))
+    rows <- which(hit & !vctrs::vec_detect_missing(new_v) & categories$present)
     values <- unique(new_v[rows])
     category <- vapply(values, function(v) {
       range <- released_range(v, step, whole)
@@ -1286,15 +1553,17 @@ map_derived <- function(old, new, derived, hit, step) {
     blank[rows[!is.na(c)]] <- FALSE
     return(list(from = from, blank = blank))
   }
-  # Text: the original data must map each value to one derived value.
+  # Text: the original data must map each value to one derived value (rows
+  # without a derived value aside).
   src <- as.character(old_v)
-  pairs <- unique(data.frame(s = src[present], d = d_id[present], stringsAsFactors = FALSE))
+  mapped <- present & !is.na(d_id)
+  pairs <- unique(data.frame(s = src[mapped], d = d_id[mapped], stringsAsFactors = FALSE))
   if (anyDuplicated(pairs$s)) {
     return(list(from = from, blank = blank))
   }
   target <- as.character(new_v)
-  rows <- which(hit & !is.na(target))
-  j <- match(target[rows], ifelse(present, src, NA))
+  rows <- which(hit & !is.na(target) & categories$present)
+  j <- match(target[rows], ifelse(mapped, src, NA))
   from[rows[!is.na(j)]] <- j[!is.na(j)]
   blank[rows[!is.na(j)]] <- FALSE
   list(from = from, blank = blank)
@@ -1336,10 +1605,11 @@ released_range <- function(v, step, whole) {
 
 # Residual signals (see anon_deidentify()): for each, the subjects unique on
 # it alone, in groups smaller than the target alone, and together with the
-# released quasi-identifiers.
-residual_signals <- function(profile, step, qis, specs, key, k_target) {
+# released quasi-identifiers. Datasets in `skip` (nested data measured as
+# datasets) give no signals of their own.
+residual_signals <- function(profile, step, qis, specs, key, k_target, skip = character(0)) {
   data <- step$data
-  keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
+  keyed <- setdiff(names(data)[vapply(data, function(df) key %in% names(df), logical(1))], skip)
   codes <- NULL
   if (length(specs) > 0) {
     inputs <- tryCatch(suppressWarnings(risk_inputs(step, specs, key)), error = function(e) NULL)
@@ -1467,9 +1737,7 @@ quasi_settings <- function(qis, measures) {
       level = integer(0), step = character(0), constant = logical(0)
     ))
   }
-  where <- function(cp) {
-    if (cp$type == "column") paste0(cp$dataset, ".", cp$column) else paste0(cp$dataset, ".", test_variable(cp$result_col, cp$test_col, cp$test))
-  }
+  where <- copy_where
   tibble::tibble(
     quasi = vapply(qis, `[[`, character(1), "name"),
     source = vapply(qis, function(q) where(q$copies[[q$source]]), character(1)),
@@ -1483,6 +1751,11 @@ quasi_settings <- function(qis, measures) {
     step = vapply(qis, function(q) if (is.null(q$step)) NA_character_ else describe_ladder_step(q$step), character(1)),
     constant = vapply(qis, function(q) isTRUE(q$constant), logical(1))
   )
+}
+
+# Where a copy is, as text: "dataset.column", or the test's result column.
+copy_where <- function(cp) {
+  if (cp$type == "column") paste0(cp$dataset, ".", cp$column) else paste0(cp$dataset, ".", test_variable(cp$result_col, cp$test_col, cp$test))
 }
 
 search_moves_table <- function(search) {

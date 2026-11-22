@@ -56,7 +56,8 @@ set it for data you share.}
 \value{
 An object of class \code{"anon_deid_step"} (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}),
 chainable with the other steps, with the steps' logs and settings
-(\code{settings$deidentify} for this function), the record of suppressed
+(\code{settings$deidentify} for this function; \code{deidentify_1} and so on when
+it runs again on its own result), the record of suppressed
 cells, and also \code{risk_before} and \code{risk_after} (from \code{\link[=anon_risk]{anon_risk()}}) and
 \code{signals} (a tibble with \code{signal}, \code{dataset}, \code{n_subjects}, \code{n_unique},
 \code{n_below_k} and \code{n_below_k_with_quasi}). Secrets only with
@@ -82,9 +83,11 @@ labels or missing-value codes, which can hold the identifier. An exact
 columns.
 \item \code{\link[=anon_subject_dates]{anon_subject_dates()}} offsets every date of each subject by one
 random offset (its own detection: Date and date-time columns, and text
-columns named \verb{*DTC}, at any depth); text columns of ISO 8601 dates
-matched by the profile's \code{"date"} rules (such as \code{VISIT_DATE}, in the
-datasets with the key) are offset by the same offsets.
+columns named \verb{*DTC}, at any depth); text columns matched by the
+profile's \code{"date"} rules (such as \code{VISIT_DATE}, in the datasets with the
+key) are offset by the same offsets, as \verb{*DTC} columns are: values that
+aren't ISO 8601 dates (\verb{10MAR2021}, \code{03/10/2021}, \code{--03-10}) are
+removed, with a warning, and bare years move by whole years.
 \item The quasi-identifiers the profile finds are measured (\code{\link[=anon_risk]{anon_risk()}}).
 Each is measured from its source: the copy with one value per subject
 that holds a value for the most subjects. Every other copy that shows
@@ -95,7 +98,10 @@ generalized at the quasi-identifier's level and suppressed like the
 others, so the released combination is what is measured. Copies are
 never overwritten with the source's values. A column copy with more
 than one value for a subject (such as \code{AAGE} across events) can't be
-measured: a warning names it, and the target is not met.
+measured: a warning names it, and the target is not met. A
+quasi-identifier with no copy that holds one value per subject can't
+be measured at all: a warning names it, it is released as it is, the
+variables derived from it are blanked, and the target is not met.
 \item \strong{Ladder search} (greedy, as Datafly), on the measured values (one
 per subject and measure). The cost of a state is the cells
 suppression would blank, estimated with \code{\link[=anon_suppress]{anon_suppress()}}'s algorithm
@@ -126,6 +132,17 @@ labels of generalized or suppressed columns keep only the values still
 released. The risk is measured again.
 }
 
+\strong{Nested data.} Columns of the data frames nested in a dataset with the
+key (packed columns and the data frames in list columns, at any depth)
+take the dataset's rules. Those of quasi-identifiers and derived
+variables are measured and changed like datasets of their own, each row
+with the subject that owns it (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}): a nested copy
+of \code{AGE} is generalized and suppressed with it, and measured on its own
+where it shows some subject another value. They are named after where
+they are, such as \code{dm.extra} for packed column \code{extra} of \code{dm} and
+\code{dm.visits[[]]} for the data frames in list column \code{visits}. Rows that no
+subject owns are blanked in those columns, and logged.
+
 \strong{Derived variables.} A derived variable is left as it is where no
 ladder step applies to its quasi-identifiers and the subject's cells of
 them weren't blanked. Otherwise (in every row, when a ladder step
@@ -153,14 +170,21 @@ the subjects whose cells of one of them were blanked; for a result column
 (\code{AVAL}, \code{--STRESN}), with the other results of the row. Blanking keeps
 values truthful: a derived value recomputed from a representative (such
 as a BMI from a rounded weight) would not be any subject's. \code{from} can
-name the column of a copy (\code{AAGEGR1} from \code{AAGE}).
+name the column of a copy (\code{AAGEGR1} from \code{AAGE}); a column copy named as
+the quasi-identifier (\code{AGE} rather than \code{AAGE}) is preferred. A derived
+value missing in the data stays missing. A derived variable whose \code{from}
+names a quasi-identifier that isn't measured (not in the data, or with no
+copy that can be measured, such as \code{BMIBL} without height and weight) is
+blanked in every row, with a warning.
 
 \strong{When the target is met.} \code{settings$deidentify$meets_target} is \code{TRUE}
 only when the risk measured on the released data meets the target and
 \code{\link[=anon_suppress]{anon_suppress()}} found no other reason not to (copies of a
 quasi-identifier that differ, birth dates next to \code{AGE}, values of removed
 subjects left); reasons are in \code{settings$deidentify$not_met}. No
-quasi-identifier found in the data is a reason too.
+quasi-identifier found in the data is a reason too, and so are columns
+and supplemental qualifiers that look like quasi-identifiers without a
+rule (see \code{\link[=anon_profile]{anon_profile()}}), which are released as they are.
 
 \strong{Residual signals.} Meeting the target is about the quasi-identifiers
 only. Other things a person might know single subjects out too: treatment

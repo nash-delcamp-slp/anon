@@ -76,10 +76,10 @@ patterns with \code{*} and \verb{?} (such as \code{"ad*"}). Default: every datas
 \item{quasi_name}{For \code{"quasi"} rules, the name of the quasi-identifier.
 Rules with the same name are copies of one quasi-identifier: such as
 baseline weight in SDTM \code{vs}, in ADaM \code{WEIGHTBL} and in \code{advs}. A
-quasi-identifier is measured from its first copy found in the data (in
-the order of the rules, then of the datasets), generalized at the same
-level in every copy, and blanked for the same subjects in every copy.
-Default: \code{test} for a test, otherwise \code{variable}.}
+quasi-identifier is measured from its source (see \code{\link[=anon_deidentify]{anon_deidentify()}}),
+generalized at the same level in every copy, and blanked for the same
+subjects in every copy. Default: \code{test} for a test, otherwise
+\code{variable}.}
 
 \item{test_col, test}{For a quasi-identifier or derived variable held in
 the rows of a test, such as baseline weight in \code{vs}: the column holding
@@ -145,14 +145,27 @@ rule came from). \code{as.data.frame()} returns it as a data frame to edit, and
 \strong{Which rule applies.} For a column of a dataset, among the rules (other
 than test rules) whose \code{variable} and \code{datasets} match it, a rule limited
 to datasets wins over one that isn't, an exact name over a pattern, and a
-later rule over an earlier one. Columns matched by no rule are kept as
-they are, except that dates are offset and subject IDs replaced wherever
-\code{\link[=anon_subject_dates]{anon_subject_dates()}} and \code{\link[=anon_subject_ids]{anon_subject_ids()}} find them;
-\code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns with the key whose names look like
-an age, a birth date, a site, a height, a weight or a BMI and that no rule
-matches, and about \code{"keep"} rules that win over a quasi-identifier's rule
-for a column. Test rules apply to the rows of their test in every dataset
+later rule over an earlier one. Dataset names and patterns are matched
+ignoring case. Test rules apply to the rows of their test in every dataset
 (in \code{datasets}) with the test and result columns.
+
+\strong{Companion variables.} ADaM names a variable's numeric code \code{XN} and its
+decoded or long label \code{XL} or \code{XC} (\code{SITEIDN}, \code{COUNTRYL}, \code{USUBJIDN}).
+\code{\link[=anon_deidentify]{anon_deidentify()}} gives the companions of the key and of each \code{"also"}
+column the \code{"also"} role (a numeric companion gets the number of the
+subject's pseudonym, 31 for \code{SUBJ-031}, the same in every dataset), and
+makes the companions of each quasi-identifier column \code{"derived"} from it.
+A rule that matches a companion's name wins.
+
+Columns matched by no rule are kept as they are, except that dates are
+offset and subject IDs replaced wherever \code{\link[=anon_subject_dates]{anon_subject_dates()}} and
+\code{\link[=anon_subject_ids]{anon_subject_ids()}} find them. \code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns
+with the key whose names look like an age, a birth date, a site, a
+numeric ID (\verb{*IDN}), a country, a race (\code{RACE1}), a height, a weight, a
+BMI, a body surface area, a creatinine clearance or an eGFR (units, named
+\verb{*U}, aside) and that no rule matches, unless they hold one value in every
+row; such a column is a reason the target is not met. It also warns about
+\code{"keep"} rules that win over a quasi-identifier's rule for a column.
 
 \strong{Dates.} \code{\link[=anon_deidentify]{anon_deidentify()}} offsets dates with
 \code{\link[=anon_subject_dates]{anon_subject_dates()}}'s own detection (every Date and date-time column
@@ -214,7 +227,10 @@ datasets carry, with the SDTM ladders;
 \item derived: \code{RACEN}, \verb{RACEGR*} from \code{RACE}; \code{SEXN} from \code{SEX}; \code{ETHNICN}
 from \code{ETHNIC}; \verb{AGEGR*} (such as \code{AGEGR1} and \code{AGEGR1N}) from \code{AGE};
 \verb{AAGEGR*} from \code{AAGE}; \verb{REGION*} from \code{COUNTRY}; \verb{SITEGR*} from
-\code{SITEID}; \code{BMIBL} and \verb{BMIBLGR*} from \code{HEIGHT} and \code{WEIGHT}; \verb{AVALCAT*}
+\code{SITEID}; \code{BMIBL} and \verb{BMIBLGR*} from \code{HEIGHT} and \code{WEIGHT}; \verb{BSA*}
+(such as \code{BSABL}) from \code{HEIGHT} and \code{WEIGHT}, and \verb{CRCL*} and \verb{EGFR*}
+(\code{CRCLBL}, \code{EGFRBL}) from \code{HEIGHT}, \code{WEIGHT}, \code{AGE} and \code{SEX}, their
+units (\verb{*U}) kept; \verb{AVALCAT*}
 and \code{AVALCA*N} of the \code{HEIGHT} and \code{WEIGHT} rows from them; and the
 \code{BMI} and \code{BSA} parameters, from \code{HEIGHT} and \code{WEIGHT};
 \item duration: \code{TRTSDT} to \code{TRTEDT}, in bands of 7 days.

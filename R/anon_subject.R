@@ -885,7 +885,8 @@ print.anon_secrets_list <- function(x, ...) {
 #' @export
 print.anon_deid_step <- function(x, ...) {
   cat("De-identification steps:", paste(unique(x$log$step), collapse = ", "), "\n")
-  deid <- x$settings$deidentify
+  # The last anon_deidentify() run's settings.
+  deid <- if (!is.null(x$settings$deidentify)) x$settings[[last_setting(x$settings, "deidentify")]]
   if (!is.null(deid)) {
     describe <- function(s) {
       if (is.null(s)) "not measured" else paste0("smallest group ", s$min_k, ", ", s$n_below_k, " subject(s) below ", deid$k_target)

@@ -41,10 +41,10 @@
 #' @param quasi_name For `"quasi"` rules, the name of the quasi-identifier.
 #'   Rules with the same name are copies of one quasi-identifier: such as
 #'   baseline weight in SDTM `vs`, in ADaM `WEIGHTBL` and in `advs`. A
-#'   quasi-identifier is measured from its first copy found in the data (in
-#'   the order of the rules, then of the datasets), generalized at the same
-#'   level in every copy, and blanked for the same subjects in every copy.
-#'   Default: `test` for a test, otherwise `variable`.
+#'   quasi-identifier is measured from its source (see [anon_deidentify()]),
+#'   generalized at the same level in every copy, and blanked for the same
+#'   subjects in every copy. Default: `test` for a test, otherwise
+#'   `variable`.
 #' @param test_col,test For a quasi-identifier or derived variable held in
 #'   the rows of a test, such as baseline weight in `vs`: the column holding
 #'   test codes (`"VSTESTCD"`, `"PARAMCD"`) and the test code (`"WEIGHT"`),
@@ -89,14 +89,27 @@
 #' **Which rule applies.** For a column of a dataset, among the rules (other
 #' than test rules) whose `variable` and `datasets` match it, a rule limited
 #' to datasets wins over one that isn't, an exact name over a pattern, and a
-#' later rule over an earlier one. Columns matched by no rule are kept as
-#' they are, except that dates are offset and subject IDs replaced wherever
-#' [anon_subject_dates()] and [anon_subject_ids()] find them;
-#' [anon_deidentify()] warns about columns with the key whose names look like
-#' an age, a birth date, a site, a height, a weight or a BMI and that no rule
-#' matches, and about `"keep"` rules that win over a quasi-identifier's rule
-#' for a column. Test rules apply to the rows of their test in every dataset
+#' later rule over an earlier one. Dataset names and patterns are matched
+#' ignoring case. Test rules apply to the rows of their test in every dataset
 #' (in `datasets`) with the test and result columns.
+#'
+#' **Companion variables.** ADaM names a variable's numeric code `XN` and its
+#' decoded or long label `XL` or `XC` (`SITEIDN`, `COUNTRYL`, `USUBJIDN`).
+#' [anon_deidentify()] gives the companions of the key and of each `"also"`
+#' column the `"also"` role (a numeric companion gets the number of the
+#' subject's pseudonym, 31 for `SUBJ-031`, the same in every dataset), and
+#' makes the companions of each quasi-identifier column `"derived"` from it.
+#' A rule that matches a companion's name wins.
+#'
+#' Columns matched by no rule are kept as they are, except that dates are
+#' offset and subject IDs replaced wherever [anon_subject_dates()] and
+#' [anon_subject_ids()] find them. [anon_deidentify()] warns about columns
+#' with the key whose names look like an age, a birth date, a site, a
+#' numeric ID (`*IDN`), a country, a race (`RACE1`), a height, a weight, a
+#' BMI, a body surface area, a creatinine clearance or an eGFR (units, named
+#' `*U`, aside) and that no rule matches, unless they hold one value in every
+#' row; such a column is a reason the target is not met. It also warns about
+#' `"keep"` rules that win over a quasi-identifier's rule for a column.
 #'
 #' **Dates.** [anon_deidentify()] offsets dates with
 #' [anon_subject_dates()]'s own detection (every Date and date-time column
@@ -155,7 +168,10 @@
 #' - derived: `RACEN`, `RACEGR*` from `RACE`; `SEXN` from `SEX`; `ETHNICN`
 #'   from `ETHNIC`; `AGEGR*` (such as `AGEGR1` and `AGEGR1N`) from `AGE`;
 #'   `AAGEGR*` from `AAGE`; `REGION*` from `COUNTRY`; `SITEGR*` from
-#'   `SITEID`; `BMIBL` and `BMIBLGR*` from `HEIGHT` and `WEIGHT`; `AVALCAT*`
+#'   `SITEID`; `BMIBL` and `BMIBLGR*` from `HEIGHT` and `WEIGHT`; `BSA*`
+#'   (such as `BSABL`) from `HEIGHT` and `WEIGHT`, and `CRCL*` and `EGFR*`
+#'   (`CRCLBL`, `EGFRBL`) from `HEIGHT`, `WEIGHT`, `AGE` and `SEX`, their
+#'   units (`*U`) kept; `AVALCAT*`
 #'   and `AVALCA*N` of the `HEIGHT` and `WEIGHT` rows from them; and the
 #'   `BMI` and `BSA` parameters, from `HEIGHT` and `WEIGHT`;
 #' - duration: `TRTSDT` to `TRTEDT`, in bands of 7 days.
@@ -365,6 +381,11 @@ anon_profile_adam <- function(min_n = 12) {
     anon_profile_rule("REGION*", "derived", from = "COUNTRY"),
     anon_profile_rule("SITEGR*", "derived", from = "SITEID"),
     anon_profile_rule(c("BMIBL", "BMIBLGR*"), "derived", from = c("HEIGHT", "WEIGHT")),
+    # Body surface area and renal function at baseline (BSABL, CRCLBL,
+    # EGFRBL), with their units kept.
+    anon_profile_rule("BSA*", "derived", from = c("HEIGHT", "WEIGHT")),
+    anon_profile_rule(c("CRCL*", "EGFR*"), "derived", from = c("HEIGHT", "WEIGHT", "AGE", "SEX")),
+    anon_profile_rule(c("BSA*U", "CRCL*U", "EGFR*U"), "keep"),
     anon_profile_rule(c("AVALCAT*", "AVALCA*N"), "derived", test_col = "PARAMCD", test = "HEIGHT", from = "HEIGHT"),
     anon_profile_rule(c("AVALCAT*", "AVALCA*N"), "derived", test_col = "PARAMCD", test = "WEIGHT", from = "WEIGHT"),
     anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "BMI", from = c("HEIGHT", "WEIGHT")),
@@ -615,6 +636,20 @@ escape_regex <- function(x) gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", x)
 
 profile_is_pattern <- function(pattern) startsWith(pattern, "--") | grepl("[*?]", pattern)
 
+# Whether a dataset is in a rule's `datasets`, ignoring case (SUPPDM and suppdm
+# alike). A data frame nested in a dataset (see lift_nested_quasi()) takes the
+# scope of its dataset.
 profile_in_scope <- function(datasets, ds) {
-  length(datasets) == 0 || any(vapply(datasets, function(p) profile_match(p, ds), logical(1)))
+  ds <- toupper(dataset_scope_name(ds))
+  length(datasets) == 0 || any(vapply(datasets, function(p) profile_match(toupper(p), ds), logical(1)))
+}
+
+# The dataset whose rules apply to a dataset name: itself, or for the data
+# frames nested in a dataset that anon_deidentify() measures as datasets of
+# their own, that dataset.
+profile_scope <- new.env(parent = emptyenv())
+
+dataset_scope_name <- function(ds) {
+  map <- profile_scope$map
+  if (!is.null(map) && ds %in% names(map)) map[[ds]] else ds
 }

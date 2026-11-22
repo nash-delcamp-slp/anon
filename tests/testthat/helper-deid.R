@@ -565,8 +565,9 @@ deid_fixture <- function() {
 }
 
 # The fixture for the profile pipelines (anon_deidentify()): the fixture,
-# with a birth date (a direct identifier) and SEX (a quasi-identifier only
-# suppressed) in dm, and, with `adam`, an ADSL and a BDS dataset carrying
+# with a birth date (a direct identifier), SEX (a quasi-identifier only
+# suppressed) and nested copies of AGE (a packed column, AGEPACK, and data
+# frames without a key in a list column, AGELIST) in dm, and, with `adam`, an ADSL and a BDS dataset carrying
 # ADSL variables: copies of AGE, SEX and RACE, AGEGR1 and AGEGR1N derived
 # from AGE (cut at 55), RACEN from RACE, baseline weight (WEIGHTBL, each
 # subject's first vs WEIGHT, but from another visit for subject 1), BMIBL
@@ -580,6 +581,8 @@ deid_profile_fixture <- function(adam = FALSE) {
   data$dm$SEX <- deid_profile_sex
   # Subject 3 is 50, on the lower bound of its band.
   data$dm$AGE[3] <- 50
+  data$dm$AGEPACK <- data.frame(AGE = as.numeric(data$dm$AGE))
+  data$dm$AGELIST <- I(lapply(as.numeric(data$dm$AGE), function(a) data.frame(AGE = a)))
   if (!adam) {
     return(data)
   }
@@ -1220,6 +1223,9 @@ deid_keep_rows_without <- function(dropped) {
 # allows) RACE of 7 and 8.
 deid_profile_quasi <- list(dm = c("AGE", "SEX", "RACE"), anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"))
 deid_profile_run <- function(profile) {
+  # The fixture's dm.SITE (two sites of four subjects each) is kept
+  # knowingly; a column that looks like a site without a rule fails the target.
+  profile <- c(profile, anon_profile(anon_profile_rule("SITE", "keep"), name = "harness"))
   function(data) anon_deidentify(data, profile, max_risk = 1/2, keep_secrets = TRUE, seed = deid_seeds[1])
 }
 deid_profile_truth <- function(original, oracle) {
@@ -1247,7 +1253,10 @@ deid_profile_expected <- function(adam = FALSE) {
   out <- c(
     list(
       dm.AGE = per_subject(age), dm.SEX = per_subject(sex), dm.RACE = per_subject(race),
-      dm.BRTHDTC = function(x, keys, oracle) rep("", length(x))
+      dm.BRTHDTC = function(x, keys, oracle) rep("", length(x)),
+      # The nested copies of AGE are generalized with it.
+      dm.AGEPACK = function(x, keys, oracle) data.frame(AGE = age[subject(keys)]),
+      dm.AGELIST = function(x, keys, oracle) I(lapply(age[subject(keys)], function(a) data.frame(AGE = a)))
     ),
     weights[c("vs.VSSTRESN", "vs.VSSTRESC", "vs.VSORRES")]
   )
