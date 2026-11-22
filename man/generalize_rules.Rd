@@ -15,9 +15,9 @@ anon_fold(min_n, to)
 }
 \arguments{
 \item{width}{Width of each band, a positive number (for example 5 for
-5-year age bands). Bands are anchored at 0: with \code{width = 5} they are
-0-4.99..., 5-9.99..., and so on, and with \code{width = 10} they are 0-9.99...,
-10-19.99..., whatever the data's range.}
+5-year age bands). Bands start at \code{bottom} when given, otherwise at 0:
+with \code{width = 5} they are 0-4.99..., 5-9.99..., and so on, whatever the
+data's range; with \code{bottom = 18} they are 18-22.99..., 23-27.99...}
 
 \item{top, bottom}{Optional limits: values at or above \code{top} become \code{top},
 and values at or below \code{bottom} become \code{bottom}, instead of being banded
@@ -25,8 +25,8 @@ and values at or below \code{bottom} become \code{bottom}, instead of being band
 over 89 into one category, which \code{top = 90} gives.}
 
 \item{value}{The number that stands for a band: \code{"lower"} (default), its
-lower bound, or \code{"midpoint"}, its middle. Either is a representative, not
-a subject's real value.}
+lower bound, or \code{"midpoint"}, its middle, kept within \code{bottom} and \code{top}.
+Either is a representative, not a subject's real value.}
 
 \item{digits}{Number of decimal places to round to, as in \code{\link[=round]{round()}};
 negative values round to tens (\code{-1}), hundreds (\code{-2}) and so on.}
@@ -56,8 +56,10 @@ class and attributes, so code written for the original values still runs.
 \strong{Bands and rounding} apply to numeric vectors (double or integer, also
 haven-labelled). The result stays numeric; an integer vector stays integer,
 and a rule that would give it a number that isn't whole (a midpoint of an
-odd width, say) is an error. Missing values, and haven user-defined missing
-values, are left as they are. Rounding follows \code{\link[=round]{round()}}.
+odd width, say) is an error, as is one too large for an integer. Missing
+values, haven user-defined missing values, and values that carry a haven
+value label (codes such as 99 for "not done") are left as they are.
+Rounding follows \code{\link[=round]{round()}}.
 
 \strong{Folding} applies to character, factor and numeric vectors (also
 haven-labelled). Missing and blank values are never folded or counted, and

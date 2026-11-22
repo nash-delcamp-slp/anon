@@ -165,16 +165,21 @@ test_that("anon_rule() generalizes every row of a test and keeps the text result
   expect_identical(vs$VSSTRESN, c(70, 163, 65, 170, 82, 177, 68, 171, 60, NA, 56, NA))
   # --STRESC from --STRESN at its own decimals; non-numbers unchanged.
   expect_identical(vs$VSSTRESC, c("70.0", "163.00", "65.0", "170", "82.00", "177.00", "68.00", "171.0", "60.0", "", "56.0", "<150"))
-  # --ORRES from --STRESN in the same units; on its own in others (LB, in).
-  expect_identical(vs$VSORRES, c("70.0", "64.0", "65.0", "170", "181.0", "70.0", "68.00", "171.0", "60.0", "ND", "56.0", "<150"))
+  # --ORRES from --STRESN: in the same units as it is, in others (LB, in)
+  # by each row's own factor (original VSORRES / VSSTRESN), at its decimals:
+  # 163 * 64.0 / 162.56, 82 * 180.9 / 82.06, 177 * 69.5 / 176.53.
+  expect_identical(vs$VSORRES, c("70.0", "64.2", "65.0", "170", "180.8", "69.7", "68.00", "171.0", "60.0", "ND", "56.0", "<150"))
   expect_identical(vs[setdiff(names(vs), c("VSSTRESN", "VSSTRESC", "VSORRES"))], data$vs[setdiff(names(vs), c("VSSTRESN", "VSSTRESC", "VSORRES"))])
   log <- result$log
   expect_identical(log$variable[-1], c(
-    "VSSTRESN (VSTESTCD = WEIGHT)", "VSORRES (VSTESTCD = WEIGHT)", "VSSTRESC (VSTESTCD = WEIGHT)",
-    "VSSTRESN (VSTESTCD = HEIGHT)", "VSORRES (VSTESTCD = HEIGHT)", "VSSTRESC (VSTESTCD = HEIGHT)"
+    "VSSTRESN (VSTESTCD = WEIGHT)", "VSSTRESC (VSTESTCD = WEIGHT)", "VSORRES (VSTESTCD = WEIGHT)",
+    "VSSTRESN (VSTESTCD = HEIGHT)", "VSSTRESC (VSTESTCD = HEIGHT)", "VSORRES (VSTESTCD = HEIGHT)"
   ))
-  expect_match(log$detail[log$variable %in% "VSORRES (VSTESTCD = WEIGHT)"], "5 rewritten from the generalized `VSSTRESN`, 1 generalized on their own")
-  expect_match(log$detail[log$variable %in% "VSORRES (VSTESTCD = HEIGHT)"], "2 value\\(s\\) that aren't plain numbers left unchanged")
+  expect_match(log$detail[log$variable %in% "VSORRES (VSTESTCD = WEIGHT)"], "6 rewritten from the generalized `VSSTRESN` \\(1 in other units, by each row's own conversion factor\\)")
+  expect_match(log$detail[log$variable %in% "VSORRES (VSTESTCD = HEIGHT)"], "2 value\\(s\\) that aren't numbers left unchanged")
+  # A conversion check that passes on the original passes on the copy.
+  lb <- data$vs$VSORRESU == "LB"
+  expect_lt(abs(as.numeric(vs$VSORRES[lb]) * 0.45359237 - vs$VSSTRESN[lb]), 0.05)
 
   # A midpoint needs a decimal that the original text didn't have.
   vs2 <- data.frame(USUBJID = "a", VSTESTCD = "WEIGHT", VSORRES = "64", VSSTRESC = "64", VSSTRESN = 64)
@@ -224,4 +229,126 @@ test_that("anon_generalize() validates rules and chains with the other steps", {
   expect_named(step$settings, c("subject_ids", "generalize"))
   dated <- anon_subject_dates(step, seed = 2)
   expect_identical(dated$data$dm$AGE, step$data$dm$AGE)
+})
+
+test_that("--ORRES without unit columns follows --STRESN by its own factor, or is blanked without one", {
+  vs <- data.frame(
+    USUBJID = c("a", "b", "c", "d"), VSTESTCD = "W",
+    VSORRES = c("154.94", "70.44", "31.5", "12"),
+    VSSTRESC = c("154.9", "70.4", "", "0"),
+    VSSTRESN = c(154.9, 70.4, NA, 0)
+  )
+  out <- anon_generalize(list(vs = vs), list(anon_rule(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN"), anon_band(5))))$data$vs
+  expect_identical(out$VSSTRESN, c(150, 70, NA, 0))
+  # 150 * 154.94 / 154.9 and 70 * 70.44 / 70.4, at two decimals; no factor
+  # for a missing or zero VSSTRESN: blanked ("" as the column has no NA).
+  expect_identical(out$VSORRES, c("150.04", "70.04", "", ""))
+})
+
+test_that("numbers with thousands separators or exponents are rewritten in their own form; other text warns", {
+  lb <- data.frame(
+    USUBJID = c("a", "b", "c", "d"), LBTESTCD = "PLAT",
+    LBORRES = c("1,234", "2.5E2", "317", "<5"), LBORRESU = "10^9/L",
+    LBSTRESC = c("1234", "250", "317", "<5"), LBSTRESN = c(1234, 250, 317, 4), LBSTRESU = "10^9/L"
+  )
+  expect_warning(
+    out <- anon_generalize(list(lb = lb), list(anon_rule(anon_quasi_values("lb", "LBTESTCD", "PLAT", "LBSTRESN"), anon_round(-2))))$data$lb,
+    "Results in `lb` that aren't numbers were left unchanged in rows of a generalized test: LBSTRESC \\(LBTESTCD = PLAT\\), LBORRES"
+  )
+  expect_identical(out$LBSTRESN, c(1200, 200, 300, 0))
+  expect_identical(out$LBORRES, c("1,200", "2.0E2", "300", "<5"))
+  expect_identical(out$LBSTRESC, c("1200", "200", "300", "<5"))
+})
+
+test_that("ADaM AVAL keeps AVALC, BASE, BASEC, CHG and PCHG consistent", {
+  advs <- data.frame(
+    USUBJID = rep(c("S1", "S2"), each = 2), PARAMCD = "WEIGHT", ABLFL = c("Y", "", "Y", ""),
+    AVAL = c(59.4, 60.4, 81.2, 79.9)
+  )
+  advs$AVALC <- sprintf("%.1f", advs$AVAL)
+  advs$BASE <- rep(advs$AVAL[advs$ABLFL == "Y"], each = 2)
+  advs$BASEC <- sprintf("%.1f", advs$BASE)
+  advs$CHG <- advs$AVAL - advs$BASE
+  advs$PCHG <- 100 * advs$CHG / advs$BASE
+  out <- anon_generalize(list(advs = advs), list(anon_rule(anon_quasi_values("advs", "PARAMCD", "WEIGHT", "AVAL"), anon_round(-1))))$data$advs
+  expect_identical(out$AVAL, c(60, 60, 80, 80))
+  expect_identical(out$AVALC, c("60.0", "60.0", "80.0", "80.0"))
+  expect_identical(out$BASE, c(60, 60, 80, 80))
+  expect_identical(out$BASEC, c("60.0", "60.0", "80.0", "80.0"))
+  expect_identical(out$CHG, c(0, 0, 0, 0))
+  expect_identical(out$PCHG, c(0, 0, 0, 0))
+  # Suppression blanks them together.
+  adsl <- data.frame(USUBJID = c("S1", "S2"), SEX = c("F", "F"))
+  q <- list(adsl = "SEX", anon_quasi_values("advs", "PARAMCD", "WEIGHT", "AVAL", filter = ~ ABLFL == "Y"))
+  sup <- anon_suppress(list(adsl = adsl, advs = advs), q, max_risk = 1/2)$data$advs
+  blank <- is.na(sup$AVAL)
+  expect_true(any(blank))
+  expect_true(all(is.na(sup$BASE[blank]) & is.na(sup$CHG[blank]) & is.na(sup$PCHG[blank]) & sup$AVALC[blank] == ""))
+})
+
+test_that("text siblings that are factors or haven-labelled keep their class", {
+  skip_if_not_installed("haven")
+  vs <- data.frame(USUBJID = c("a", "b"), VSTESTCD = "W", VSSTRESN = c(70.4, 81.6))
+  vs$VSSTRESC <- factor(c("70.4", "81.6"))
+  vs$VSORRES <- haven::labelled(c("70.4", "81.6"), labels = c("Not done" = "ND"))
+  out <- anon_generalize(list(vs = vs), list(anon_rule(anon_quasi_values("vs", "VSTESTCD", "W", "VSSTRESN"), anon_round(0))))$data$vs
+  expect_s3_class(out$VSSTRESC, "factor")
+  expect_identical(as.character(out$VSSTRESC), c("70.0", "82.0"))
+  expect_s3_class(out$VSORRES, "haven_labelled")
+  expect_identical(as.character(vctrs::vec_data(out$VSORRES)), c("70.0", "82.0"))
+  expect_identical(attr(out$VSORRES, "labels"), c("Not done" = "ND"))
+})
+
+test_that("bands start at `bottom`, and representatives stay within [bottom, top]", {
+  expect_equal(anon_band(5, bottom = 18)(c(15, 18, 18.5, 22.9, 23, 25)), c(18, 18, 18, 18, 23, 23))
+  expect_equal(anon_band(5, top = 92, value = "midpoint")(c(88, 90, 91.9, 92, 99)), c(87.5, 92, 92, 92, 92))
+  expect_equal(anon_band(10, bottom = 20, value = "midpoint")(c(21, 30)), c(25, 35))
+})
+
+test_that("values carrying a haven value label are left as they are by bands and rounding", {
+  skip_if_not_installed("haven")
+  h <- haven::labelled(c(1, 2, 99, 34), labels = c(missing = 99, one = 1))
+  out <- anon_band(10)(h)
+  expect_identical(as.numeric(vctrs::vec_data(out)), c(1, 0, 99, 30))
+  expect_identical(attr(out, "labels"), c(missing = 99, one = 1))
+})
+
+test_that("integer edge cases and blank `to` give clear errors", {
+  expect_error(anon_round(-1)(.Machine$integer.max), "too large for an integer")
+  expect_identical(anon_round(-9)(.Machine$integer.max), 2000000000L)
+  expect_error(anon_fold(2, ""), "must not be blank")
+  expect_error(anon_fold(2, " "), "must not be blank")
+  expect_error(anon_fold(2, Inf), "finite")
+})
+
+test_that("factor folds count only their own rows' categories, and drop unused small levels", {
+  d <- data.frame(USUBJID = c("a", "b", "c"), R = factor(c("W", "W", "W"), levels = c("W", "RARE")))
+  out <- anon_generalize(d, list(R = anon_fold(2, "OTHER")), keep_secrets = TRUE)
+  expect_identical(levels(out$data$R), "W")
+  # An unused level held no subject: nothing to keep in the secrets.
+  expect_identical(nrow(anon_secrets(out)$generalize_folded), 0L)
+
+  sc <- data.frame(
+    USUBJID = c("a", "b", "c", "d", "a"), SCTESTCD = c("EDU", "EDU", "EDU", "EDU", "MARIT"),
+    SCSTRESC = factor(c("COL", "COL", "PHD", "COL", "MARRIED"))
+  )
+  g <- anon_generalize(list(sc = sc), list(anon_rule(anon_quasi_values("sc", "SCTESTCD", "EDU", "SCSTRESC"), anon_fold(2, "OTHER"))), keep_secrets = TRUE)
+  expect_identical(as.character(g$data$sc$SCSTRESC), c("COL", "COL", "OTHER", "COL", "MARRIED"))
+  expect_identical(anon_secrets(g)$generalize_folded$category, "PHD")
+})
+
+test_that("anon_generalize() warns about birth dates next to AGE and about copies it doesn't cover", {
+  dm <- data.frame(USUBJID = c("a", "b"), AGE = c(31, 47), BRTHDTC = c("1990-03-04", "1975"))
+  expect_warning(
+    anon_generalize(dm, list(AGE = anon_band(10))),
+    "Birth dates more precise than a year are next to a generalized or suppressed `AGE`: data.BRTHDTC"
+  )
+  dm$BRTHDTC <- c("1990", "1975")
+  expect_no_warning(anon_generalize(dm, list(AGE = anon_band(10))))
+  adsl <- data.frame(USUBJID = c("a", "b"), AGE = c(31, 47))
+  expect_warning(
+    anon_generalize(list(dm = dm, adsl = adsl), list(dm = list(AGE = anon_band(10)))),
+    "`AGE` is generalized in `dm` but not in these datasets, which hold it too: adsl"
+  )
+  expect_no_warning(anon_generalize(list(dm = dm, adsl = adsl), list(dm = list(AGE = anon_band(10)), adsl = list(AGE = anon_band(10)))))
 })

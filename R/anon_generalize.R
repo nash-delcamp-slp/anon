@@ -7,16 +7,16 @@
 #' class and attributes, so code written for the original values still runs.
 #'
 #' @param width Width of each band, a positive number (for example 5 for
-#'   5-year age bands). Bands are anchored at 0: with `width = 5` they are
-#'   0-4.99..., 5-9.99..., and so on, and with `width = 10` they are 0-9.99...,
-#'   10-19.99..., whatever the data's range.
+#'   5-year age bands). Bands start at `bottom` when given, otherwise at 0:
+#'   with `width = 5` they are 0-4.99..., 5-9.99..., and so on, whatever the
+#'   data's range; with `bottom = 18` they are 18-22.99..., 23-27.99...
 #' @param top,bottom Optional limits: values at or above `top` become `top`,
 #'   and values at or below `bottom` become `bottom`, instead of being banded
 #'   (top and bottom coding). HIPAA Safe Harbor, for example, groups ages
 #'   over 89 into one category, which `top = 90` gives.
 #' @param value The number that stands for a band: `"lower"` (default), its
-#'   lower bound, or `"midpoint"`, its middle. Either is a representative, not
-#'   a subject's real value.
+#'   lower bound, or `"midpoint"`, its middle, kept within `bottom` and `top`.
+#'   Either is a representative, not a subject's real value.
 #' @param digits Number of decimal places to round to, as in [round()];
 #'   negative values round to tens (`-1`), hundreds (`-2`) and so on.
 #' @param min_n Smallest number of subjects a category must hold to be kept.
@@ -31,8 +31,10 @@
 #' **Bands and rounding** apply to numeric vectors (double or integer, also
 #' haven-labelled). The result stays numeric; an integer vector stays integer,
 #' and a rule that would give it a number that isn't whole (a midpoint of an
-#' odd width, say) is an error. Missing values, and haven user-defined missing
-#' values, are left as they are. Rounding follows [round()].
+#' odd width, say) is an error, as is one too large for an integer. Missing
+#' values, haven user-defined missing values, and values that carry a haven
+#' value label (codes such as 99 for "not done") are left as they are.
+#' Rounding follows [round()].
 #'
 #' **Folding** applies to character, factor and numeric vectors (also
 #' haven-labelled). Missing and blank values are never folded or counted, and
@@ -112,6 +114,12 @@ anon_fold <- function(min_n, to) {
   if (!(is.character(to) || is.numeric(to)) || length(to) != 1 || is.na(to) || is.factor(to)) {
     stop("`to` must be a single string or number.", call. = FALSE)
   }
+  if (is.character(to) && !nzchar(trimws(to))) {
+    stop("`to` must not be blank: blank is how missing text is stored.", call. = FALSE)
+  }
+  if (is.numeric(to) && !is.finite(to)) {
+    stop("`to` must be a finite number.", call. = FALSE)
+  }
   new_generalize_rule("fold", list(min_n = min_n, to = to))
 }
 
@@ -134,19 +142,30 @@ anon_fold <- function(min_n, to) {
 #' When `result_col` is a numeric SDTM result (`--STRESN`) and the rule is a
 #' band or rounding, the text results of the same rows follow it:
 #' - `--STRESC` is rewritten from the generalized `--STRESN`;
-#' - `--ORRES` is rewritten from the generalized `--STRESN` where it is in the
-#'   same units (`--ORRESU` equals `--STRESU`), and otherwise is generalized
-#'   on its own with the same rule, from its own number, and kept as text;
+#' - `--ORRES` is rewritten from the generalized `--STRESN`: as it is where
+#'   the units are the same (`--ORRESU` equals `--STRESU`), and otherwise
+#'   times the row's own conversion factor (original `--ORRES` / original
+#'   `--STRESN`), so it is never finer than `--STRESN` and unit conversion
+#'   checks still pass. Without a factor (`--STRESN` missing or 0, or no unit
+#'   columns and different values), it is blanked;
 #'
-#' each with as many decimals as it had (more where the generalized number
-#' needs them, such as a midpoint of `62.5` for `"64"`). Only text that is a
-#' plain decimal number (`"58"`, `"58.0"`, `"-1.25"`) is rewritten; other
-#' results, such as `"<5"` or `"ND"`, are left unchanged and counted in the
-#' log.
+#' each in its own form (plain, with thousands separators such as
+#' `"1,234"`, or in scientific notation such as `"2.5E2"`) and with as many
+#' decimals as it had (in the same units, more where the generalized number
+#' needs them, such as a midpoint of `62.5` for `"64"`). Other results, such
+#' as `"<5"` or `"ND"`, are left unchanged and counted in the log, with a
+#' warning where the row has a numeric result.
+#'
+#' For ADaM, with `result_col = "AVAL"`, `AVALC` is rewritten from the
+#' generalized `AVAL`, `BASE` is generalized by the same rule (it is the
+#' baseline `AVAL`) with `BASEC` rewritten from it, and `CHG` (`AVAL - BASE`)
+#' and `PCHG` (`100 * CHG / BASE`) are recomputed from the generalized
+#' values. Other result columns are generalized alone.
 #'
 #' With [anon_fold()], `result_col` must be text; on the rows folded, the
-#' other text result (`--ORRES` or `--STRESC`) becomes `to` too, and a
-#' `--STRESN` value becomes missing.
+#' other text results (`--ORRES` or `--STRESC`; `AVALC`, `BASEC`) become `to`
+#' too, and numeric ones become missing. Only the categories found in the
+#' test's rows count (a factor's levels are shared by every test).
 #'
 #' @return An object of class `"anon_rule_values"`.
 #'
@@ -218,7 +237,15 @@ print.anon_rule_values <- function(x, ...) {
 #'
 #' Rules apply to the columns of the datasets themselves. Data frames nested
 #' in them (packed columns and list columns, see [anon_subject_ids()]) are
-#' not generalized.
+#' not generalized. A warning names the datasets with the key that hold a
+#' generalized column under the same name without a rule for it.
+#'
+#' A birth date more precise than a year (`BRTHDTC`, or a Date `BRTHDT`) in a
+#' dataset whose `AGE` is generalized gives the age back with a reference
+#' date such as `RFSTDTC`, even after the dates are offset: a warning names
+#' it. Remove birth dates or reduce them to the year. Other dates and derived
+#' columns can give a quasi-identifier back the same way (see
+#' [anon_suppress()]).
 #'
 #' The log has one row per dataset, column and test, counting the values
 #' changed; it holds no values, and the settings record the rules. The step
@@ -305,13 +332,21 @@ anon_generalize <- function(data, rules, key = "USUBJID", keep_secrets = FALSE) 
     for (row in applied$log) {
       log <- deid_log_add(log, tg$dataset, row$variable, row$detail, row$n_changed, 0)
     }
-    if (!is.null(fold_set) && length(fold_set$categories) > 0) {
+    held <- if (!is.null(fold_set)) fold_set$counts > 0
+    if (any(held)) {
       folded_secret <- c(folded_secret, list(tibble::tibble(
-        dataset = tg$dataset, variable = target_variable(tg), category = fold_set$categories,
-        to = as.character(rule_params(tg$rule)$to), n_subjects = as.integer(fold_set$counts)
+        dataset = tg$dataset, variable = target_variable(tg), category = fold_set$categories[held],
+        to = as.character(rule_params(tg$rule)$to), n_subjects = as.integer(fold_set$counts[held])
       )))
     }
   }
+
+  ages <- unique(vapply(Filter(function(tg) tg$type == "column" && toupper(tg$column) == "AGE", targets), `[[`, character(1), "dataset"))
+  births <- precise_birth_dates(data, ages)
+  if (length(births) > 0) {
+    warn_birth_dates(births)
+  }
+  warn_uncovered_copies(data, targets, key)
 
   secrets <- if (isTRUE(keep_secrets)) {
     folded <- if (length(folded_secret) > 0) do.call(rbind, folded_secret) else tibble::tibble(
@@ -505,6 +540,10 @@ fold_pairs <- function(data, tg, key) {
     )
   }
   cats <- fold_categories(vctrs::vec_slice(x, rows))
+  if (tg$type == "test") {
+    # A factor's levels are shared by every test: only this test's values count.
+    cats$levels <- character(0)
+  }
   subjects <- normalize_keys(df[[key]])[rows]
   pairs <- data.frame(
     category = c(cats$id[cats$present], setdiff(cats$levels, cats$id[cats$present])),
@@ -529,7 +568,7 @@ test_rows <- function(df, tg) {
 generalize_column <- function(df, tg, fold_set) {
   x <- df[[tg$column]]
   out <- generalize_values(rule_kind(tg$rule), rule_params(tg$rule), x, fold_set = fold_set, what = tg$column)
-  df <- set_generalized_column(df, tg$column, out$values, any(out$changed))
+  df <- set_generalized_column(df, tg$column, out$values, any(out$changed) || !identical(levels(out$values), levels(x)))
   list(df = df, log = list(list(variable = tg$column, detail = rule_detail(tg$rule), n_changed = sum(out$changed))))
 }
 
@@ -586,49 +625,123 @@ generalize_test <- function(df, tg, key, fold_set) {
   }
 
   new_result <- as.double(vctrs::vec_data(out$values))
-  prefix <- sub("(ORRES|STRESC|STRESN)$", "", tg$result_col)
-  units <- paste0(prefix, c("ORRESU", "STRESU"))
-  for (col in setdiff(siblings, tg$result_col)) {
+  old_values <- as.double(vctrs::vec_data(old_result))
+  unparsed <- character(0)
+  text_sibling <- function(df, col, base, ratio, same) {
     y <- df[[col]]
-    if (!is_text_vector(y)) {
-      next
+    if (is.null(y) || !is_text_vector(y)) {
+      return(list(df = df, log = NULL))
     }
-    text <- as.character(if (inherits(y, "haven_labelled")) vctrs::vec_data(y) else y)[rows]
-    parsed <- parse_decimal_text(text)
-    # From the generalized numeric result, unless this is --ORRES in other
-    # units (or the numeric result is missing): then from its own number.
-    from_result <- !is.na(new_result)
-    if (col == paste0(prefix, "ORRES")) {
-      from_result <- from_result & same_units(df, units, rows)
-    }
-    own <- parsed$ok & !from_result
-    value <- rep(NA_real_, length(rows))
-    value[parsed$ok & from_result] <- new_result[parsed$ok & from_result]
-    value[own] <- generalize_values(kind, params, parsed$value[own], what = col)$values
-    new_text <- text
-    new_text[parsed$ok] <- format_decimal(value[parsed$ok], parsed$decimals[parsed$ok])
-    changed <- parsed$ok & new_text != text
-    df <- set_generalized_column(df, col, replace_at(y, rows[changed], new_text[changed]), any(changed))
-    n_text <- sum(!is.na(text) & nzchar(trimws(text)) & !parsed$ok)
+    out <- rewrite_number_text(y, rows, base, ratio, same, kind, params, col)
+    if (out$n_unparsed_with_result > 0) unparsed <<- c(unparsed, where(col))
     detail <- paste0(
-      sum(changed & from_result), " rewritten from the generalized `", tg$result_col, "`",
-      if (any(own)) paste0(", ", sum(changed & own), " generalized on their own (", rule_detail(tg$rule), ")"),
+      out$n_from, " rewritten from the generalized `", tg$result_col, "`",
+      if (out$n_ratio > 0) paste0(" (", out$n_ratio, " in other units, by each row's own conversion factor)"),
+      if (out$n_own > 0) paste0(", ", out$n_own, " generalized on their own (", rule_detail(tg$rule), ")"),
+      if (out$n_blanked > 0) paste0(", ", out$n_blanked, " blanked (no conversion factor)"),
       " at each value's decimals",
-      if (n_text > 0) paste0("; ", n_text, " value(s) that aren't plain numbers left unchanged")
+      if (out$n_unparsed > 0) paste0("; ", out$n_unparsed, " value(s) that aren't numbers left unchanged")
     )
-    log <- c(log, list(list(variable = where(col), detail = detail, n_changed = sum(changed))))
+    list(df = set_generalized_column(df, col, out$values, out$n > 0), log = list(variable = where(col), detail = detail, n_changed = out$n))
+  }
+  add <- function(res) {
+    df <<- res$df
+    if (!is.null(res$log)) log <<- c(log, list(res$log))
+  }
+  if (tg$result_col == "AVAL") {
+    # ADaM: AVALC from AVAL; BASE by the same rule (it is the baseline AVAL),
+    # BASEC from it, and CHG and PCHG recomputed from the generalized values.
+    add(text_sibling(df, "AVALC", new_result, rep(1, length(rows)), TRUE))
+    new_base <- NULL
+    if ("BASE" %in% names(df) && is.numeric(vctrs::vec_data(df$BASE)) && !is.factor(df$BASE)) {
+      b <- generalize_values(kind, params, vctrs::vec_slice(df$BASE, rows), what = "BASE")
+      df <- set_generalized_column(df, "BASE", replace_rows(df$BASE, rows, b$values), any(b$changed))
+      log <- c(log, list(list(variable = where("BASE"), detail = rule_detail(tg$rule), n_changed = sum(b$changed))))
+      new_base <- as.double(vctrs::vec_data(b$values))
+      add(text_sibling(df, "BASEC", new_base, rep(1, length(rows)), TRUE))
+    }
+    if (!is.null(new_base)) {
+      chg <- round(new_result - new_base, 10)
+      for (col in intersect(c("CHG", "PCHG"), names(df))) {
+        y <- df[[col]]
+        if (is.factor(y) || !is.numeric(vctrs::vec_data(y))) next
+        value <- if (col == "CHG") chg else ifelse(!is.na(new_base) & new_base != 0, round(100 * chg / new_base, 10), NA_real_)
+        old <- vctrs::vec_data(y)[rows]
+        value[is.na(old)] <- NA
+        new <- replace_rows(y, rows, if (is.integer(old)) as.integer(round(value)) else value)
+        n <- sum(changed_values(old, vctrs::vec_data(new)[rows]))
+        df <- set_generalized_column(df, col, new, n > 0)
+        log <- c(log, list(list(variable = where(col), detail = "recomputed from the generalized AVAL and BASE", n_changed = n)))
+      }
+    }
+  } else if (grepl("STRESN$", tg$result_col)) {
+    prefix <- sub("STRESN$", "", tg$result_col)
+    add(text_sibling(df, paste0(prefix, "STRESC"), new_result, rep(1, length(rows)), TRUE))
+    # --ORRES in the same units follows --STRESN; in other units, it follows
+    # it by each row's own factor (original --ORRES / --STRESN).
+    orres <- paste0(prefix, "ORRES")
+    if (orres %in% names(df)) {
+      same <- same_units(df, paste0(prefix, c("ORRESU", "STRESU")), rows)
+      own <- parse_number_text(as.character(text_values(df[[orres]]))[rows])$value
+      ratio <- ifelse(same, 1, ifelse(!is.na(old_values) & old_values != 0, own / old_values, NA_real_))
+      add(text_sibling(df, orres, new_result, ratio, same))
+    }
+  }
+  if (length(unparsed) > 0) {
+    warning(
+      "Results in `", dataset_label(tg$dataset), "` that aren't numbers were left unchanged in rows of a generalized ",
+      "test: ", paste(unparsed, collapse = ", "), ". Check that they don't hold a subject's real value.",
+      call. = FALSE
+    )
   }
   list(df = df, log = log)
 }
 
-# The SDTM result columns of the same test as `col` (--ORRES, --STRESC,
-# --STRESN with the same prefix) found in the data frame.
+# The result columns of the same test as `col` found in the data frame: for
+# SDTM, --ORRES, --STRESC and --STRESN with the same prefix; for ADaM AVAL
+# or AVALC, AVAL, AVALC, BASE, BASEC, CHG and PCHG.
 result_siblings <- function(df, col) {
+  if (col %in% c("AVAL", "AVALC")) {
+    return(intersect(c("AVAL", "AVALC", "BASE", "BASEC", "CHG", "PCHG"), names(df)))
+  }
   if (!grepl("(ORRES|STRESC|STRESN)$", col)) {
     return(col)
   }
   prefix <- sub("(ORRES|STRESC|STRESN)$", "", col)
   intersect(paste0(prefix, c("ORRES", "STRESC", "STRESN")), names(df))
+}
+
+text_values <- function(y) if (inherits(y, "haven_labelled")) vctrs::vec_data(y) else as.character(y)
+
+# Rewrite the numbers in a text result column `y` at `rows` from the
+# generalized numeric result `base` times `ratio` (1 for the same units),
+# keeping each value's form and decimals. Where `base` is missing, a value
+# in the same units (`same`) is generalized on its own, and one in other
+# units is blanked (there is no factor to follow). Text that isn't a number
+# is left as it is, and counted.
+rewrite_number_text <- function(y, rows, base, ratio, same, kind, params, col) {
+  text <- as.character(text_values(y))[rows]
+  parsed <- parse_number_text(text)
+  avail <- parsed$ok & !is.na(base) & !is.na(ratio)
+  own <- parsed$ok & !avail & same
+  blank <- parsed$ok & !avail & !same
+  value <- rep(NA_real_, length(rows))
+  value[avail] <- base[avail] * ratio[avail]
+  value[own] <- generalize_values(kind, params, parsed$value[own], what = col)$values
+  new_text <- text
+  exact <- (avail & ratio == 1) | own
+  scaled <- avail & ratio != 1
+  new_text[exact] <- format_number(value[exact], parsed$decimals[exact], parsed$style[exact], extend = TRUE)
+  new_text[scaled] <- format_number(value[scaled], parsed$decimals[scaled], parsed$style[scaled], extend = FALSE)
+  new_text[blank] <- blank_text_value(as.character(text_values(y)))
+  changed <- (is.na(new_text) != is.na(text)) | (!is.na(new_text) & !is.na(text) & new_text != text)
+  out <- replace_at(y, rows[changed], new_text[changed])
+  list(
+    values = out, n = sum(changed), n_from = sum(changed & avail), n_ratio = sum(changed & scaled),
+    n_own = sum(changed & own), n_blanked = sum(changed & blank),
+    n_unparsed = sum(!parsed$ok & !is.na(text) & nzchar(trimws(text))),
+    n_unparsed_with_result = sum(!parsed$ok & !is.na(text) & nzchar(trimws(text)) & !is.na(base))
+  )
 }
 
 # Whether --ORRESU equals --STRESU at `rows` (missing and blank count as
@@ -642,23 +755,45 @@ same_units <- function(df, units, rows) {
   (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & a == b)
 }
 
-# Text that is a plain decimal number ("58", "-1.50", ".5"), with its value
-# and number of decimals.
-parse_decimal_text <- function(x) {
-  ok <- !is.na(x) & grepl("^[[:space:]]*[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)[[:space:]]*$", x)
-  value <- rep(NA_real_, length(x))
-  value[ok] <- as.numeric(x[ok])
+# Text that is a number: plain ("58", "-1.50", ".5"), with thousands
+# separators ("1,234.5") or in scientific notation ("2.5E2"). Its value,
+# number of decimals (of the mantissa for scientific notation) and form.
+parse_number_text <- function(x) {
   t <- trimws(x)
-  decimals <- ifelse(ok & grepl(".", t, fixed = TRUE), nchar(sub("^[^.]*[.]", "", t)), 0L)
-  list(ok = ok, value = value, decimals = as.integer(decimals))
+  plain <- !is.na(t) & grepl("^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)$", t)
+  comma <- !is.na(t) & grepl("^[-+]?[0-9]{1,3}(,[0-9]{3})+([.][0-9]*)?$", t)
+  sci <- !is.na(t) & grepl("^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)[eE][-+]?[0-9]+$", t)
+  ok <- plain | comma | sci
+  value <- rep(NA_real_, length(x))
+  value[ok] <- as.numeric(gsub(",", "", t[ok], fixed = TRUE))
+  mantissa <- sub("[eE].*$", "", t)
+  decimals <- ifelse(ok & grepl(".", mantissa, fixed = TRUE), nchar(sub("^[^.]*[.]", "", mantissa)), 0L)
+  style <- ifelse(sci, ifelse(grepl("e", t, fixed = TRUE), "e", "E"), ifelse(comma, ",", ""))
+  list(ok = ok, value = value, decimals = as.integer(decimals), style = style)
 }
 
-# Numbers written with at least `decimals` decimals, and more where the
-# number needs them to be written exactly.
-format_decimal <- function(v, decimals) {
-  d <- pmax(decimals, vapply(v, number_decimals, integer(1)))
-  v[v == 0] <- 0
-  sprintf("%.*f", d, v)
+# Numbers written in a form (see parse_number_text()) with `decimals`
+# decimals; with `extend`, more where the number needs them to be written
+# exactly (a midpoint of 62.5 for "64").
+format_number <- function(v, decimals, style, extend = TRUE) {
+  out <- character(length(v))
+  for (i in seq_along(v)) {
+    x <- v[i]
+    if (style[i] %in% c("e", "E")) {
+      e <- if (x == 0) 0 else floor(log10(abs(x)))
+      m <- round(x / 10^e, decimals[i])
+      if (abs(m) >= 10) {
+        e <- e + 1
+        m <- round(x / 10^e, decimals[i])
+      }
+      out[i] <- paste0(sprintf("%.*f", decimals[i], m + 0), style[i], e)
+      next
+    }
+    d <- if (extend) max(decimals[i], number_decimals(x)) else decimals[i]
+    x <- round(x, d) + 0
+    out[i] <- if (style[i] == ",") formatC(x, format = "f", digits = d, big.mark = ",") else sprintf("%.*f", d, x)
+  }
+  out
 }
 
 # The fewest decimals (up to 15) that write `x` exactly.
@@ -759,10 +894,23 @@ generalize_values <- function(kind, params, x, subjects = NULL, fold_set = NULL,
     stop("`", what, "` must be numeric for `anon_", kind, "()`.", call. = FALSE)
   }
   data <- vctrs::vec_data(x)
-  skip <- is.na(data) | user_missing(x, data)
+  labels <- attr(x, "labels", exact = TRUE)
+  # Values carrying a value label (such as a code for "not done") are codes,
+  # not measurements: they are left as they are, as are missing values.
+  skip <- is.na(data) | user_missing(x, data) | (!is.null(labels) & data %in% labels)
   new <- as.double(data)
   new[!skip] <- numeric_rule(kind, params, new[!skip])
   if (is.integer(data)) {
+    # round() with negative digits can land a hair off a whole number.
+    near <- !skip & abs(new - round(new)) < 1e-6
+    new[near] <- round(new[near])
+    if (any(is.finite(new[!skip]) & abs(new[!skip]) > .Machine$integer.max)) {
+      stop(
+        "`anon_", kind, "()` would give `", what, "`, an integer column, numbers too large for an integer; ",
+        "convert the column to double first.",
+        call. = FALSE
+      )
+    }
     if (any(new[!skip] != round(new[!skip]))) {
       stop(
         "`anon_", kind, "()` would give `", what, "`, an integer column, numbers that aren't whole; ",
@@ -776,7 +924,6 @@ generalize_values <- function(kind, params, x, subjects = NULL, fold_set = NULL,
   out <- new
   attributes(out) <- attributes(x)
   # A value label stays only if no value moved into or out of its code.
-  labels <- attr(x, "labels", exact = TRUE)
   if (!is.null(labels)) {
     keep <- vapply(seq_along(labels), function(i) {
       identical(which(data == labels[[i]]), which(new == labels[[i]]))
@@ -791,18 +938,21 @@ numeric_rule <- function(kind, params, v) {
     return(round(v, params$digits))
   }
   w <- params$width
-  # Rounding the quotient first keeps 0.3 / 0.1 in the band of 0.3.
-  out <- floor(round(v / w, 9)) * w
+  # Bands start at `bottom` when given, otherwise at 0. Rounding the quotient
+  # first keeps 0.3 / 0.1 in the band of 0.3.
+  start <- if (is.null(params$bottom)) 0 else params$bottom
+  out <- start + floor(round((v - start) / w, 9)) * w
   if (params$value == "midpoint") {
     out <- out + w / 2
-    out <- round(out, number_decimals(w / 2))
-  } else {
-    out <- round(out, number_decimals(w))
   }
+  out <- round(out, max(number_decimals(start), number_decimals(if (params$value == "midpoint") w / 2 else w)))
+  # Representatives stay within [bottom, top].
   if (!is.null(params$top)) {
+    out <- pmin(out, params$top)
     out[v >= params$top] <- params$top
   }
   if (!is.null(params$bottom)) {
+    out <- pmax(out, params$bottom)
     out[v <= params$bottom] <- params$bottom
   }
   out
@@ -862,4 +1012,22 @@ fold_values <- function(params, x, subjects, fold_set, what) {
     attr(new, "labels") <- labels[!rule_category_id(vctrs::vec_data(labels)) %in% fold_set]
   }
   list(values = new, changed = hit)
+}
+
+# Warn when a generalized column also appears, under the same name, in
+# datasets with the key where no rule generalizes it.
+warn_uncovered_copies <- function(data, targets, key) {
+  columns <- Filter(function(tg) tg$type == "column", targets)
+  for (col in unique(vapply(columns, `[[`, character(1), "column"))) {
+    covered <- vapply(Filter(function(tg) tg$column == col, columns), `[[`, character(1), "dataset")
+    others <- setdiff(datasets_with_column(data, col, key), covered)
+    if (length(others) > 0) {
+      warning(
+        "`", col, "` is generalized in ", paste0("`", covered, "`", collapse = ", "),
+        " but not in these datasets, which hold it too: ", paste(others, collapse = ", "),
+        ". List each dataset in `rules`.",
+        call. = FALSE
+      )
+    }
+  }
 }

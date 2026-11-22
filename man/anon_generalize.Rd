@@ -47,7 +47,15 @@ datasets together, so the same categories are folded everywhere.
 
 Rules apply to the columns of the datasets themselves. Data frames nested
 in them (packed columns and list columns, see \code{\link[=anon_subject_ids]{anon_subject_ids()}}) are
-not generalized.
+not generalized. A warning names the datasets with the key that hold a
+generalized column under the same name without a rule for it.
+
+A birth date more precise than a year (\code{BRTHDTC}, or a Date \code{BRTHDT}) in a
+dataset whose \code{AGE} is generalized gives the age back with a reference
+date such as \code{RFSTDTC}, even after the dates are offset: a warning names
+it. Remove birth dates or reduce them to the year. Other dates and derived
+columns can give a quasi-identifier back the same way (see
+\code{\link[=anon_suppress]{anon_suppress()}}).
 
 The log has one row per dataset, column and test, counting the values
 changed; it holds no values, and the settings record the rules. The step

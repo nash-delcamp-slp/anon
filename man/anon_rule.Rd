@@ -30,20 +30,31 @@ When \code{result_col} is a numeric SDTM result (\code{--STRESN}) and the rule i
 band or rounding, the text results of the same rows follow it:
 \itemize{
 \item \code{--STRESC} is rewritten from the generalized \code{--STRESN};
-\item \code{--ORRES} is rewritten from the generalized \code{--STRESN} where it is in the
-same units (\code{--ORRESU} equals \code{--STRESU}), and otherwise is generalized
-on its own with the same rule, from its own number, and kept as text;
+\item \code{--ORRES} is rewritten from the generalized \code{--STRESN}: as it is where
+the units are the same (\code{--ORRESU} equals \code{--STRESU}), and otherwise
+times the row's own conversion factor (original \code{--ORRES} / original
+\code{--STRESN}), so it is never finer than \code{--STRESN} and unit conversion
+checks still pass. Without a factor (\code{--STRESN} missing or 0, or no unit
+columns and different values), it is blanked;
 }
 
-each with as many decimals as it had (more where the generalized number
-needs them, such as a midpoint of \code{62.5} for \code{"64"}). Only text that is a
-plain decimal number (\code{"58"}, \code{"58.0"}, \code{"-1.25"}) is rewritten; other
-results, such as \code{"<5"} or \code{"ND"}, are left unchanged and counted in the
-log.
+each in its own form (plain, with thousands separators such as
+\code{"1,234"}, or in scientific notation such as \code{"2.5E2"}) and with as many
+decimals as it had (in the same units, more where the generalized number
+needs them, such as a midpoint of \code{62.5} for \code{"64"}). Other results, such
+as \code{"<5"} or \code{"ND"}, are left unchanged and counted in the log, with a
+warning where the row has a numeric result.
+
+For ADaM, with \code{result_col = "AVAL"}, \code{AVALC} is rewritten from the
+generalized \code{AVAL}, \code{BASE} is generalized by the same rule (it is the
+baseline \code{AVAL}) with \code{BASEC} rewritten from it, and \code{CHG} (\code{AVAL - BASE})
+and \code{PCHG} (\code{100 * CHG / BASE}) are recomputed from the generalized
+values. Other result columns are generalized alone.
 
 With \code{\link[=anon_fold]{anon_fold()}}, \code{result_col} must be text; on the rows folded, the
-other text result (\code{--ORRES} or \code{--STRESC}) becomes \code{to} too, and a
-\code{--STRESN} value becomes missing.
+other text results (\code{--ORRES} or \code{--STRESC}; \code{AVALC}, \code{BASEC}) become \code{to}
+too, and numeric ones become missing. Only the categories found in the
+test's rows count (a factor's levels are shared by every test).
 }
 \examples{
 anon_rule(
