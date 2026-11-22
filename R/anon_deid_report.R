@@ -161,6 +161,9 @@ deid_caveats <- function(step, deid, fidelity = NULL) {
       "intervals within a subject are exact; calendar dates, days of week and comparisons across subjects are not. ",
       "Study days (--DY) are unchanged."
     ))
+    if (identical(x$partial, "remove")) {
+      out <- c(out, "Partial dates (year and month, or year only) are blank.")
+    }
     if (identical(x$partial, "shift")) {
       out <- c(out, paste0(
         "Year-and-month dates moved from the middle of the month and year-only dates by whole years, ",
@@ -169,6 +172,10 @@ deid_caveats <- function(step, deid, fidelity = NULL) {
     }
   }
   ids <- unique(unlist(lapply(pick("subject_ids"), function(x) c(x$key, x$also, x$key_cols)), use.names = FALSE))
+  # Only the columns the data holds (the steps' defaults name RSUBJID).
+  data <- if (is.data.frame(step$data)) list(step$data) else step$data
+  present <- unique(unlist(lapply(data, names), use.names = FALSE))
+  ids <- ids[ids %in% present]
   if (length(ids) > 0) {
     out <- c(out, paste0("Pseudonyms replace ", deid_and(ids), "; they are the same in every dataset."))
   }
@@ -232,6 +239,12 @@ deid_caveats <- function(step, deid, fidelity = NULL) {
       paste0(
         "The fidelity check against the original failed ", failed, " check(s): code tested on the copy may not ",
         "behave the same on the original (see the fidelity table)."
+      )
+    } else if (!isTRUE(attr(fidelity, "complete"))) {
+      paste0(
+        "The fidelity check against the original found no failure but is incomplete: ",
+        sum(fidelity$status == "warn"), " warning(s), ", sum(fidelity$status == "not applicable"),
+        " check(s) not applicable; some rows or dates couldn't be compared (see the fidelity table)."
       )
     } else {
       paste0(

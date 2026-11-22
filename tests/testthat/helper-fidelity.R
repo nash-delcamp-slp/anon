@@ -53,3 +53,40 @@ fid_run <- function(data = fid_data(), keep_secrets = FALSE) {
 
 # The row of a fidelity result for a dataset and check.
 fid_row <- function(f, dataset, check) f[f$dataset == dataset & f$check == check, , drop = FALSE]
+
+# Subject-level data whose subjects are alike in every column but their
+# dates: `days` gives each subject's distance from its start to its end
+# (the same for all, or one each), and SUBJID ends each key.
+fid_alike <- function(n = 20, days = 180) {
+  keys <- sprintf("ZZALIKE-%03d", seq_len(n))
+  start <- as.Date("2021-01-04") + (seq_len(n) - 1) * 3
+  list(dm = data.frame(
+    USUBJID = keys, SUBJID = sprintf("%03d", seq_len(n)), ARM = "SCREEN FAILURE", COUNTRY = "USA",
+    RFSTDTC = format(start), RFENDTC = format(start + rep_len(days, n)), stringsAsFactors = FALSE
+  ))
+}
+
+fid_alike_run <- function(data) {
+  suppressWarnings(anon_subject_ids(anon_subject_dates(data, seed = 3), seed = 4))
+}
+
+# Types, attributes and nested data on eight subjects, with year-only and
+# year-and-month dates, run through anon_subject_dates().
+fid_nested <- function() {
+  keys <- sprintf("ZZN-%02d", 1:8)
+  dm <- data.frame(
+    USUBJID = keys, AGE = 30:37, SEX = factor(rep(c("F", "M"), 4), levels = c("F", "M", "U")),
+    RFSTDTC = format(as.Date("2021-01-01") + 0:7), stringsAsFactors = FALSE
+  )
+  dm$TS <- as.POSIXct("2021-01-01 08:00:00", tz = "UTC") + (0:7) * 86400
+  dm$GRP <- structure(c(1, 2, 1, 2, 1, 2, 1, 2), labels = c(A = 1, B = 2), label = "Group")
+  dm$PK <- data.frame(X = 1:8, Y = letters[1:8])
+  dm$NEST <- lapply(1:8, function(i) data.frame(T = i * 1.5, U = "u"))
+  attr(dm, "label") <- "Demographics"
+  ae <- data.frame(
+    USUBJID = rep(keys, each = 2), AESEQ = rep(1:2, 8),
+    AESTDTC = c(rbind(format(as.Date("2021-02-01") + 0:7), rep(c("2021-03", "2021"), 4))),
+    stringsAsFactors = FALSE
+  )
+  list(dm = dm, ae = ae)
+}

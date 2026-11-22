@@ -9,10 +9,14 @@ test_that("an anon_deidentify() result passes against its original", {
   expect_s3_class(f, "anon_fidelity")
   expect_named(f, c("dataset", "check", "status", "n_checked", "n_failed", "detail"))
   expect_true(attr(f, "passed"))
-  expect_true(all(f$status == "pass"))
+  expect_true(attr(f, "complete"))
+  expect_true(all(f$status %in% c("pass", "not applicable")))
+  # Every weight row was generalized on purpose: nothing left to compare.
+  expect_identical(f$status[f$status != "pass"], "not applicable")
+  expect_match(fid_row(f, "vs", "numeric relations")$detail, "nothing compared")
   expected_checks <- c(
     "datasets", "pseudonyms", "columns", "types", "attributes", "rows", "row order", "keys in dm",
-    "distinct keys", "categorical values", "ISO 8601", "date intervals", "study days", "numeric relations"
+    "distinct keys", "values", "categorical values", "ISO 8601", "date intervals", "study days", "numeric relations"
   )
   expect_setequal(unique(f$check), expected_checks)
   # Subjects are paired by their rows, without the pseudonym map.
@@ -70,7 +74,7 @@ test_that("a study day off by one fails the study days", {
   expect_identical(fid_row(f, "adlb", "study days")$status, "fail")
 })
 
-test_that("values moved between subjects fail the rows check, the subjects still paired", {
+test_that("values moved between subjects fail the values check, the subjects still paired", {
   for (secrets in c(FALSE, TRUE)) {
     # VSSEQ 1 of the first subject and 2 of the second swap: the column's
     # values are the original's, but two rows changed.
@@ -78,7 +82,7 @@ test_that("values moved between subjects fail the rows check, the subjects still
       d$vs$VSSEQ[c(1, 4)] <- d$vs$VSSEQ[c(4, 1)]
       d
     }, secrets)
-    row <- fid_row(f, "vs", "rows")
+    row <- fid_row(f, "vs", "values")
     expect_identical(row$status, "fail", info = paste("secrets:", secrets))
     expect_identical(row$n_failed, 2L, info = paste("secrets:", secrets))
     expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "pass", info = paste("secrets:", secrets))
@@ -311,4 +315,205 @@ test_that("reports and bundles of a step that kept its secrets hold none of them
   # The test can find what it looks for.
   expect_gt(length(grepRaw(fid_keys[1], serialize(data, NULL), fixed = TRUE)), 0)
   expect_gt(length(grepRaw("offset_days", serialize(secrets, NULL), fixed = TRUE)), 0)
+})
+
+test_that("columns no step logged keep their values, row by row", {
+  # A category moved to another existing one, a whole column recoded among
+  # its own values, a result and its derivations changed consistently, and
+  # a numeric column changed throughout.
+  for (secrets in c(FALSE, TRUE)) {
+    info <- paste("secrets:", secrets)
+    f <- fid_break(function(d) {
+      d$ae$AETERM[1] <- "NAUSEA"
+      d
+    }, secrets)
+    expect_identical(fid_row(f, "ae", "values")$status, "fail", info = info)
+    expect_match(fid_row(f, "ae", "values")$detail, "AETERM (1)", fixed = TRUE, info = info)
+    f <- fid_break(function(d) {
+      kept <- !is.na(d$dm$RACE) & nzchar(d$dm$RACE)
+      d$dm$RACE[kept] <- "WHITE"
+      d
+    }, secrets)
+    expect_identical(fid_row(f, "dm", "values")$status, "fail", info = info)
+    f <- fid_break(function(d) {
+      d$adlb$AVAL[2] <- d$adlb$AVAL[2] * 10
+      d$adlb$CHG <- d$adlb$AVAL - d$adlb$BASE
+      d$adlb$PCHG <- 100 * d$adlb$CHG / d$adlb$BASE
+      d
+    }, secrets)
+    expect_identical(fid_row(f, "adlb", "numeric relations")$status, "pass", info = info)
+    expect_identical(fid_row(f, "adlb", "values")$status, "fail", info = info)
+    f <- fid_break(function(d) {
+      d$adlb$AVISITN <- d$adlb$AVISITN * 2 + 1
+      d
+    }, secrets)
+    row <- fid_row(f, "adlb", "values")
+    expect_identical(row$status, "fail", info = info)
+    expect_identical(row$n_failed, 36L, info = info)
+  }
+  # Without a step, a difference is a warning.
+  data <- fid_data()
+  copy <- fid_run(data)$data
+  copy$ae$AETERM[1] <- "NAUSEA"
+  f <- anon_check_fidelity(data, copy)
+  expect_identical(fid_row(f, "ae", "values")$status, "warn")
+})
+
+test_that("subjects alike but for their dates are paired by them", {
+  data <- fid_alike(days = seq(5, 100, by = 5))
+  f <- anon_check_fidelity(data, fid_alike_run(data))
+  expect_true(attr(f, "complete"))
+  expect_true(attr(f, "passed"))
+  expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "20 of 20 subject(s) paired", fixed = TRUE)
+})
+
+test_that("subjects that can't be told apart are reported, and their changes fail", {
+  data <- fid_alike()
+  step <- fid_alike_run(data)
+  f <- anon_check_fidelity(data, step)
+  expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "warn")
+  expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "20 alike")
+  expect_false(attr(f, "complete"))
+  expect_false(attr(f, "passed"))
+  expect_identical(fid_row(f, "dm", "ISO 8601")$status, "not applicable")
+  expect_match(fid_row(f, "dm", "ISO 8601")$detail, "nothing compared")
+  report <- anon_report(step, fidelity = f, nlp_auto = FALSE)
+  expect_true(any(grepl("incomplete", report$deidentification$caveats)))
+  expect_false(any(grepl("check against the original passed", report$deidentification$caveats)))
+
+  moved <- step
+  moved$data$dm$RFENDTC <- format(as.Date(moved$data$dm$RFENDTC) + 37)
+  expect_identical(fid_row(anon_check_fidelity(data, moved), "(all)", "pseudonyms")$status, "fail")
+  reformatted <- step
+  reformatted$data$dm$RFSTDTC <- format(as.Date(reformatted$data$dm$RFSTDTC), "%d/%m/%Y")
+  expect_identical(fid_row(anon_check_fidelity(data, reformatted), "(all)", "pseudonyms")$status, "fail")
+  # Keys swapped between two subjects: SUBJID no longer ends the key.
+  swapped <- step
+  swapped$data$dm$USUBJID[1:2] <- swapped$data$dm$USUBJID[2:1]
+  row <- fid_row(anon_check_fidelity(data, swapped), "(all)", "pseudonyms")
+  expect_identical(row$status, "fail")
+  expect_identical(row$n_failed, 2L)
+})
+
+test_that("one result changed per subject is found though every subject differs", {
+  n <- 60
+  keys <- sprintf("ZZV-%03d", seq_len(n))
+  start <- as.Date("2021-01-01") + seq_len(n)
+  dm <- data.frame(USUBJID = keys, ARM = "A", RFSTDTC = format(start), stringsAsFactors = FALSE)
+  vs <- data.frame(
+    USUBJID = rep(keys, each = 4), VSTESTCD = "SYSBP", VISITNUM = rep(1:4, n),
+    VSSTRESN = 100 + seq_len(4 * n), VSDTC = format(rep(start, each = 4) + rep(c(0, 7, 14, 21), n)),
+    stringsAsFactors = FALSE
+  )
+  data <- list(dm = dm, vs = vs)
+  step <- suppressWarnings(anon_subject_ids(anon_subject_dates(data, seed = 1), seed = 2))
+  first <- !duplicated(step$data$vs$USUBJID)
+  step$data$vs$VSSTRESN[first] <- step$data$vs$VSSTRESN[first] + 1
+  f <- anon_check_fidelity(data, step)
+  expect_identical(fid_row(f, "vs", "values")$n_failed, as.integer(n))
+  expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "pass")
+})
+
+test_that("factor levels, time zones, labels, nested data and year-only dates are compared", {
+  data <- fid_nested()
+  step <- suppressWarnings(anon_subject_dates(data, seed = 1))
+  check <- function(change) {
+    s <- step
+    s$data <- change(s$data)
+    anon_check_fidelity(data, s)
+  }
+  base <- anon_check_fidelity(data, step)
+  expect_false(any(base$status == "fail"))
+
+  f <- check(function(d) {
+    d$dm$SEX <- factor(as.character(d$dm$SEX), levels = c("M", "F"))
+    d
+  })
+  expect_identical(fid_row(f, "dm", "attributes")$status, "fail")
+  f <- check(function(d) {
+    attr(d$dm$TS, "tzone") <- "America/New_York"
+    d
+  })
+  expect_identical(fid_row(f, "dm", "attributes")$status, "fail")
+  f <- check(function(d) {
+    attr(d$dm$GRP, "labels") <- c(A = 1, B = 2, C = 3)
+    d
+  })
+  expect_identical(fid_row(f, "dm", "attributes")$status, "fail")
+  f <- check(function(d) {
+    attr(d$dm, "label") <- "Something else"
+    d
+  })
+  expect_match(fid_row(f, "dm", "attributes")$detail, "(dataset label)", fixed = TRUE)
+  expect_identical(fid_row(f, "dm", "attributes")$status, "fail")
+
+  f <- check(function(d) {
+    d$dm$PK$Y[1] <- "zzz"
+    d
+  })
+  expect_identical(fid_row(f, "dm", "values")$status, "fail")
+  f <- check(function(d) {
+    d$dm$NEST[[1]] <- d$dm$NEST[[1]][0, ]
+    d
+  })
+  expect_identical(fid_row(f, "dm", "values")$status, "fail")
+  f <- check(function(d) {
+    d$dm$NEST[[2]]$T <- 999
+    d
+  })
+  expect_identical(fid_row(f, "dm", "values")$status, "fail")
+
+  f <- check(function(d) {
+    i <- which(nchar(d$ae$AESTDTC) == 4)
+    d$ae$AESTDTC[i] <- as.character(as.integer(d$ae$AESTDTC[i]) + 40)
+    d
+  })
+  expect_identical(fid_row(f, "ae", "date intervals")$status, "fail")
+})
+
+test_that("month dates of subjects with no full date leave the result incomplete", {
+  data <- list(ae = data.frame(USUBJID = c("ZZM-1", "ZZM-2"), AESTDTC = c("2021-03", "2021-05"), stringsAsFactors = FALSE))
+  f <- anon_check_fidelity(data, suppressWarnings(anon_subject_dates(data, seed = 1)))
+  expect_identical(fid_row(f, "ae", "date intervals")$status, "not applicable")
+  expect_match(fid_row(f, "ae", "date intervals")$detail, "not compared")
+  expect_false(attr(f, "complete"))
+})
+
+test_that("a missing dm is noted, and caveats follow the step and the data", {
+  data <- fid_data()
+  res <- fid_run(data)
+  f <- anon_check_fidelity(data, res, dm = "adsl")
+  row <- fid_row(f, "(all)", "keys in dm")
+  expect_identical(row$status, "not applicable")
+  expect_match(row$detail, "no dataset `adsl`", fixed = TRUE)
+
+  step <- suppressWarnings(anon_subject_ids(anon_subject_dates(data, partial = "remove", seed = 1), seed = 2))
+  caveats <- anon_report(step, nlp_auto = FALSE)$deidentification$caveats
+  expect_true(any(grepl("Partial dates (year and month, or year only) are blank", caveats, fixed = TRUE)))
+  expect_false(any(grepl("RSUBJID", caveats, fixed = TRUE)))
+  expect_true(any(grepl("Pseudonyms replace USUBJID and SUBJID;", caveats, fixed = TRUE)))
+})
+
+test_that("one row dropped is named as a row", {
+  f <- fid_break(function(d) {
+    d$vs <- vctrs::vec_slice(d$vs, -3)
+    d
+  })
+  row <- fid_row(f, "vs", "rows")
+  expect_identical(row$status, "fail")
+  expect_identical(row$n_failed, 1L)
+  expect_match(row$detail, "1 more row(s) missing from the copy, of subjects it kept", fixed = TRUE)
+  expect_false(grepl("subject(s) missing", row$detail, fixed = TRUE))
+})
+
+test_that("single steps that leave dates alone pass, year-only dates included", {
+  data <- fid_data()
+  for (step in list(
+    suppressWarnings(anon_subject_ids(data, seed = 1)),
+    anon_generalize(data, list(dm = list(AGE = anon_band(20, top = 60))))
+  )) {
+    f <- anon_check_fidelity(data, step)
+    expect_identical(fid_row(f, "ae", "date intervals")$status, "pass")
+    expect_false(any(f$status == "fail"))
+  }
 })

@@ -25,9 +25,12 @@ counted from (\code{"adsl"} for ADaM data without \code{dm}).}
 \value{
 A tibble of class \code{"anon_fidelity"} with columns \code{dataset},
 \code{check}, \code{status} (\code{"pass"}, \code{"fail"}, \code{"warn"} or \code{"not applicable"}),
-\code{n_checked}, \code{n_failed} and \code{detail} (counts only), and an attribute
-\code{passed}: \code{TRUE} when no check failed. It prints, and converts with
-\code{\link[=as_anon_payload]{as_anon_payload()}} and \code{\link[=as_anon_json]{as_anon_json()}}.
+\code{n_checked}, \code{n_failed} and \code{detail} (counts only), and attributes
+\code{complete} (\code{TRUE} when nothing was left uncompared: no subjects that
+couldn't be paired or told apart, no dates of subjects with no known
+offset) and \code{passed} (\code{TRUE} when the result is complete and no check
+failed). It prints, and converts with \code{\link[=as_anon_payload]{as_anon_payload()}} and
+\code{\link[=as_anon_json]{as_anon_json()}}.
 }
 \description{
 Compares a de-identified copy with the original data, property by
@@ -42,18 +45,27 @@ the copy. It fails only when the property held in the original and is
 broken in the copy. A property already broken in the original is
 \code{"not applicable"}, with the original's count.
 
+A check that compared nothing is \code{"not applicable"}, with the reason.
+
 \strong{Aligning rows.} \code{\link[=anon_subject_ids]{anon_subject_ids()}} sorts rows by the new key, so the
 copy's rows don't line up with the original's. Subjects are paired by
-their rows: each row is coded from the columns that no step changed (not
-in the step's log, same class, and no value more often in the copy than
-in the original), and a subject's rows in every dataset with \code{key} must
-match one original subject's. A step's kept pseudonym map
+their rows, coded from the columns no step logged (and of the same class),
+in every dataset with \code{key}, in turn: rows that match exactly; then, of
+the rest, subjects with as many rows in every dataset and more than half
+of them equal (rows sharing a code with more than 20 unpaired subjects
+don't count, which keeps this linear; subjects with no other match stay
+unpaired); then rows that match in the columns with no value more often
+in the copy than in the original (a column changed throughout is left
+out); then, among subjects alike in those columns, each subject's own
+dates (their formats and their distances from the subject's first date,
+which the per-subject offset keeps). A step's kept pseudonym map
 (\code{keep_secrets = TRUE}) is used instead when there is one, and keys that
 weren't pseudonymized pair directly. Within a subject, rows pair in
-order. Subjects whose rows are the same as another subject's in every
-unchanged column can't be told apart: they are counted, and their rows
-are not compared one by one. Rows of datasets without \code{key} pair by
-position.
+order. Subjects still alike can't be told apart: they are counted
+(\code{pseudonyms} is \code{"warn"}), their rows are not compared one by one, and
+the result is incomplete. A copy subject whose dates match none of the
+originals alike in the other columns fails. Rows of datasets without
+\code{key} pair by position.
 
 \strong{Checks} (one row per dataset and check; \code{"(all)"} for checks across
 datasets):
@@ -62,19 +74,32 @@ datasets):
 \item \code{columns}: the same columns in the same order.
 \item \code{types}: the same class and type for each column, and for the columns
 of nested data frames (packed columns, and data frames in list columns).
-\item \code{attributes}: the same column labels, formats (\code{format.sas},
-\code{format.spss}, \code{format.stata}, \code{display_width}) and value labels. Value
-labels dropped from a column a step logged are intended. Labels
-rewritten by \code{\link[=anon_subject_ids]{anon_subject_ids()}} or \code{\link[=anon_subject_dates]{anon_subject_dates()}} (keys and
-dates in them) are \code{"warn"}; a label lost is a failure.
+\item \code{attributes}: the same dataset and column labels, formats
+(\code{format.sas}, \code{format.spss}, \code{format.stata}, \code{display_width}), time
+zones (\code{tzone}), factor levels (their set and order) and value labels.
+Value labels and levels changed in a column a step changed (the key,
+related IDs, dates, logged columns) are intended. In a dataset where the
+log of \code{\link[=anon_subject_ids]{anon_subject_ids()}} or \code{\link[=anon_subject_dates]{anon_subject_dates()}} counts labels it
+rewrote (keys and dates in them), a changed label is \code{"warn"}; elsewhere
+it fails, and so does a label lost.
 \item \code{rows}: the same number of rows, or fewer only by the rows of subjects
-the step dropped (\code{"warn"}, with counts).
+the step dropped (\code{"warn"}, with counts). Rows of subjects that couldn't
+be paired are counted, and make the result incomplete.
 \item \verb{row order}: within each subject, rows in the same order.
 \item \verb{keys in dm}: every key of the dataset is in \code{dm}.
 \item \verb{distinct keys}: the original's number of subjects, less those dropped.
 \item \code{pseudonyms}: each subject has one pseudonym in every dataset, and each
 pseudonym one subject: every copy subject's rows across datasets match
-one original subject's.
+one original subject's. Related IDs that end with the key in the
+original (\code{SUBJID} of \code{USUBJID}) must end with the pseudonym.
+\item \code{values}: every column no step logged keeps its values, row by row over
+the paired rows; the key, related IDs and dates have checks of their
+own. A cell a step logged may be blank where it blanked it, and changed
+where it generalized it (a fold only to the rule's category) or derived
+it again; a column logged for one test only is compared on the other
+rows. Packed data frame columns are compared the same way; data frames
+in list columns by their number of rows, and by their values when their
+rows keep their order (no key column, or one subject).
 \item \verb{categorical values}: each value of a character or factor column is a
 value of the original column, a blank, or a value a step introduced on
 purpose (a fold category of a generalization rule, numbers rewritten
@@ -101,14 +126,22 @@ logged it) are counted apart; if the relation no longer holds in some of
 them, the check is \code{"warn"}.
 }
 
-\strong{Not checked:} business rules beyond these, free text, statistics (means
-and counts by group change with banding and suppression), and the values
-themselves. A pass is evidence that code relying on these properties
+\strong{Not checked:} business rules beyond these; values that a step logged
+as changed (beyond being blanked, folded or generalized where it said);
+values of data frames nested in list columns whose rows hold several
+subjects (their order changes), and dates and keys inside nested data;
+statistics (means and counts by group change with banding and
+suppression). A pass is evidence that code relying on these properties
 should behave the same on the original, not proof that it will.
 
-\strong{Cost.} One pass over every column of every dataset, plus a grouping
-of the rows; a few seconds for the pharmaversesdtm and pharmaverseadam
-datasets.
+\strong{Sharing the result.} It names datasets and columns as the copy does,
+and never an original's name; \code{print()}, \code{\link[=as_anon_payload]{as_anon_payload()}} and
+\code{\link[=as_anon_json]{as_anon_json()}} don't apply your \code{pattern_list}. To share it redacted,
+include it in a report: \code{anon_report(step, fidelity = result, pattern_list = ...)}.
+
+\strong{Cost.} A few passes over every column of every dataset, plus groupings
+of the rows, linear in the number of rows: a few seconds for the
+pharmaversesdtm and pharmaverseadam datasets.
 }
 \examples{
 dm <- data.frame(
