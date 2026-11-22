@@ -126,8 +126,10 @@
 #'     comes first: by `n_below_k_without`, then `n_unique_without`, then
 #'     `avg_risk_without` (all ascending), then the order of `quasi`.
 #'   - `quasi`, `key`, `na`: the quasi-identifier names, key and `na` used;
-#'     and `n_blanked`, the number of cells blanked by suppression, from the
-#'     step's record of them.
+#'     `n_blanked`, the number of cells blanked by suppression, from the
+#'     step's record of them; and `from_step`, whether `data` was a step (a
+#'     plain list can't tell blanked cells from missing values, and the print
+#'     says so).
 #'   - `sources`: one row per quasi-identifier giving where it comes from:
 #'     `variable`, `dataset`, and either `column` or `test_col`, `test` and
 #'     `result_col`, plus `filtered` (whether a `filter` was used). The filter
@@ -183,7 +185,8 @@ anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09, na = c("val
       sources = inputs$sources,
       key = key,
       na = na,
-      n_blanked = n_blanked
+      n_blanked = n_blanked,
+      from_step = inherits(data, "anon_deid_step")
     ),
     class = "anon_risk"
   )
@@ -290,6 +293,9 @@ print.anon_risk <- function(x, ...) {
   cat("Quasi-identifiers:", paste(x$quasi, collapse = ", "), "\n")
   if (identical(x$na, "wildcard")) {
     cat("Missing values match any value (na = \"wildcard\")\n")
+  }
+  if (isFALSE(x$from_step)) {
+    cat("Measured without a step's record of suppressed cells: blanked cells count as missing values\n")
   }
   if (isTRUE(x$n_blanked > 0)) {
     cat("Cells blanked by suppression:", x$n_blanked, "(each a value of its own in the released pattern)\n")
@@ -660,11 +666,18 @@ suppressed_cells <- function(mask, sources, keys) {
     hit <- mask$dataset == s$dataset & if (!is.na(s$column)) {
       !is.na(mask$column) & mask$column == s$column
     } else {
-      !is.na(mask$test) & mask$test_col == s$test_col & mask$test == s$test & mask$result_col == s$result_col
+      !is.na(mask$test) & mask$test_col == s$test_col & mask$test == s$test &
+        result_family(mask$result_col) == result_family(s$result_col)
     }
     out[, q] <- keys %in% mask$key[hit]
   }
   out
+}
+
+# The result columns blanked together (see result_siblings()) share a
+# family: an SDTM prefix, or "AVAL" for ADaM.
+result_family <- function(col) {
+  ifelse(col %in% c("AVAL", "AVALC", "BASE", "BASEC", "CHG", "PCHG", "R2BASE"), "AVAL", sub("(ORRES|STRESC|STRESN)$", "", col))
 }
 
 # Group sizes for a measure (see risk_inputs()), on the quasi-identifiers

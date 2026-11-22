@@ -912,7 +912,7 @@ as_anon_payload.anon_deid_step <- function(x, path = "$") {
 # Secrets live in an environment so that print(), anon() and JSON output never
 # show them by accident. Logs and secrets from an earlier step are carried on.
 # `suppressed` records the cells blanked by anon_suppress(), one row per
-# quasi-identifier and subject (see suppressed_record()), carried on by later
+# quasi-identifier (dataset, column or test) and subject key, carried on by later
 # steps with keys and names as they are in the data.
 new_deid_step <- function(data, log, secrets, previous = NULL, settings = list(), suppressed = NULL) {
   if (!is.null(previous)) {

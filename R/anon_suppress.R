@@ -52,8 +52,12 @@
 #' (then needs the fewest cells, then blanks the least useful by `order`) and
 #' blanks only the records it brings in. Otherwise it takes the try that
 #' merges the most small patterns (then the least useful) and blanks it on
-#' all of them. Every step blanks at least one cell, so it ends; records
-#' still short when everything is blanked (or with fewer subjects than the
+#' all of them. Every step blanks at least one cell, so it ends. Then each
+#' group still too small (largest first; often the one blanked everywhere)
+#' is filled from donors: records of other groups that can spare them (their
+#' group keeps at least the target size), which take its pattern by blanking
+#' the cells where it is blank, the donors needing the fewest cells (then the
+#' least useful) first. Records still short (or with fewer subjects than the
 #' target group size) are unresolved. The result is deterministic and
 #' doesn't depend on the order of rows, but it isn't guaranteed to blank the
 #' fewest cells. Blanking only joins records into groups and removing small
@@ -65,7 +69,7 @@
 #' every other dataset with the key that has the column), and for an
 #' [anon_quasi_values()] specification every row of the test (not only the
 #' measured one), with its other results: for SDTM `--ORRES`, `--STRESC` and
-#' `--STRESN`; for ADaM `AVAL`, `AVALC`, `BASE`, `BASEC`, `CHG` and `PCHG`.
+#' `--STRESN`; for ADaM `AVAL`, `AVALC`, `BASE`, `BASEC`, `CHG`, `PCHG` and `R2BASE`.
 #' Blanks are missing values: `""` for text unless the column already uses
 #' `NA` for missing text (it has `NA` and no `""`), `NA` for numbers and
 #' factors (a factor's levels held only by blanked values are dropped).
@@ -82,9 +86,17 @@
 #' removed subject's key, or a value of an `also` column, is still found in
 #' the text values of the data, a warning names the datasets.
 #'
+#' The measure needs the step's record of blanked cells: measuring the data
+#' alone (a plain list of data frames) counts blanked cells as missing
+#' values, which can merge them with real missing values and call the target
+#' met when it isn't. Measure the step, as `meets_target` does.
+#'
 #' **When the target isn't met.** `settings$suppress$meets_target` is `FALSE`,
-#' with reasons in `settings$suppress$not_met`, when the measured risk misses
-#' the target, when rows of removed subjects remain, or when a dataset
+#' with reasons in `settings$suppress$not_met`, when the risk measured on the
+#' released data misses the target, when rows of removed subjects remain,
+#' when a copy of a column quasi-identifier in another dataset with the key
+#' shows a different value than its own dataset for a subject (for example
+#' `AGE` in `adsl` not generalized like `AGE` in `dm`), or when a dataset
 #' holding `AGE` as a quasi-identifier also holds a birth date more precise
 #' than a year (`BRTHDTC`, or a Date `BRTHDT`): with a reference date such as
 #' `RFSTDTC`, it gives the age back exactly, even after the dates were
@@ -172,6 +184,11 @@ anon_suppress <- function(
       codes[cells] <- 0L
       blanked[cells] <- TRUE
     }
+    if (n >= k_target) {
+      filled <- fill_from_donors(codes, k_target, rank)
+      codes[filled] <- 0L
+      blanked[filled] <- TRUE
+    }
     still <- which(pattern_group_sizes(codes) < k_target)
     if (length(still) > 0) {
       if (unresolved == "drop") {
@@ -216,6 +233,12 @@ anon_suppress <- function(
         for (ds in union(src$dataset, copies)) {
           out <- blank_keyed_copies(data[[ds]], src$column, key, blanked_keys, top = ds != src$dataset)
           data[[ds]] <- out$df
+          if (ds != src$dataset && src$column %in% names(data[[ds]]) && key %in% names(data[[ds]])) {
+            record <- c(record, list(tibble::tibble(
+              dataset = ds, column = src$column, test_col = NA_character_, test = NA_character_,
+              result_col = NA_character_, key = blanked_keys
+            )))
+          }
           if (out$n > 0) {
             log_rows <- c(log_rows, list(list(
               dataset = ds, variable = src$column, n_changed = out$n, n_subjects = length(blanked_keys),
@@ -257,8 +280,28 @@ anon_suppress <- function(
     }
   }
 
+  # Removed subjects leave the record of blanked cells, this step's and
+  # earlier ones'.
   if (!is.null(record)) {
     record <- record[!record$key %in% dropped, , drop = FALSE]
+  }
+  if (!is.null(input$previous$suppressed)) {
+    input$previous$suppressed <- input$previous$suppressed[!input$previous$suppressed$key %in% dropped, , drop = FALSE]
+  }
+
+  # Copies of a column quasi-identifier in other datasets must show what its
+  # own dataset releases.
+  for (q in which(!is.na(sources$column))) {
+    differ <- copies_that_differ(data, sources$dataset[q], sources$column[q], key)
+    if (length(differ) > 0) {
+      warning(
+        "`", sources$column[q], "` in these datasets differs from `", dataset_label(sources$dataset[q]),
+        "` for some subjects (not generalized or blanked the same way): ", paste(differ, collapse = ", "),
+        ". Generalize and blank it there too, or remove it.",
+        call. = FALSE
+      )
+      not_met <- c(not_met, paste0("copies of `", sources$column[q], "` differ from `", dataset_label(sources$dataset[q]), "`"))
+    }
   }
 
   ages <- intersect(sources$dataset[!is.na(sources$column) & toupper(sources$column) == "AGE"], names(data))
@@ -268,10 +311,21 @@ anon_suppress <- function(
     not_met <- c(not_met, "birth dates more precise than a year next to AGE")
   }
 
-  remaining <- !keys %in% dropped
-  after <- if (any(remaining)) {
-    risk_summary(pattern_group_sizes(codes[remaining, , drop = FALSE]), max_risk, k_target, length(qnames))
-  }
+  # Measured on the released data itself, as anon_risk() measures the step
+  # (rows removed through `key_cols` count too).
+  released <- structure(
+    list(data = input$unwrap(data), suppressed = rbind(input$previous$suppressed, record)),
+    class = "anon_deid_step"
+  )
+  after <- tryCatch(
+    {
+      # Its warnings (such as a test now blank for everyone) repeat or
+      # follow from what the step did, which the log reports.
+      measure <- suppressWarnings(risk_inputs(released, quasi, key))
+      risk_summary(risk_group_sizes(measure, "value"), max_risk, k_target, length(qnames))
+    },
+    error = function(e) NULL
+  )
   if (is.null(after) || !isTRUE(after$meets_target)) {
     not_met <- c(not_met, "measured risk above the target")
   }
@@ -371,6 +425,98 @@ suppress_step <- function(codes, small, open, k_target, rank) {
   }
   rows <- rows[codes[rows, best$q] > 0L]
   list(q = best$q, rows = rows)
+}
+
+# Fill the groups still smaller than the target from donors: for each small
+# pattern (largest first, then in order of first appearance), records of
+# other groups that can spare them (still at least the target after giving)
+# take the pattern by blanking the cells where it is blank. A donor must
+# show the pattern's values elsewhere, and its cells to blank must be values
+# (not real missing values). Donors needing the fewest cells (then the least
+# useful by `rank`, then in row order) go first; a group that can't be
+# filled is left. Returns the cells to blank, as a two-column matrix.
+fill_from_donors <- function(codes, k_target, rank) {
+  cells <- matrix(integer(0), ncol = 2)
+  repeat {
+    ids <- vctrs::vec_group_id(as.data.frame(codes))
+    size <- tabulate(ids)
+    small <- which(size < k_target)
+    if (length(small) == 0) break
+    first <- match(small, ids)
+    filled_any <- FALSE
+    for (g in small[order(-size[small], first)]) {
+      need <- k_target - size[g]
+      pattern <- codes[match(g, ids), ]
+      blank <- which(pattern == 0L)
+      spare <- size[ids] - k_target
+      fits <- spare > 0 & ids != g
+      for (q in which(pattern != 0L)) {
+        fits <- fits & codes[, q] == pattern[q]
+      }
+      for (q in blank) {
+        fits <- fits & codes[, q] >= 0L
+      }
+      donors <- which(fits)
+      if (length(donors) == 0) next
+      to_blank <- codes[donors, blank, drop = FALSE] > 0L
+      n_cells <- rowSums(to_blank)
+      cost <- as.vector(to_blank %*% (2^(rank[blank] - 1)))
+      donors <- donors[order(n_cells, cost, donors)]
+      # Take donors while their group can still spare them.
+      left <- spare[match(seq_along(size), ids)]
+      taken <- integer(0)
+      for (j in donors) {
+        if (length(taken) == need) break
+        if (left[ids[j]] > 0) {
+          taken <- c(taken, j)
+          left[ids[j]] <- left[ids[j]] - 1
+        }
+      }
+      if (length(taken) < need) next
+      for (j in taken) {
+        q <- blank[codes[j, blank] > 0L]
+        cells <- rbind(cells, cbind(rep(j, length(q)), q))
+        codes[j, q] <- 0L
+      }
+      filled_any <- TRUE
+      break
+    }
+    if (!filled_any) break
+  }
+  cells
+}
+
+# Datasets other than `ds` whose data frames with the key hold `col` with a
+# different value than `ds` releases for a subject (both compared as text,
+# blanks as missing).
+copies_that_differ <- function(data, ds, col, key) {
+  own <- data[[ds]]
+  if (!all(c(key, col) %in% names(own))) {
+    return(character(0))
+  }
+  own_keys <- normalize_keys(own[[key]])
+  as_text <- function(x) {
+    x <- blank_to_na(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else x)
+    if (is.numeric(x)) key_as_character(x) else as.character(x)
+  }
+  released <- as_text(own[[col]])[match(unique(own_keys[!is.na(own_keys)]), own_keys)]
+  names(released) <- unique(own_keys[!is.na(own_keys)])
+  out <- character(0)
+  for (other in setdiff(names(data), ds)) {
+    differs <- FALSE
+    map_keyed_frames(data[[other]], key, function(f, packed) {
+      if (col %in% names(f)) {
+        k <- normalize_keys(f[[key]])
+        mine <- !is.na(k) & k %in% names(released)
+        a <- as_text(f[[col]])[mine]
+        b <- released[k[mine]]
+        if (any((is.na(a) != is.na(b)) | (!is.na(a) & !is.na(b) & a != b))) differs <<- TRUE
+      }
+      f
+    })
+    if (differs) out <- c(out, other)
+  }
+  out
 }
 
 # Blank a quasi-identifier for some subjects in every row of its dataset: a
@@ -524,7 +670,7 @@ drop_subject_rows <- function(df, key, key_cols, dropped) {
     if (!is.null(owners) && any(owners %in% dropped)) {
       keep <- !owners %in% dropped
       n <- n + sum(!keep)
-      df <- vctrs::vec_slice(df, keep)
+      df <- drop_gone_levels(df, vctrs::vec_slice(df, keep))
     }
   }
   df <- map_keyed_frames(df, key, function(f, packed) {
@@ -539,9 +685,24 @@ drop_subject_rows <- function(df, key, key_cols, dropped) {
       return(f)
     }
     n <<- n + sum(remove)
-    vctrs::vec_slice(f, !remove)
+    drop_gone_levels(f, vctrs::vec_slice(f, !remove))
   })
   list(df = df, n = n)
+}
+
+# `new` (rows of `old`) without the factor levels that only the removed rows
+# held, such as removed subjects' keys or sites; levels unused before are
+# kept.
+drop_gone_levels <- function(old, new) {
+  for (j in which(vapply(old, is.factor, logical(1)))) {
+    gone <- setdiff(unique(as.character(.subset2(old, j))), unique(as.character(.subset2(new, j))))
+    gone <- gone[!is.na(gone)]
+    if (length(gone) > 0) {
+      x <- .subset2(new, j)
+      new <- set_column(new, j, with_attributes_of(factor(as.character(x), levels = setdiff(levels(x), gone)), x))
+    }
+  }
+  new
 }
 
 # Values of the `also` columns (of at least 5 characters) of the subjects

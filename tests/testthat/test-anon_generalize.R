@@ -260,7 +260,7 @@ test_that("numbers with thousands separators or exponents are rewritten in their
   expect_identical(out$LBSTRESC, c("1200", "200", "300", "<5"))
 })
 
-test_that("ADaM AVAL keeps AVALC, BASE, BASEC, CHG and PCHG consistent", {
+test_that("ADaM AVAL keeps AVALC, BASE, BASEC, CHG, PCHG and R2BASE consistent", {
   advs <- data.frame(
     USUBJID = rep(c("S1", "S2"), each = 2), PARAMCD = "WEIGHT", ABLFL = c("Y", "", "Y", ""),
     AVAL = c(59.4, 60.4, 81.2, 79.9)
@@ -270,6 +270,7 @@ test_that("ADaM AVAL keeps AVALC, BASE, BASEC, CHG and PCHG consistent", {
   advs$BASEC <- sprintf("%.1f", advs$BASE)
   advs$CHG <- advs$AVAL - advs$BASE
   advs$PCHG <- 100 * advs$CHG / advs$BASE
+  advs$R2BASE <- advs$AVAL / advs$BASE
   out <- anon_generalize(list(advs = advs), list(anon_rule(anon_quasi_values("advs", "PARAMCD", "WEIGHT", "AVAL"), anon_round(-1))))$data$advs
   expect_identical(out$AVAL, c(60, 60, 80, 80))
   expect_identical(out$AVALC, c("60.0", "60.0", "80.0", "80.0"))
@@ -277,13 +278,22 @@ test_that("ADaM AVAL keeps AVALC, BASE, BASEC, CHG and PCHG consistent", {
   expect_identical(out$BASEC, c("60.0", "60.0", "80.0", "80.0"))
   expect_identical(out$CHG, c(0, 0, 0, 0))
   expect_identical(out$PCHG, c(0, 0, 0, 0))
+  expect_identical(out$R2BASE, c(1, 1, 1, 1))
+  # A BASE that rounds to 0 leaves PCHG and R2BASE missing.
+  small <- data.frame(USUBJID = "S1", PARAMCD = "X", AVAL = c(4, 12), BASE = 4)
+  small$PCHG <- 100 * (small$AVAL - small$BASE) / small$BASE
+  small$R2BASE <- small$AVAL / small$BASE
+  z <- anon_generalize(list(ad = small), list(anon_rule(anon_quasi_values("ad", "PARAMCD", "X", "AVAL"), anon_round(-1))))$data$ad
+  expect_identical(z$BASE, c(0, 0))
+  expect_identical(z$PCHG, c(NA_real_, NA_real_))
+  expect_identical(z$R2BASE, c(NA_real_, NA_real_))
   # Suppression blanks them together.
   adsl <- data.frame(USUBJID = c("S1", "S2"), SEX = c("F", "F"))
   q <- list(adsl = "SEX", anon_quasi_values("advs", "PARAMCD", "WEIGHT", "AVAL", filter = ~ ABLFL == "Y"))
   sup <- anon_suppress(list(adsl = adsl, advs = advs), q, max_risk = 1/2)$data$advs
   blank <- is.na(sup$AVAL)
   expect_true(any(blank))
-  expect_true(all(is.na(sup$BASE[blank]) & is.na(sup$CHG[blank]) & is.na(sup$PCHG[blank]) & sup$AVALC[blank] == ""))
+  expect_true(all(is.na(sup$BASE[blank]) & is.na(sup$CHG[blank]) & is.na(sup$PCHG[blank]) & is.na(sup$R2BASE[blank]) & sup$AVALC[blank] == ""))
 })
 
 test_that("text siblings that are factors or haven-labelled keep their class", {

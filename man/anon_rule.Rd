@@ -47,9 +47,13 @@ warning where the row has a numeric result.
 
 For ADaM, with \code{result_col = "AVAL"}, \code{AVALC} is rewritten from the
 generalized \code{AVAL}, \code{BASE} is generalized by the same rule (it is the
-baseline \code{AVAL}) with \code{BASEC} rewritten from it, and \code{CHG} (\code{AVAL - BASE})
-and \code{PCHG} (\code{100 * CHG / BASE}) are recomputed from the generalized
-values. Other result columns are generalized alone.
+baseline \code{AVAL}) with \code{BASEC} rewritten from it, and \code{CHG} (\code{AVAL - BASE}),
+\code{PCHG} (\code{100 * CHG / BASE}) and \code{R2BASE} (\code{AVAL / BASE}) are recomputed
+from the generalized values. Where the generalized \code{BASE} is 0 (a band or
+rounding can make it so), \code{PCHG} and \code{R2BASE} become missing. Other
+derived columns (such as \code{BASETYPE} analyses, \code{CRIT} flags or \code{AVALCAT})
+are not handled: generalize or remove them. Other result columns are
+generalized alone.
 
 With \code{\link[=anon_fold]{anon_fold()}}, \code{result_col} must be text; on the rows folded, the
 other text results (\code{--ORRES} or \code{--STRESC}; \code{AVALC}, \code{BASEC}) become \code{to}

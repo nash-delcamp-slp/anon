@@ -65,8 +65,10 @@ left out). Rows are ordered so the variable whose removal helps most
 comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
 \item \code{quasi}, \code{key}, \code{na}: the quasi-identifier names, key and \code{na} used;
-and \code{n_blanked}, the number of cells blanked by suppression, from the
-step's record of them.
+\code{n_blanked}, the number of cells blanked by suppression, from the
+step's record of them; and \code{from_step}, whether \code{data} was a step (a
+plain list can't tell blanked cells from missing values, and the print
+says so).
 \item \code{sources}: one row per quasi-identifier giving where it comes from:
 \code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test} and
 \code{result_col}, plus \code{filtered} (whether a \code{filter} was used). The filter

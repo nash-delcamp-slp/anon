@@ -154,11 +154,11 @@ test_that("blanked factors keep their class; levels held only by blanked values 
   dm <- sup_dm()
   dm$SEX <- factor(dm$SEX)
   dm$AGE <- factor(c(30, 30, 30, 45, 40, 50))
-  expect_warning(res <- anon_suppress(dm, quasi = c("AGE", "SEX"), max_risk = 1/2), "could not reach")
+  # The record left alone takes a donor from a group of three.
+  expect_no_warning(res <- anon_suppress(dm, quasi = c("AGE", "SEX"), max_risk = 1/2))
   out <- res$data
   expect_s3_class(out$AGE, "factor")
   expect_true(all(sup_release_k(dm, out, c("AGE", "SEX")) >= 2))
-  expect_false(anyNA(out$SEX))
   expect_true(all(levels(out$AGE) %in% as.character(out$AGE)))
 })
 
@@ -190,7 +190,7 @@ test_that("anon_risk() measures a suppressed step from its record of blanked cel
   expect_true(all(result$suppressed$key %in% again$suppressed$key | !result$suppressed$key %in% again$data$USUBJID))
 })
 
-test_that("method = \"drop\" removes subjects at risk at any depth, repeating as groups shrink", {
+test_that("method = \"drop\" removes subjects in small groups at any depth", {
   dm <- sup_dm()
   dm$HIST <- I(lapply(dm$USUBJID, function(k) data.frame(USUBJID = k, X = 1)))
   ae <- data.frame(USUBJID = c("S03", "S01", "S06", "S06"), AETERM = "x")
@@ -262,7 +262,7 @@ test_that("anon_suppress() reaches the target on random data, with 13 quasi-iden
     SITE = sample(sprintf("%02d", 1:8), n, replace = TRUE)
   )
   quasi <- c("AGE", "SEX", "RACE", "SITE")
-  expect_warning(res <- anon_suppress(dm, quasi = quasi, max_risk = 0.2), "could not reach")
+  expect_no_warning(res <- anon_suppress(dm, quasi = quasi, max_risk = 0.2))
   out <- res$data
   expect_true(all(sup_release_k(dm, out, quasi) >= 5))
   same <- dm[match(out$USUBJID, dm$USUBJID), ]
@@ -272,7 +272,7 @@ test_that("anon_suppress() reaches the target on random data, with 13 quasi-iden
   wide <- data.frame(USUBJID = sprintf("W%03d", 1:60))
   for (j in 1:13) wide[[paste0("Q", j)]] <- sample(1:3, 60, TRUE)
   qs <- paste0("Q", 1:13)
-  expect_warning(res <- anon_suppress(wide, qs, max_risk = 1/3), "could not reach")
+  expect_no_warning(res <- anon_suppress(wide, qs, max_risk = 1/3))
   expect_true(all(sup_release_k(wide, res$data, qs) >= 3))
   expect_true(res$settings$suppress$meets_target)
 })
@@ -291,10 +291,17 @@ test_that("`everywhere` blanks a quasi-identifier's copies in other datasets and
   expect_true(out$settings$suppress$meets_target)
   expect_match(out$log$detail, "copy of `AGE` in `dm`", all = FALSE)
 
-  expect_warning(
-    only <- anon_suppress(data, list(dm = c("AGE", "SEX")), max_risk = 1/2, everywhere = FALSE),
-    "`AGE` was blanked in `dm` only; these datasets hold it too: adsl, adae"
+  warnings <- character(0)
+  only <- withCallingHandlers(
+    anon_suppress(data, list(dm = c("AGE", "SEX")), max_risk = 1/2, everywhere = FALSE),
+    warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
   )
+  expect_length(warnings, 2)
+  expect_match(warnings[1], "`AGE` was blanked in `dm` only; these datasets hold it too: adsl, adae")
+  expect_match(warnings[2], "`AGE` in these datasets differs from `dm` for some subjects [^:]*: adsl, adae")
   expect_identical(only$data$adsl, adsl)
   expect_false(only$settings$suppress$meets_target)
 })
@@ -355,4 +362,95 @@ test_that("a blanked cell never matches a real missing value", {
   # Kept, it is measured alone from the step too.
   expect_warning(kept <- anon_suppress(dm, c("AGE", "SEX"), max_risk = 1/2, unresolved = "keep"), "remain in groups")
   expect_identical(anon_risk_subjects(kept, c("AGE", "SEX"))$k, c(2L, 2L, 2L, 2L, 2L, 2L, 1L))
+})
+
+test_that("a group still too small takes donors from a group that can spare them", {
+  dm <- data.frame(
+    USUBJID = sprintf("S%02d", 1:24),
+    AGE = c(rep(30, 22), 71, 85),
+    SEX = c(rep("F", 22), "F", "M")
+  )
+  # S23 and S24, blanked everywhere, form a group of 2; ten of the 22 (30, F)
+  # records give AGE and SEX to join them, leaving 12.
+  expect_no_warning(res <- anon_suppress(dm, c("AGE", "SEX")))
+  expect_identical(nrow(res$data), 24L)
+  blank <- is.na(res$data$AGE)
+  expect_identical(sum(blank), 12L)
+  expect_true(all(res$data$SEX[blank] == ""))
+  expect_true(all(sup_release_k(dm, res$data, c("AGE", "SEX")) >= 12))
+  expect_true(res$settings$suppress$meets_target)
+})
+
+test_that("copies of a quasi-identifier that differ from its own dataset fail the target", {
+  dm <- data.frame(USUBJID = sprintf("K%02d", 1:24), AGE = rep(c(31, 47), 12), SEX = "F")
+  adsl <- dm[c("USUBJID", "AGE")]
+  gen <- suppressWarnings(anon_generalize(list(dm = dm, adsl = adsl), list(dm = list(AGE = anon_band(20)))))
+  expect_warning(
+    res <- anon_suppress(gen, list(dm = c("AGE", "SEX"))),
+    "`AGE` in these datasets differs from `dm` for some subjects \\(not generalized or blanked the same way\\): adsl"
+  )
+  expect_false(res$settings$suppress$meets_target)
+  expect_true("copies of `AGE` differ from `dm`" %in% res$settings$suppress$not_met)
+  # Generalized in both: the same values, no warning.
+  gen2 <- anon_generalize(list(dm = dm, adsl = adsl), list(dm = list(AGE = anon_band(20)), adsl = list(AGE = anon_band(20))))
+  expect_no_warning(res2 <- anon_suppress(gen2, list(dm = c("AGE", "SEX"))))
+  expect_true(res2$settings$suppress$meets_target)
+})
+
+test_that("anon_risk() reads blanked cells through a result's siblings and through copies", {
+  k <- sprintf("K%02d", 1:12)
+  vs <- data.frame(USUBJID = k, VSTESTCD = "WEIGHT", VSSTRESN = c(rep(NA, 6), 61:66))
+  vs$VSSTRESC <- ifelse(is.na(vs$VSSTRESN), "", as.character(vs$VSSTRESN))
+  vs$VSORRES <- vs$VSSTRESC
+  expect_warning(
+    s <- anon_suppress(list(vs = vs), anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"), unresolved = "keep"),
+    "remain in groups"
+  )
+  for (rc in c("VSSTRESN", "VSSTRESC", "VSORRES")) {
+    r <- suppressWarnings(anon_risk(s, anon_quasi_values("vs", "VSTESTCD", "WEIGHT", rc)))
+    expect_identical(r$n_blanked, 6L, info = rc)
+    expect_false(r$summary$meets_target, info = rc)
+  }
+
+  dm <- sup_dm()
+  adsl <- sup_dm()[c("USUBJID", "AGE")]
+  res <- anon_suppress(list(dm = dm, adsl = adsl), list(dm = c("AGE", "SEX")), max_risk = 1/2)
+  r <- anon_risk(res, list(adsl = "AGE", dm = "SEX"), max_risk = 1/2)
+  # AGE of S03 and S06 in the adsl copy, and their SEX.
+  expect_identical(r$n_blanked, 4L)
+  expect_true(r$summary$meets_target)
+})
+
+test_that("min_k and meets_target are measured on the released data", {
+  # K012 refers to K013 in RSUBJID: removing K013 removes K012's row too,
+  # leaving 11 of age 30.
+  dm <- data.frame(USUBJID = sprintf("K%03d", 1:14), AGE = c(rep(30, 12), 71, 85), RSUBJID = c(rep("", 11), "K013", "", ""))
+  res <- anon_suppress(dm, "AGE", method = "drop")
+  expect_identical(nrow(res$data), 11L)
+  expect_identical(res$settings$suppress$min_k, 11L)
+  expect_false(res$settings$suppress$meets_target)
+  expect_identical(anon_risk(res, "AGE")$summary$min_k, 11L)
+})
+
+test_that("removed subjects leave the record of blanked cells and their factor levels", {
+  dm <- data.frame(USUBJID = sprintf("ORIG-%03d", 1:16), AGE = c(rep(30, 12), rep(40, 3), 50), SEX = c(rep("F", 12), "F", "F", "M", "M"))
+  s1 <- anon_suppress(dm, c("AGE", "SEX"), max_risk = 1/2)
+  expect_gt(nrow(s1$suppressed), 0)
+  s2 <- anon_suppress(s1, c("AGE", "SEX"), max_risk = 0.09, method = "drop")
+  dropped <- setdiff(dm$USUBJID, s2$data$USUBJID)
+  expect_gt(length(dropped), 0)
+  expect_false(any(s2$suppressed$key %in% dropped))
+
+  fk <- data.frame(USUBJID = factor(sprintf("ORIG-%03d", 1:14)), AGE = c(rep(30, 12), 71, 85))
+  fk$SITE <- factor(c(rep("S01", 12), "S99", "S77"), levels = c("S01", "S77", "S99", "UNUSED"))
+  out <- anon_suppress(fk, "AGE", method = "drop")$data
+  expect_identical(levels(out$USUBJID), sprintf("ORIG-%03d", 1:12))
+  expect_identical(levels(out$SITE), c("S01", "UNUSED"))
+})
+
+test_that("a risk measured without a step says so", {
+  expect_output(print(anon_risk(sup_dm(), c("AGE", "SEX"))), "Measured without a step's record of suppressed cells")
+  step <- anon_suppress(sup_dm(), c("AGE", "SEX"), max_risk = 1/2)
+  out <- capture.output(print(anon_risk(step, c("AGE", "SEX"))))
+  expect_false(any(grepl("Measured without", out)))
 })

@@ -101,8 +101,12 @@ into groups of at least the target, it takes the try that brings the most
 (then needs the fewest cells, then blanks the least useful by \code{order}) and
 blanks only the records it brings in. Otherwise it takes the try that
 merges the most small patterns (then the least useful) and blanks it on
-all of them. Every step blanks at least one cell, so it ends; records
-still short when everything is blanked (or with fewer subjects than the
+all of them. Every step blanks at least one cell, so it ends. Then each
+group still too small (largest first; often the one blanked everywhere)
+is filled from donors: records of other groups that can spare them (their
+group keeps at least the target size), which take its pattern by blanking
+the cells where it is blank, the donors needing the fewest cells (then the
+least useful) first. Records still short (or with fewer subjects than the
 target group size) are unresolved. The result is deterministic and
 doesn't depend on the order of rows, but it isn't guaranteed to blank the
 fewest cells. Blanking only joins records into groups and removing small
@@ -114,7 +118,7 @@ in every row of the subject in its dataset (and, with \code{everywhere}, in
 every other dataset with the key that has the column), and for an
 \code{\link[=anon_quasi_values]{anon_quasi_values()}} specification every row of the test (not only the
 measured one), with its other results: for SDTM \code{--ORRES}, \code{--STRESC} and
-\code{--STRESN}; for ADaM \code{AVAL}, \code{AVALC}, \code{BASE}, \code{BASEC}, \code{CHG} and \code{PCHG}.
+\code{--STRESN}; for ADaM \code{AVAL}, \code{AVALC}, \code{BASE}, \code{BASEC}, \code{CHG}, \code{PCHG} and \code{R2BASE}.
 Blanks are missing values: \code{""} for text unless the column already uses
 \code{NA} for missing text (it has \code{NA} and no \code{""}), \code{NA} for numbers and
 factors (a factor's levels held only by blanked values are dropped).
@@ -131,9 +135,17 @@ at any depth, and with the rows that refer to them in \code{key_cols}. If any
 removed subject's key, or a value of an \code{also} column, is still found in
 the text values of the data, a warning names the datasets.
 
+The measure needs the step's record of blanked cells: measuring the data
+alone (a plain list of data frames) counts blanked cells as missing
+values, which can merge them with real missing values and call the target
+met when it isn't. Measure the step, as \code{meets_target} does.
+
 \strong{When the target isn't met.} \code{settings$suppress$meets_target} is \code{FALSE},
-with reasons in \code{settings$suppress$not_met}, when the measured risk misses
-the target, when rows of removed subjects remain, or when a dataset
+with reasons in \code{settings$suppress$not_met}, when the risk measured on the
+released data misses the target, when rows of removed subjects remain,
+when a copy of a column quasi-identifier in another dataset with the key
+shows a different value than its own dataset for a subject (for example
+\code{AGE} in \code{adsl} not generalized like \code{AGE} in \code{dm}), or when a dataset
 holding \code{AGE} as a quasi-identifier also holds a birth date more precise
 than a year (\code{BRTHDTC}, or a Date \code{BRTHDT}): with a reference date such as
 \code{RFSTDTC}, it gives the age back exactly, even after the dates were

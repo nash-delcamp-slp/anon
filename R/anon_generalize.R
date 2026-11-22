@@ -158,9 +158,13 @@ anon_fold <- function(min_n, to) {
 #'
 #' For ADaM, with `result_col = "AVAL"`, `AVALC` is rewritten from the
 #' generalized `AVAL`, `BASE` is generalized by the same rule (it is the
-#' baseline `AVAL`) with `BASEC` rewritten from it, and `CHG` (`AVAL - BASE`)
-#' and `PCHG` (`100 * CHG / BASE`) are recomputed from the generalized
-#' values. Other result columns are generalized alone.
+#' baseline `AVAL`) with `BASEC` rewritten from it, and `CHG` (`AVAL - BASE`),
+#' `PCHG` (`100 * CHG / BASE`) and `R2BASE` (`AVAL / BASE`) are recomputed
+#' from the generalized values. Where the generalized `BASE` is 0 (a band or
+#' rounding can make it so), `PCHG` and `R2BASE` become missing. Other
+#' derived columns (such as `BASETYPE` analyses, `CRIT` flags or `AVALCAT`)
+#' are not handled: generalize or remove them. Other result columns are
+#' generalized alone.
 #'
 #' With [anon_fold()], `result_col` must be text; on the rows folded, the
 #' other text results (`--ORRES` or `--STRESC`; `AVALC`, `BASEC`) become `to`
@@ -662,10 +666,15 @@ generalize_test <- function(df, tg, key, fold_set) {
     }
     if (!is.null(new_base)) {
       chg <- round(new_result - new_base, 10)
-      for (col in intersect(c("CHG", "PCHG"), names(df))) {
+      nonzero <- !is.na(new_base) & new_base != 0
+      for (col in intersect(c("CHG", "PCHG", "R2BASE"), names(df))) {
         y <- df[[col]]
         if (is.factor(y) || !is.numeric(vctrs::vec_data(y))) next
-        value <- if (col == "CHG") chg else ifelse(!is.na(new_base) & new_base != 0, round(100 * chg / new_base, 10), NA_real_)
+        value <- switch(col,
+          CHG = chg,
+          PCHG = ifelse(nonzero, round(100 * chg / new_base, 10), NA_real_),
+          R2BASE = ifelse(nonzero, round(new_result / new_base, 10), NA_real_)
+        )
         old <- vctrs::vec_data(y)[rows]
         value[is.na(old)] <- NA
         new <- replace_rows(y, rows, if (is.integer(old)) as.integer(round(value)) else value)
@@ -699,10 +708,10 @@ generalize_test <- function(df, tg, key, fold_set) {
 
 # The result columns of the same test as `col` found in the data frame: for
 # SDTM, --ORRES, --STRESC and --STRESN with the same prefix; for ADaM AVAL
-# or AVALC, AVAL, AVALC, BASE, BASEC, CHG and PCHG.
+# or AVALC, AVAL, AVALC, BASE, BASEC, CHG, PCHG and R2BASE.
 result_siblings <- function(df, col) {
   if (col %in% c("AVAL", "AVALC")) {
-    return(intersect(c("AVAL", "AVALC", "BASE", "BASEC", "CHG", "PCHG"), names(df)))
+    return(intersect(c("AVAL", "AVALC", "BASE", "BASEC", "CHG", "PCHG", "R2BASE"), names(df)))
   }
   if (!grepl("(ORRES|STRESC|STRESN)$", col)) {
     return(col)
