@@ -115,12 +115,15 @@ anon_report(
 
 - check_labels:
 
-  Logical indicating whether to anonymize labels (attributes) of columns
-  and data frames: variable and data frame labels, comments and other
-  character attributes that aren't structural, haven value labels (the
-  label names, and the label values when they are text) and text
-  user-defined missing values (`na_values`, and the ends of a text
-  `na_range`), on vectors and columns wherever
+  Logical indicating whether to anonymize labels (attributes) of
+  columns, lists and data frames: variable and data frame labels,
+  comments and other attributes that aren't structural (text at any
+  depth in them, such as lists like SPSS `variable.labels` or readr's
+  `spec`, factors, data frames, their names and their own attributes,
+  and the names of these attributes), haven value labels (the label
+  names, and the label values when they are text) and text user-defined
+  missing values (`na_values`, and the ends of a text `na_range`), on
+  vectors and columns wherever
   [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
   reaches them (in data frames, lists and list columns). Attributes that
   are structural for the object's class (see the `other_attributes`
@@ -130,8 +133,8 @@ anon_report(
   which follow its levels. Value labels whose codes the redaction made
   equal are merged into one entry, their original labels joined with
   `" / "` and then redacted, with a warning naming the column as it is
-  named in the output (or a list element, as `col[2]`); equal
-  missing-value codes are deduplicated without a warning, as which
+  named in the output (or a list element, as `col[2]` or `col$name`);
+  equal missing-value codes are deduplicated without a warning, as which
   values are missing doesn't change. A text `na_range` whose redacted
   ends would be in descending order is kept, with a warning. Whatever
   `check_labels` says, a warning names a column whose redaction changed
@@ -147,5 +150,9 @@ anon_report(
 
 ## Value
 
-An object of class `"anon_report"` containing an object inventory and
-environment summary for the selected objects.
+An object of class `"anon_report"` containing the names of the selected
+objects (`object_names`), an object inventory and an environment summary
+for them, with your rules applied to all of it, object names and a
+step's dataset names (`step$dm`) included: every part shows the same
+redacted names, made unique when two redact alike (`"[DRUG]"`,
+`"[DRUG] 1"`). `selection` takes the objects' real names.

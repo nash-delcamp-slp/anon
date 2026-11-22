@@ -136,8 +136,11 @@ names). Default is <code>TRUE</code>.</p></dd>
 
 <dt id="arg-check-labels">check_labels<a class="anchor" aria-label="anchor" href="#arg-check-labels"></a></dt>
 <dd><p>Logical indicating whether to anonymize labels
-(attributes) of columns and data frames: variable and data frame labels,
-comments and other character attributes that aren't structural, haven
+(attributes) of columns, lists and data frames: variable and data frame
+labels, comments and other attributes that aren't structural (text at
+any depth in them, such as lists like SPSS <code>variable.labels</code> or readr's
+<code>spec</code>, factors, data frames, their names and their own attributes, and
+the names of these attributes), haven
 value labels (the label names, and the label values when they are text)
 and text user-defined missing values (<code>na_values</code>, and the ends of a
 text <code>na_range</code>), on vectors and columns wherever <code><a href="anon.html">anon()</a></code> reaches them
@@ -147,7 +150,7 @@ for the object's class (see the <code>other_attributes</code> argument of
 contrasts matrix, which follow its levels. Value labels whose codes the
 redaction made equal are merged into one entry, their original labels
 joined with <code>" / "</code> and then redacted, with a warning naming the column as
-it is named in the output (or a list element, as <code>col[2]</code>); equal
+it is named in the output (or a list element, as <code>col[2]</code> or <code>col$name</code>); equal
 missing-value codes are deduplicated without a warning, as which values
 are missing doesn't change. A text <code>na_range</code> whose redacted ends would be
 in descending order is kept, with a warning. Whatever <code>check_labels</code>
@@ -163,8 +166,12 @@ This argument overrides the global option.</p></dd>
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>An object of class <code>"anon_report"</code> containing an object
-inventory and environment summary for the selected objects.</p>
+    <p>An object of class <code>"anon_report"</code> containing the names of the
+selected objects (<code>object_names</code>), an object inventory and an environment
+summary for them, with your rules applied to all of it, object names and
+a step's dataset names (<code>step$dm</code>) included: every part shows the same
+redacted names, made unique when two redact alike (<code>"[DRUG]"</code>,
+<code>"[DRUG] 1"</code>). <code>selection</code> takes the objects' real names.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

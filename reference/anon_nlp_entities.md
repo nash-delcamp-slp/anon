@@ -32,7 +32,7 @@ anon_nlp_places(x, ...)
 - x:
 
   The object to anonymize. Can be a character vector, factor, data
-  frame, or list.
+  frame, list, de-identification step or environment.
 
 - entity_types:
 

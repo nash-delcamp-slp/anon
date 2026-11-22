@@ -19,7 +19,14 @@ anon_secrets(x)
 
 ## Value
 
-A named list of tibbles, e.g. `subject_ids` or `date_offsets`.
+A named list of tibbles, e.g. `subject_ids` or `date_offsets`, of class
+`"anon_secrets_list"`.
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+drops it (and a step's secrets environment) wherever it finds it, with a
+warning. Its tables, and subsets taken with `[`, are plain objects
+without that class, which
+[`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+redacts like any other data: keep them apart from what you share.
 
 ## Details
 

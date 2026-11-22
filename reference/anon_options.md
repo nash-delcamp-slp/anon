@@ -18,7 +18,8 @@ anon_options(
   nlp_auto,
   nlp_default_replacements,
   example_values_n,
-  example_rows
+  example_rows,
+  closures
 )
 ```
 
@@ -77,6 +78,12 @@ anon_options(
   [`anon_example_rows()`](https://nash-delcamp-slp.github.io/anon/reference/anon_example_rows.md)
   to build this value.
 
+- closures:
+
+  Default `closures` used by
+  [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+  (`"copy"` or `"detach"`). Stored in `anon.closures`.
+
 ## Value
 
 If called with no arguments, a named list of current supported `anon.*`
@@ -103,6 +110,8 @@ Supported options are:
 - `anon.example_values_n`
 
 - `anon.example_rows`
+
+- `anon.closures`
 
 Use `NULL` to clear an option. For structured option values, these
 helpers are available:
@@ -141,6 +150,9 @@ anon_options()
 #> NULL
 #> 
 #> $anon.example_rows
+#> NULL
+#> 
+#> $anon.closures
 #> NULL
 #> 
 

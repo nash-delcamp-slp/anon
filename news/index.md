@@ -19,6 +19,9 @@
   pseudonymize subjects and offset each subject’s dates consistently
   across datasets, including nested data frames, and flag objects they
   can’t de-identify, such as fitted models.
+- [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
+  redacts a copy of an environment, and text at any depth in attributes;
+  reports and the app show object names redacted.
 - Environment summarization with
   [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md)
   and

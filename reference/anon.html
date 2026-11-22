@@ -59,6 +59,7 @@ anonymization based on variable names or classes and warnings about approximate 
 <span>  check_names <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  check_labels <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  nlp_auto <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.nlp_auto"</span><span class="op">)</span>,</span>
+<span>  closures <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/options.html" class="external-link">getOption</a></span><span class="op">(</span><span class="st">"anon.closures"</span>, default <span class="op">=</span> <span class="st">"copy"</span><span class="op">)</span>,</span>
 <span>  .self <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  .pattern_replacements <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  .compiled <span class="op">=</span> <span class="cn">NULL</span>,</span>
@@ -71,7 +72,8 @@ anonymization based on variable names or classes and warnings about approximate 
 
 
 <dl><dt id="arg-x">x<a class="anchor" aria-label="anchor" href="#arg-x"></a></dt>
-<dd><p>The object to anonymize. Can be a character vector, factor, data frame, or list.</p></dd>
+<dd><p>The object to anonymize. Can be a character vector, factor, data
+frame, list, de-identification step or environment.</p></dd>
 
 
 <dt id="arg-pattern-list">pattern_list<a class="anchor" aria-label="anchor" href="#arg-pattern-list"></a></dt>
@@ -127,8 +129,11 @@ names). Default is <code>TRUE</code>.</p></dd>
 
 <dt id="arg-check-labels">check_labels<a class="anchor" aria-label="anchor" href="#arg-check-labels"></a></dt>
 <dd><p>Logical indicating whether to anonymize labels
-(attributes) of columns and data frames: variable and data frame labels,
-comments and other character attributes that aren't structural, haven
+(attributes) of columns, lists and data frames: variable and data frame
+labels, comments and other attributes that aren't structural (text at
+any depth in them, such as lists like SPSS <code>variable.labels</code> or readr's
+<code>spec</code>, factors, data frames, their names and their own attributes, and
+the names of these attributes), haven
 value labels (the label names, and the label values when they are text)
 and text user-defined missing values (<code>na_values</code>, and the ends of a
 text <code>na_range</code>), on vectors and columns wherever <code>anon()</code> reaches them
@@ -138,7 +143,7 @@ for the object's class (see the <code>other_attributes</code> argument of
 contrasts matrix, which follow its levels. Value labels whose codes the
 redaction made equal are merged into one entry, their original labels
 joined with <code>" / "</code> and then redacted, with a warning naming the column as
-it is named in the output (or a list element, as <code>col[2]</code>); equal
+it is named in the output (or a list element, as <code>col[2]</code> or <code>col$name</code>); equal
 missing-value codes are deduplicated without a warning, as which values
 are missing doesn't change. A text <code>na_range</code> whose redacted ends would be
 in descending order is kept, with a warning. Whatever <code>check_labels</code>
@@ -150,6 +155,16 @@ user-defined missing values. Default is <code>TRUE</code>.</p></dd>
 <dd><p>List of logical values with names corresponding to entity names. Can be
 generated with <code><a href="nlp_auto.html">nlp_auto()</a></code> and can be set as the <code>anon.nlp_auto</code> global option.
 This argument overrides the global option.</p></dd>
+
+
+<dt id="arg-closures">closures<a class="anchor" aria-label="anchor" href="#arg-closures"></a></dt>
+<dd><p>What a closure, formula, terms object or quosure whose
+environment R doesn't save by reference (such as a function's frame)
+refers to in the result: <code>"copy"</code> (the default) gives it that
+environment's redacted copy, so it keeps working; <code>"detach"</code> gives it
+the global environment, so no data of that environment is kept, and it
+no longer finds what it needs there. See "Environments" below. Can be
+set as the <code>anon.closures</code> global option.</p></dd>
 
 
 <dt id="arg--self">.self<a class="anchor" aria-label="anchor" href="#arg--self"></a></dt>
@@ -180,7 +195,9 @@ list column's element, <code>"col[2]"</code>), for warnings. Default is <code>NU
     <p>An object of class <code>anon_context</code> with the same structure as <code>x</code> but with sensitive
 information replaced. For a de-identification step (see <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>), the step
 itself is returned with its data redacted, the patterns also applied to its log and
-settings, and its secrets dropped (read them from the original step); combine <code>step$data</code> rather than the step with <code><a href="https://rdrr.io/r/base/c.html" class="external-link">c()</a></code>. If approximate matches are found and <code>.self</code> is <code>FALSE</code>, warnings are issued.
+settings, and its secrets dropped (read them from the original step); combine <code>step$data</code> rather than the step with <code><a href="https://rdrr.io/r/base/c.html" class="external-link">c()</a></code>.
+For an environment, a new environment holding redacted copies of its
+objects (see "Environments" below). If approximate matches are found and <code>.self</code> is <code>FALSE</code>, warnings are issued.
 If <code>.self</code> is <code>TRUE</code>, warnings are attached as an attribute.</p>
     </div>
     <div class="section level2">
@@ -190,7 +207,40 @@ If <code>.self</code> is <code>TRUE</code>, warnings are attached as an attribut
 <li><p>Column names, row names, and labels (including haven value labels) are redacted when enabled</p></li>
 <li><p>List columns are redacted element by element, nested data frames included, and keep
 their class (<code>AsIs</code>, vctrs <code>list_of</code>, whose prototype is redacted like the elements)</p></li>
-</ul><p>Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
+</ul><p>Lists, list columns and the classed lists they hold (such as fitted
+models) keep their attributes and class, with their elements and
+attributes redacted. Records (vctrs <code>rcrd</code>) and <code>POSIXlt</code> date-times have
+their text fields and attributes redacted. Environments held inside other
+objects are replaced by redacted copies (see "Environments" below).
+Objects <code>anon()</code> can't search for text (functions, calls and formulas,
+such as a model's <code>call</code> or a model frame's <code>terms</code> attribute, whose code
+and the constants in it are kept, objects embedded in that code or in a
+function's formals, environments included, whatever <code>closures</code> says, S4
+and S7 objects (such as ggplot2 4 plots), raw vectors (which may hold
+serialized data), and the global, base and package environments and
+namespaces, which are kept by reference) are left as they are, and one warning lists where they
+are (by element name where there is one, as <code>fit$call</code>; the first ten, and
+how many more): remove them, or rebuild them from redacted data, before
+sharing. Functions and calls lose their source references (<code>srcref</code>,
+which can hold the text of the whole file they were sourced from,
+comments included), wherever <code>anon()</code> finds them: functions then print as
+deparsed code (S4 functions, such as generics and methods, stay S4). A
+function's own attributes are redacted like any object's, and so are a
+formula's or a call's, except its environment and, for a terms object,
+the attributes models rely on (<code>variables</code>, <code>predvars</code>, <code>term.labels</code>,
+<code>factors</code>, <code>dataClasses</code>, <code>order</code>, <code>intercept</code>, <code>response</code>, <code>specials</code>,
+<code>offset</code>). Reference class
+objects (made with <code><a href="https://rdrr.io/r/methods/refClass.html" class="external-link">methods::setRefClass()</a></code>) and their generators can't be
+copied without breaking them, and are dropped, with a warning. These
+rules apply to such an object given to <code>anon()</code> directly too.</p>
+<p>Secrets read from a de-identification step with <code><a href="anon_secrets.html">anon_secrets()</a></code>, and a
+step's secrets environment, are dropped wherever <code>anon()</code> finds them
+(attributes included, where a step's secrets are dropped too, and as the
+environment of a closure or formula, or as an environment's parent), with
+a warning (a step's own secrets are dropped as described under Value).
+External pointers and weak references are kept without a warning: they
+hold no text, and are saved as null.</p>
+<p>Text that isn't valid UTF-8 (such as a stray Windows-1252 byte) is searched
 through a repaired copy with the invalid bytes shown as hex (e.g.
 <code>"&lt;92&gt;"</code>), which is written back where a pattern matched; a pattern that
 matches digits can match inside such a marker. Text marked as <code>"bytes"</code>
@@ -201,6 +251,69 @@ that isn't valid UTF-8 is left as it is, with a warning.</p>
 <li><p>Formula notation (e.g., <code>~ .x + rnorm(length(.x), mean = 1)</code>)</p></li>
 </ul><p>The returned object has class <code>anon_context</code> which allows it to be combined with other
 objects returned by <code>anon()</code> using <code><a href="https://rdrr.io/r/base/c.html" class="external-link">c()</a></code>.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="environments">Environments<a class="anchor" aria-label="anchor" href="#environments"></a></h2>
+
+
+<p>For an environment, <code>anon()</code> returns a new environment holding a redacted
+copy of each of its objects (hidden ones included), named as <code>check_names</code>
+says (with NLP entities found in the names too); the environment given and
+its objects are not changed. Its class and other attributes are not kept:
+the copy is a plain environment (of class <code>anon_context</code>).</p>
+<p>The copy's parent is the environment's parent when R saves that parent by
+reference (the global, base or empty environment, a package or a
+namespace). Any other parent, such as a function's frame, would be saved
+with the copy, and the objects it holds with it, so, with <code>closures = "copy"</code>, the copy's parent is that parent's redacted copy, made the same
+way (and so on up the chain): the result can then hold redacted copies of
+objects that weren't in the environment given, such as those of the
+function whose frame is the parent (<code><a href="https://rdrr.io/r/base/environment.html" class="external-link">new.env()</a></code> called inside a function
+has that call's frame as its parent). With <code>closures = "detach"</code>, the
+copy's parent is then the global environment, with a warning.</p>
+<p>A de-identification step in it is redacted as above, its secrets dropped.
+Environments held in it, or anywhere <code>anon()</code> reaches (lists, list
+columns, attributes), are replaced by redacted copies made the same way,
+each environment copied once per call so that environments that refer to
+each other, or that several objects share, map to one copy; such a copy
+keeps its class and other attributes (redacted), and its parent is the
+parent's copy (or the global environment, as above) when the parent isn't
+kept by reference. An S4 object that contains an environment keeps its
+class and slots (redacted), with its environment replaced by a redacted
+copy whose parent is the global environment (the original's is a frame of
+the methods package); so does one given to <code>anon()</code> directly. A function's
+<code>...</code> in a copied frame is rebuilt from its values, redacted. The global, base and
+empty environments, packages and namespaces are kept by reference. A
+closure, formula, terms object or quosure whose environment R doesn't save
+by reference (such as a function's frame) is handled as <code>closures</code> says,
+wherever <code>anon()</code> finds it (in environments, lists, list columns and
+attributes, such as a model's <code>terms</code>), with a warning naming them:</p><ul><li><p><code>"copy"</code> (the default) gives it that environment's redacted copy
+(with that environment's parents, as above): it keeps working, on the
+redacted objects, and saving the copy doesn't save the original's data.
+But the copy then holds the environment the closure was created in
+(such as the frame of the function call that made it) and, in turn, the
+environments that one was created in, up to the first one R saves by
+reference (the global environment, a package or a namespace). Their
+objects are redacted by your patterns only: values that match no
+pattern are kept.</p></li>
+<li><p><code>"detach"</code> gives it the global environment: none of that
+environment's objects is kept, at the cost of closures, formulas and
+models that need them (they may fail, or find other objects of the same
+name in the global environment). It is the strict choice: the parents
+of the environments <code>anon()</code> copies become the global environment too.</p></li>
+</ul><p>The environment given to <code>anon()</code>, and environments held in it as data,
+are copied whatever <code>closures</code> says. Objects that rely on reference
+semantics (such as R6 objects, their generators and inheritance, and
+closures from function factories such as memoised functions) work on
+their copy, which is no longer linked to the original; their active
+bindings are not copied, and nothing in the copy is locked. Objects nested
+several hundred levels deep (such as a long chain of environments) are an
+error. Reading the objects forces promises.
+Active bindings (reading one would run its function) and objects that
+can't be read (a missing argument, or a promise whose code fails) are not
+copied, with a warning. The copy is not locked, whether or not the
+environment given is. A name that redacts to nothing is replaced by
+<code>"[unnamed 1]"</code> and so on. Names that redact alike are made unique
+(<code>"[DRUG]"</code>, <code>"[DRUG] 1"</code>), as in reports.</p>
     </div>
     <div class="section level2">
     <h2 id="global-options">Global Options<a class="anchor" aria-label="anchor" href="#global-options"></a></h2>
@@ -219,6 +332,9 @@ objects returned by <code>anon()</code> using <code><a href="https://rdrr.io/r/b
 
 <dt><code>anon.df_classes</code></dt>
 <dd><p>Global class specifications to combine with (after) <code>df_classes</code> parameter.</p></dd>
+
+<dt><code>anon.closures</code></dt>
+<dd><p>Default <code>closures</code> (<code>"copy"</code> or <code>"detach"</code>).</p></dd>
 
 <dt><code>anon.nlp_auto</code></dt>
 <dd><p>List of logical values indicating which NLP entity types should be
