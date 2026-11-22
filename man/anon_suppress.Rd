@@ -2,7 +2,7 @@
 % Please edit documentation in R/anon_suppress.R
 \name{anon_suppress}
 \alias{anon_suppress}
-\title{Suppress the quasi-identifiers of subjects still at risk}
+\title{Suppress quasi-identifiers until every subject reaches the target}
 \usage{
 anon_suppress(
   data,
@@ -12,7 +12,9 @@ anon_suppress(
   order = NULL,
   method = c("cells", "drop"),
   unresolved = c("drop", "keep"),
-  key_cols = "RSUBJID"
+  key_cols = "RSUBJID",
+  also = "SUBJID",
+  everywhere = TRUE
 )
 }
 \arguments{
@@ -45,64 +47,114 @@ size: the most useful are blanked last. Those not listed follow, in the
 order of \code{quasi}. Default: the order of \code{quasi}, its first
 quasi-identifier being the first blanked.}
 
-\item{method}{\code{"cells"} (default) blanks quasi-identifiers of the subjects
-at risk; \code{"drop"} removes those subjects from every dataset.}
+\item{method}{\code{"cells"} (default) blanks cells; \code{"drop"} removes the
+subjects at risk from every dataset.}
 
 \item{unresolved}{With \code{method = "cells"}, what to do with subjects still
-at risk when nothing is left to blank: \code{"drop"} (default) removes them
+at risk when nothing is left to blank (only when there are fewer
+subjects than the target group size): \code{"drop"} (default) removes them
 from every dataset, with a warning; \code{"keep"} keeps them, with a warning.}
 
 \item{key_cols}{Names of columns holding other subjects' keys (default
 \code{"RSUBJID"}, as in SDTM \code{RELSUB}): rows that refer to a removed subject
 are removed too, so no reference is left dangling.}
+
+\item{also}{Names of related identifier columns (default \code{"SUBJID"}): when
+subjects are removed, their values (of at least 5 characters, as
+\code{\link[=anon_subject_ids]{anon_subject_ids()}} searches them) are looked for in what remains.}
+
+\item{everywhere}{Logical. If \code{TRUE} (default), a quasi-identifier given as
+a column (such as \code{AGE} in \code{dm}) is blanked for the subject in every
+dataset with the \code{key} that has a column of that name (such as \code{AGE} in
+an ADaM \code{adsl} or \code{adae}), and in data frames with the \code{key} nested in
+any dataset. If \code{FALSE}, only in its own dataset, and a warning names the
+other datasets that hold a column of that name.}
 }
 \value{
-An object of class \code{"anon_deid_step"}, as for \code{\link[=anon_subject_ids]{anon_subject_ids()}}.
+An object of class \code{"anon_deid_step"}, as for \code{\link[=anon_subject_ids]{anon_subject_ids()}},
+with \code{suppressed}, the record of blanked cells (dataset, column or test,
+and subject key).
 }
 \description{
 For subjects whose group is still smaller than the target after
-generalization, blanks the fewest quasi-identifiers needed to reach the
-target (local suppression), or removes those subjects from every dataset.
-Risk is measured as \code{\link[=anon_risk]{anon_risk()}} does with \code{na = "wildcard"}: a blank
-value matches any value.
+generalization, blanks quasi-identifier cells until enough released
+records are consistent with each of them (local suppression), or removes
+those subjects from every dataset. Risk is measured as an attacker who knows
+a subject's true values would count it (see "After suppression" in
+\code{\link[=anon_risk]{anon_risk()}}): the records whose values equal the subject's, or are
+blanked.
 }
 \details{
-\strong{Cells.} Subjects at risk are handled one at a time, the smallest group
-first (then in the order subjects first appear in the data). For each, the
-step finds the smallest set of its quasi-identifiers whose blanking gives it
-a group of at least the target size, counting every subject that agrees
-with it on the quasi-identifiers left; among sets of the same size it
-blanks the least useful ones (by \code{order}: a set that keeps a more useful
-quasi-identifier wins). With more than 12 quasi-identifiers holding a value
-it adds them one at a time instead, each time the one that grows the group
-most. Blanking can only make groups larger, so a subject handled stays at
-the target; the result is deterministic, but not guaranteed to blank the
-fewest cells overall (as in sdcMicro's local suppression). A subject with
-every quasi-identifier blank matches everyone, so the target is always
-reached when there are at least as many subjects as the target group
-size; otherwise every subject is unresolved.
+\strong{The measure.} A subject's \code{k} is the number of released records
+consistent with its true values: on every quasi-identifier, the record
+shows the subject's value or a cell blanked by suppression. Real missing
+values are values. Cells blanked by an earlier \code{anon_suppress()} in the
+same chain count as blanked; their subjects' true values are no longer
+known, so those subjects are measured against the worst case (a value no
+record shows).
+
+\strong{Cells.} Blanking a subject's own cells doesn't help it: its own record
+is always consistent with it, and what matters is how many other records
+are. So subjects at risk are handled one at a time, the smallest \code{k} first
+(then in the order subjects first appear in the data), and for each, the
+records not yet consistent with it are ranked by how many cells would have
+to be blanked to make them consistent (fewest first), then by which (the
+least useful by \code{order} first), then by their order in the data; the
+cells of the first records are blanked until the subject's \code{k} reaches the
+target. Blanking only makes records consistent with more subjects, so \code{k}
+never decreases and a subject handled stays at the target. The result is
+deterministic, but not guaranteed to blank the fewest cells. A subject at
+risk keeps its own values: other records are blanked to hide it. A record
+that differs from the subject by a real missing value can't be made
+consistent (blanking it changes nothing). Subjects that can't reach the
+target (too few records can be made consistent, or fewer subjects than
+the target group size) are unresolved; removing them can leave others
+short of the records that covered them, so the step repeats until none is
+left at risk.
 
 A quasi-identifier is blanked in \strong{every row} of that subject: the column
-in every row of the subject in its dataset, and for an \code{\link[=anon_quasi_values]{anon_quasi_values()}}
-specification every row of the test (not only the measured one), with the
-test's \code{--ORRES}, \code{--STRESC} and \code{--STRESN} together. Blanks are SDTM
-missing values: \code{""} for text if the column already uses blank strings,
-otherwise \code{NA}, and \code{NA} for numbers and factors (a factor's levels held
-only by blanked values are dropped). Columns keep their type and
-attributes.
+in every row of the subject in its dataset (and, with \code{everywhere}, in
+every other dataset with the key that has the column), and for an
+\code{\link[=anon_quasi_values]{anon_quasi_values()}} specification every row of the test (not only the
+measured one), with its other results: for SDTM \code{--ORRES}, \code{--STRESC} and
+\code{--STRESN}; for ADaM \code{AVAL}, \code{AVALC}, \code{BASE}, \code{BASEC}, \code{CHG} and \code{PCHG}.
+Blanks are missing values: \code{""} for text unless the column already uses
+\code{NA} for missing text (it has \code{NA} and no \code{""}), \code{NA} for numbers and
+factors (a factor's levels held only by blanked values are dropped).
+Columns keep their type and attributes. The step records which cells it
+blanked (by subject key, as the data holds it, never values), and later
+steps carry the record on, so \code{\link[=anon_risk]{anon_risk()}} can measure the result.
 
-\strong{Drop.} Subjects at risk are removed from every dataset that has the
-\code{key} column, with the rows that refer to them in \code{key_cols}; removing
-subjects can make other groups smaller, so this repeats until no subject
-is at risk. Datasets without the \code{key} column and data frames nested in
-the datasets are not changed (a warning names datasets holding nested data
-frames with the key).
+\strong{Drop.} Subjects at risk are removed; removing subjects can leave others
+at risk, so this repeats until no subject is. Removed subjects' rows go
+from every dataset with the \code{key}, from datasets whose rows belong to
+subjects through a packed column with the key or a list column of data
+frames holding one subject per row, from data frames with the key nested
+at any depth, and with the rows that refer to them in \code{key_cols}. If any
+removed subject's key, or a value of an \code{also} column, is still found in
+the text values of the data, a warning names the datasets.
+
+\strong{When the target isn't met.} \code{settings$suppress$meets_target} is \code{FALSE},
+with reasons in \code{settings$suppress$not_met}, when the measured risk misses
+the target, when rows of removed subjects remain, or when a dataset
+holding \code{AGE} as a quasi-identifier also holds a birth date more precise
+than a year (\code{BRTHDTC}, or a Date \code{BRTHDT}): with a reference date such as
+\code{RFSTDTC}, it gives the age back exactly, even after the dates were
+offset (both move together). Remove birth dates or reduce them to the year
+first. Other dates can give a quasi-identifier back the same way (an age
+at an event from \code{--DTC}, an ADaM \code{AAGE}), and so can derived columns
+(\code{AGEGR1} from \code{AGE}, \code{RACEN} from \code{RACE}): list them as quasi-identifiers
+or generalize them together.
 
 The log has one row per quasi-identifier (and result column) blanked, with
 the number of cells blanked and of subjects, one row per dataset with rows
 removed, and the risk before and after; it holds no values. The settings
 record the arguments and where each quasi-identifier comes from (not
 \code{filter}).
+
+The work is about (subjects at risk) x (subjects) x (quasi-identifiers),
+plus the measure (see \code{\link[=anon_risk]{anon_risk()}}); 3,000 subjects with 7
+quasi-identifiers take a few seconds.
 }
 \examples{
 dm <- data.frame(
@@ -112,7 +164,7 @@ dm <- data.frame(
 )
 result <- anon_suppress(dm, quasi = c("AGE", "SEX"), max_risk = 1/2)
 result$data
-anon_risk(result, quasi = c("AGE", "SEX"), max_risk = 1/2, na = "wildcard")
+anon_risk(result, quasi = c("AGE", "SEX"), max_risk = 1/2)
 
 }
 \seealso{

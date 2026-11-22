@@ -4,7 +4,13 @@
 \alias{anon_risk_subjects}
 \title{Per-subject re-identification risk}
 \usage{
-anon_risk_subjects(data, quasi, key = "USUBJID", na = c("value", "wildcard"))
+anon_risk_subjects(
+  data,
+  quasi,
+  key = "USUBJID",
+  na = c("value", "wildcard"),
+  original = NULL
+)
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
@@ -22,12 +28,21 @@ must have the same type (character or factor, or numeric) in every
 dataset used.}
 
 \item{na}{How a missing quasi-identifier value counts when forming groups.
-\code{"value"} (default): missing is a value of its own, which is right for
-values that are really missing. \code{"wildcard"}: a missing value matches any
-value, which is the usual way to measure cells blanked by suppression
-(see \code{\link[=anon_suppress]{anon_suppress()}}); a subject's \code{k} is then the number of subjects
-whose values agree with its own on every quasi-identifier where both have
-a value.}
+\code{"value"} (default): a missing value is a value of its own, which is
+right for values that are really missing, and cells blanked by
+\code{\link[=anon_suppress]{anon_suppress()}} are measured as an attacker sees them (see "After
+suppression" in Details). \code{"wildcard"}: every missing value matches any
+value, both ways, as sdcMicro measures suppressed cells; a subject's \code{k}
+is then the number of subjects whose values agree with its own wherever
+both have a value. It counts real missing values as suppressed and
+ignores what an attacker knows of the subject, so it can claim a target
+is met when it isn't; it is kept for comparison.}
+
+\item{original}{Optional: the data as it was just before suppression (after
+generalization), with the same keys, giving each subject's true values.
+With it, a quasi-identifier missing in \code{data} but present in \code{original}
+counts as blanked, and subjects with blanked cells are measured exactly
+rather than against the worst case.}
 }
 \value{
 A tibble with one row per subject: the \code{key} (as character), \code{k}

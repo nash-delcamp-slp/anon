@@ -398,7 +398,7 @@ anon_subject_ids <- function(
   data <- rewritten$data
   log <- rewritten$log
   keyed <- rewritten$rename(keyed)
-  input$previous <- rewrite_previous_step(input$previous, rewritten)
+  input$previous <- rewrite_previous_step(input$previous, rewritten, function(k) new_ids[match(k, keys)])
   log <- deid_log_unkeyed(log, data, keyed, key, rewritten$rename(nested_key))
   # Warnings print locations, whose names can hold keys and dates (which this
   # step doesn't rewrite in data but must not print).
@@ -911,8 +911,12 @@ as_anon_payload.anon_deid_step <- function(x, path = "$") {
 
 # Secrets live in an environment so that print(), anon() and JSON output never
 # show them by accident. Logs and secrets from an earlier step are carried on.
-new_deid_step <- function(data, log, secrets, previous = NULL, settings = list()) {
+# `suppressed` records the cells blanked by anon_suppress(), one row per
+# quasi-identifier and subject (see suppressed_record()), carried on by later
+# steps with keys and names as they are in the data.
+new_deid_step <- function(data, log, secrets, previous = NULL, settings = list(), suppressed = NULL) {
   if (!is.null(previous)) {
+    suppressed <- rbind(previous$suppressed, suppressed)
     log <- rbind(previous$log, log)
     settings <- c(previous$settings, settings)
     names(settings) <- make.unique(names(settings), sep = "_")
@@ -926,10 +930,11 @@ new_deid_step <- function(data, log, secrets, previous = NULL, settings = list()
     secrets_env <- list2env(secrets, envir = new.env(parent = emptyenv()))
     class(secrets_env) <- "anon_secrets"
   }
-  structure(
-    list(data = data, log = log, settings = settings, secrets = secrets_env),
-    class = "anon_deid_step"
-  )
+  out <- list(data = data, log = log, settings = settings, secrets = secrets_env)
+  if (!is.null(suppressed) && nrow(suppressed) > 0) {
+    out$suppressed <- suppressed
+  }
+  structure(out, class = "anon_deid_step")
 }
 
 as_dataset_list <- function(data) {
@@ -2029,10 +2034,22 @@ rewrite_described_text <- function(data, rewrite, log, detail, dates = FALSE, ot
 
 # Earlier steps' logs and settings name the same datasets and columns, so they
 # are renamed and rewritten the same way.
-rewrite_previous_step <- function(previous, rewritten) {
+rewrite_previous_step <- function(previous, rewritten, new_keys = identity) {
   if (!is.null(previous)) {
     previous$log <- rewritten$rename_log(previous$log)
     previous$settings <- rewritten$settings(previous$settings)
+    sup <- previous$suppressed
+    if (!is.null(sup) && nrow(sup) > 0) {
+      # Column renames are recorded by the dataset's new name.
+      sup$dataset <- rewritten$rename(sup$dataset)
+      for (i in seq_len(nrow(sup))) {
+        for (col in c("column", "test_col", "result_col")) {
+          sup[[col]][i] <- rewritten$rename_columns(sup[[col]][i], sup$dataset[i])
+        }
+      }
+      sup$key <- new_keys(sup$key)
+      previous$suppressed <- sup
+    }
   }
   previous
 }

@@ -9,7 +9,8 @@ anon_risk(
   quasi,
   key = "USUBJID",
   max_risk = 0.09,
-  na = c("value", "wildcard")
+  na = c("value", "wildcard"),
+  original = NULL
 )
 }
 \arguments{
@@ -37,12 +38,21 @@ information, and requires groups of at least 12. Health Canada equates
 11, pass \code{max_risk = 1/11}. See Details.}
 
 \item{na}{How a missing quasi-identifier value counts when forming groups.
-\code{"value"} (default): missing is a value of its own, which is right for
-values that are really missing. \code{"wildcard"}: a missing value matches any
-value, which is the usual way to measure cells blanked by suppression
-(see \code{\link[=anon_suppress]{anon_suppress()}}); a subject's \code{k} is then the number of subjects
-whose values agree with its own on every quasi-identifier where both have
-a value.}
+\code{"value"} (default): a missing value is a value of its own, which is
+right for values that are really missing, and cells blanked by
+\code{\link[=anon_suppress]{anon_suppress()}} are measured as an attacker sees them (see "After
+suppression" in Details). \code{"wildcard"}: every missing value matches any
+value, both ways, as sdcMicro measures suppressed cells; a subject's \code{k}
+is then the number of subjects whose values agree with its own wherever
+both have a value. It counts real missing values as suppressed and
+ignores what an attacker knows of the subject, so it can claim a target
+is met when it isn't; it is kept for comparison.}
+
+\item{original}{Optional: the data as it was just before suppression (after
+generalization), with the same keys, giving each subject's true values.
+With it, a quasi-identifier missing in \code{data} but present in \code{original}
+counts as blanked, and subjects with blanked cells are measured exactly
+rather than against the worst case.}
 }
 \value{
 An object of class \code{"anon_risk"}, a list with:
@@ -61,7 +71,10 @@ non-missing values (\code{n_values}), the number of missing values
 left out). Rows are ordered so the variable whose removal helps most
 comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
-\item \code{quasi}, \code{key}, \code{na}: the quasi-identifier names, key and \code{na} used.
+\item \code{quasi}, \code{key}, \code{na}: the quasi-identifier names, key and \code{na} used;
+\code{n_blanked}, the number of cells known to be blanked by suppression;
+and \code{lower_bound}, whether subjects with blanked cells were measured
+against the worst case (no \code{original}).
 \item \code{sources}: one row per quasi-identifier giving where it comes from:
 \code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test} and
 \code{result_col}, plus \code{filtered} (whether a \code{filter} was used). The filter
@@ -87,6 +100,26 @@ with no value for a quasi-identifier (for example, missing from \code{vs}) gets
 \code{NA} for it, and \code{NA} is treated as a value of its own when forming groups.
 Blank strings, which is how SAS transport (XPT) files store missing text, are
 treated as missing. Values are otherwise grouped by exact equality.
+
+\strong{After suppression.} A released record whose quasi-identifier was blanked
+by \code{\link[=anon_suppress]{anon_suppress()}} could hold any value. An attacker who knows a
+subject's true values counts the released records consistent with them: on
+every quasi-identifier, the record shows the subject's value or a blanked
+cell. With \code{na = "value"}, that count is the subject's \code{k}. Real missing
+values are values: a record missing a value is consistent only with
+subjects whose value is missing too. Which cells were blanked is known from
+the step result that \code{\link[=anon_suppress]{anon_suppress()}} returns (and that later steps carry
+on), or from \code{original}. A subject's own blanked values aren't in the
+released data: without \code{original}, such a subject is measured against the
+worst case, a true value no other record shows, so only records with the
+same cell blanked count, which gives a lower bound on its \code{k}. Measuring a
+plain list of data frames after suppression treats blanked cells as
+missing values: pass the step, or \code{original}.
+
+A filter in \code{\link[=anon_quasi_values]{anon_quasi_values()}} measures one value per subject; a subject
+without a value after the filter (for example, without a baseline flag)
+has a missing value, which is a value. Its other rows are still in the
+data: generalize every row of the test (see \code{\link[=anon_rule]{anon_rule()}}).
 
 With \code{na = "wildcard"}, groups overlap: a subject with a missing value can
 count towards several groups, and \code{k} is counted for each subject on its
