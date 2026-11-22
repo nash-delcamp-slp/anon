@@ -1134,8 +1134,13 @@ test_that("NLP reads records and each object of an environment once", {
 
 test_that("anon() sets nothing on objects given to it directly with .self", {
   inner <- new.env()
+  # A function given directly is returned without anything set on it.
+  f <- local(function() 1, globalenv())
+  expect_null(attributes(anon(f, .self = TRUE)))
+  # An environment is replaced by a copy, with nothing set on the original.
   out <- anon(inner, .self = TRUE)
-  expect_identical(out, inner)
+  expect_false(identical(out, inner))
+  expect_null(attributes(out))
   expect_null(attributes(inner))
   # As the data summary does when it applies column rules.
   invisible(anon_data_summary(list(e = inner, d = data.frame(x = 1)), df_variable_names = "x", example_values_n = 1))
@@ -1298,7 +1303,7 @@ test_that("anon() gives a clear error for environments nested too deeply", {
     current$child <- nested
     current <- nested
   }
-  expect_error(anon(list(top = top)), "can't follow objects nested this deeply")
+  expect_error(anon(list(top = top)), "can't follow objects nested this deeply", class = "anon_too_deep")
 })
 
 test_that("anon() names S7 objects it can't redact", {
@@ -1344,4 +1349,145 @@ test_that("closures = \"detach\" keeps no data of closures' environments, and \"
   on.exit(options(old), add = TRUE)
   expect_identical(environment(suppressWarnings(anon(e))$get_who), globalenv())
   expect_error(anon(e, closures = "other"), "should be one of")
+})
+
+test_that("closures = \"detach\" gives copied environments the global environment as parent", {
+  make_env <- local(function() {
+    hidden <- "JanePlain"
+    e <- new.env()
+    e$x <- 1
+    e
+  }, globalenv())
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  w <- character(0)
+  out <- withCallingHandlers(anon(make_env(), closures = "detach"), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  expect_identical(parent.env(out), globalenv())
+  expect_false(grepl("JanePlain", saved(out)))
+  expect_match(w, "global environment instead of their own[^:]*: the parent of the environment", all = FALSE)
+  nested <- suppressWarnings(anon(list(e = make_env()), closures = "detach"))
+  expect_identical(parent.env(nested$e), globalenv())
+  expect_false(grepl("JanePlain", saved(nested)))
+  # Under "copy", the parent is copied, as documented.
+  copied <- anon(make_env())
+  expect_identical(get("hidden", envir = parent.env(copied)), "JanePlain")
+})
+
+test_that("anon() names raw vectors, which it can't search", {
+  expect_warning(anon(list(r = charToRaw("DRUGQX")), pattern_list = "DRUGQX"), "can't redact[^:]*: `r`")
+  d <- data.frame(id = 1:2)
+  d$blob <- I(list(as.raw(1), as.raw(2)))
+  d$bytes <- as.raw(1:2)
+  expect_warning(anon(d), "can't redact[^\n]*`blob\\[1\\]`, `blob\\[2\\]`, `bytes`")
+  expect_warning(anon(structure(1, payload = as.raw(1))), "can't redact[^:]*: attribute `payload`")
+})
+
+test_that("anon_data_summary() with column rules handles environments and closures", {
+  objs <- list(d = data.frame(a = c("x", "y")), l = list(e = new.env(), f = local({
+    z <- 1
+    function() z
+  })))
+  expect_s3_class(suppressWarnings(anon_data_summary(objs, df_variable_names = "a", example_values_n = 2)), "anon_data_summary")
+  expect_s3_class(suppressWarnings(anon_report(objs, df_variable_names = "a", example_values_n = 2)), "anon_report")
+})
+
+test_that("anon() drops a step's secrets environment met as a closure's environment or a parent", {
+  step <- anon_subject_ids(list(dm = data.frame(USUBJID = c("REALKEY-01", "REALKEY-02"))), keep_secrets = TRUE, seed = 1)
+  f <- local(function() 1, globalenv())
+  environment(f) <- step$secrets
+  fo <- stats::as.formula("y ~ x", env = step$secrets)
+  e <- new.env(parent = step$secrets)
+  e$x <- 1
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  w <- character(0)
+  out <- withCallingHandlers(anon(list(f = f, fo = fo, e = e)), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  expect_false(grepl("REALKEY", saved(out)))
+  expect_match(w, "dropped the secrets[^:]*: read them", all = FALSE)
+  expect_match(w, "the environment of `f`", all = FALSE)
+  expect_match(w, "the parent of `e`", all = FALSE)
+  expect_false(grepl("REALKEY", saved(suppressWarnings(anon(e)))))
+})
+
+test_that("S4 functions stay S4, and reference class generators are dropped", {
+  where <- new.env()
+  methods::setGeneric("anonTestArea", function(shape) standardGeneric("anonTestArea"), where = where)
+  methods::setClass("AnonTestSq", methods::representation(s = "numeric"), where = where)
+  methods::setMethod("anonTestArea", "AnonTestSq", function(shape) shape@s^2, where = where)
+  generic <- get("anonTestArea", envir = where)
+  out <- suppressWarnings(anon(list(gen = generic)))
+  expect_true(isS4(out$gen))
+  Gen <- methods::setRefClass("AnonTestGen", fields = list(n = "character"), where = globalenv())
+  on.exit(methods::removeClass("AnonTestGen", where = globalenv()), add = TRUE)
+  expect_warning(out <- anon(list(G = Gen, keep = 1)), "dropped these reference class objects[^:]*: `G`")
+  expect_null(out$G)
+})
+
+test_that("closures, formulas, quosures and terms given to anon() directly are handled as inside objects", {
+  make <- local(function() {
+    hidden <- "JanePlain"
+    list(f = function() hidden, fo = y ~ x)
+  }, globalenv())
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  objs <- make()
+  for (x in list(objs$f, objs$fo, stats::terms(objs$fo))) {
+    expect_false(grepl("JanePlain", saved(suppressWarnings(anon(x, closures = "detach")))))
+    copied <- suppressWarnings(anon(x, pattern_list = list("[J]" = "JanePlain")))
+    expect_false(grepl("JanePlain", saved(copied)))
+  }
+  expect_identical(suppressWarnings(anon(objs$f, pattern_list = list("[J]" = "JanePlain")))(), "[J]")
+})
+
+test_that("a function held in an attribute has its attributes cleaned and redacted", {
+  g <- structure(local(function() 1, globalenv()), lab = "DRUGQX lab", stash = list2env(list(s = "DRUGQX")))
+  out <- suppressWarnings(anon(structure(1:2, holder = g), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(attr(attr(out, "holder"), "lab"), "[DRUG] lab")
+  expect_identical(attr(attr(out, "holder"), "stash")$s, "[DRUG]")
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
+})
+
+test_that("NLP also reads parents, environments in attributes and list columns", {
+  local_mocked_bindings(nlp_get_entities = function(x, entity_types = NULL, return_list = FALSE) {
+    out <- stats::setNames(rep(list(character(0)), length(entity_types)), entity_types)
+    found <- intersect(c("JohnSmith", "MaryJones", "AnnLee"), unlist(strsplit(collect_text(x), " ")))
+    if ("PERSON" %in% entity_types) out$PERSON <- found
+    if (return_list) out else unlist(out)
+  })
+  parent <- new.env(parent = globalenv())
+  parent$note <- "by JohnSmith"
+  child <- new.env(parent = parent)
+  in_attr <- new.env(parent = globalenv())
+  in_attr$note <- "by MaryJones"
+  in_col <- new.env(parent = globalenv())
+  in_col$note <- "by AnnLee"
+  d <- tibble::tibble(id = 1, env = list(in_col))
+  top <- new.env(parent = globalenv())
+  top$child <- child
+  top$v <- structure(1, holder = in_attr)
+  top$d <- d
+  out <- suppressWarnings(anon(top, nlp_auto = nlp_auto(person = TRUE)))
+  expect_identical(get("note", envir = parent.env(out$child)), "by [PERSON]")
+  expect_identical(attr(out$v, "holder")$note, "by [PERSON]")
+  expect_identical(out$d$env[[1]]$note, "by [PERSON]")
+})
+
+test_that("an S4 class that contains an environment keeps its S4 bit", {
+  where <- new.env()
+  methods::setClass("AnonTestEnvS4", contains = "environment", where = where)
+  s4e <- methods::new(methods::getClass("AnonTestEnvS4", where = where))
+  assign("n", "DRUGQX", envir = s4e)
+  out <- suppressWarnings(anon(list(s = s4e), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_true(isS4(out$s))
+  expect_identical(get("n", envir = out$s), "[DRUG]")
+  expect_identical(parent.env(out$s), globalenv())
+})
+
+test_that("an invalid closures leaves no state behind", {
+  expect_error(anon("a", closures = "bogus"), "should be one of")
+  expect_null(copying$memo)
+  expect_null(copying$closures)
 })

@@ -114,10 +114,10 @@ test_that("anon_options() sets and clears nlp_auto", {
   expect_null(getOption("anon.nlp_auto"))
 })
 
-test_that("get_anon_options() returns all 8 option names", {
+test_that("get_anon_options() returns all 9 option names", {
   result <- anon:::get_anon_options()
 
-  expect_length(result, 8)
+  expect_length(result, 9)
   expect_true(all(anon:::anon_option_names() %in% names(result)))
 })
 
@@ -134,4 +134,12 @@ test_that("append_option_value() handles NULL values", {
 
   expect_true("anon.test" %in% names(result))
   expect_null(result[["anon.test"]])
+})
+
+test_that("anon_options() sets and checks the default closures", {
+  old <- anon_options()
+  on.exit(options(old), add = TRUE)
+  anon_options(closures = "detach")
+  expect_identical(getOption("anon.closures"), "detach")
+  expect_error(anon_options(closures = "other"), "should be one of")
 })

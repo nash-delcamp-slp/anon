@@ -150,22 +150,27 @@ their text fields and attributes redacted. Environments held inside other
 objects are replaced by redacted copies (see "Environments" below).
 Objects \code{anon()} can't search for text (functions, calls and formulas,
 such as a model's \code{call} or a model frame's \code{terms} attribute, whose code
-and the constants in it are kept, S4 and S7 objects (such as ggplot2 4
-plots), and the global, base and package environments and namespaces,
-which are kept by reference) are left as they are, and one warning lists where they
+and the constants in it are kept, objects embedded in that code or in a
+function's formals, environments included, whatever \code{closures} says, S4
+and S7 objects (such as ggplot2 4 plots), raw vectors (which may hold
+serialized data), and the global, base and package environments and
+namespaces, which are kept by reference) are left as they are, and one warning lists where they
 are (by element name where there is one, as \code{fit$call}; the first ten, and
 how many more): remove them, or rebuild them from redacted data, before
 sharing. Functions and calls lose their source references (\code{srcref},
 which can hold the text of the whole file they were sourced from,
 comments included), wherever \code{anon()} finds them: functions then print as
-deparsed code. A function's own attributes are redacted like any object's.
-Reference class objects (made with \code{\link[methods:refClass]{methods::setRefClass()}}) can't be
-copied without breaking them, and are dropped, with a warning.
+deparsed code (S4 functions, such as generics and methods, stay S4). A
+function's own attributes are redacted like any object's. Reference class
+objects (made with \code{\link[methods:refClass]{methods::setRefClass()}}) and their generators can't be
+copied without breaking them, and are dropped, with a warning. These
+rules apply to such an object given to \code{anon()} directly too.
 
 Secrets read from a de-identification step with \code{\link[=anon_secrets]{anon_secrets()}}, and a
 step's secrets environment, are dropped wherever \code{anon()} finds them
-(attributes included, where a step's secrets are dropped too), with a
-warning (a step's own secrets are dropped as described under Value).
+(attributes included, where a step's secrets are dropped too, and as the
+environment of a closure or formula, or as an environment's parent), with
+a warning (a step's own secrets are dropped as described under Value).
 External pointers and weak references are kept without a warning: they
 hold no text, and are saved as null.
 
@@ -198,10 +203,12 @@ the copy is a plain environment (of class \code{anon_context}).
 The copy's parent is the environment's parent when R saves that parent by
 reference (the global, base or empty environment, a package or a
 namespace). Any other parent, such as a function's frame, would be saved
-with the copy, and the objects it holds with it, so the copy's parent is
-that parent's redacted copy, made the same way (and so on up the chain):
-the result can then hold redacted copies of objects that weren't in the
-environment given, such as those of the function that called \code{anon()}.
+with the copy, and the objects it holds with it, so, with \code{closures = "copy"}, the copy's parent is that parent's redacted copy, made the same
+way (and so on up the chain): the result can then hold redacted copies of
+objects that weren't in the environment given, such as those of the
+function whose frame is the parent (\code{new.env()} called inside a function
+has that call's frame as its parent). With \code{closures = "detach"}, the
+copy's parent is then the global environment, with a warning.
 
 A de-identification step in it is redacted as above, its secrets dropped.
 Environments held in it, or anywhere \code{anon()} reaches (lists, list
@@ -209,7 +216,10 @@ columns, attributes), are replaced by redacted copies made the same way,
 each environment copied once per call so that environments that refer to
 each other, or that several objects share, map to one copy; such a copy
 keeps its class and other attributes (redacted), and its parent is the
-parent's copy when the parent isn't kept by reference. The global, base and
+parent's copy (or the global environment, as above) when the parent isn't
+kept by reference; an S4 object that contains an environment keeps its S4
+bit, and its parent (a frame of the methods package) becomes the global
+environment. The global, base and
 empty environments, packages and namespaces are kept by reference. A
 closure, formula, terms object or quosure whose environment R doesn't save
 by reference (such as a function's frame) is handled as \code{closures} says,
@@ -219,13 +229,17 @@ attributes, such as a model's \code{terms}), with a warning naming them:
 \item \code{"copy"} (the default) gives it that environment's redacted copy
 (with that environment's parents, as above): it keeps working, on the
 redacted objects, and saving the copy doesn't save the original's data.
-But the copy then holds the closure's defining frame (and its callers'
-frames, up to the global environment), whose objects are redacted by
-your patterns only: values that match no pattern are kept.
+But the copy then holds the environment the closure was created in
+(such as the frame of the function call that made it) and, in turn, the
+environments that one was created in, up to the first one R saves by
+reference (the global environment, a package or a namespace). Their
+objects are redacted by your patterns only: values that match no
+pattern are kept.
 \item \code{"detach"} gives it the global environment: none of that
 environment's objects is kept, at the cost of closures, formulas and
 models that need them (they may fail, or find other objects of the same
-name in the global environment). It is the strict choice.
+name in the global environment). It is the strict choice: the parents
+of the environments \code{anon()} copies become the global environment too.
 }
 The environment given to \code{anon()}, and environments held in it as data,
 are copied whatever \code{closures} says. Objects that rely on reference

@@ -1114,9 +1114,17 @@ deid_env_with <- function(step) {
 # must not save the original environments or the source; and the
 # environment given must not change.
 # With `closures = "detach"`, the closures must refer to the global
-# environment instead.
+# environment instead, and the environment's parent is an environment
+# holding the original keys, which saving the copy must not save (its parent
+# is then the global environment). With "copy", the parent is the global
+# environment: a parent that isn't is copied, redacted by patterns only.
 deid_anon_env <- function(step, closures = "copy") {
-  e <- new.env()
+  parent <- globalenv()
+  if (closures == "detach") {
+    parent <- new.env(parent = globalenv())
+    parent$original_keys <- deid_all_keys
+  }
+  e <- new.env(parent = parent)
   assign("step", step, envir = e)
   dm <- step$data$dm
   if (!is.null(step$secrets)) {
@@ -1166,9 +1174,9 @@ deid_anon_env <- function(step, closures = "copy") {
   }
   copies <- lapply(mget(sort(ls(a, all.names = TRUE)), envir = a), unclass)
   if (!is.null(copies$step$secrets)) stop("anon() kept the step's secrets")
-  # The saved copy is checked as text, as its bytes hold no compressed data.
-  saved <- rawToChar(serialize(a, NULL, ascii = TRUE))
-  c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies), saved)
+  # The text, then the saved copy as bytes (as the other serialized exits).
+  text <- c(ls(a, all.names = TRUE), capture.output(print(a)), deid_dput(copies))
+  c(charToRaw(paste(text, collapse = "\n")), as.raw(0x0a), serialize(a, NULL))
 }
 
 # An environment whose object names and step dataset names hold user-pattern
