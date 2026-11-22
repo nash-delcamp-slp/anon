@@ -392,6 +392,9 @@ anon <- function(
   # if need be, see rehome_environment(), and its source references dropped)
   # and named in the warning. NULL for other elements.
   skip_element <- function(element, where) {
+    if (typeof(element) == "...") {
+      return(list(value = redact_dots_object(element, where)))
+    }
     if (is_secrets(element)) {
       secrets_dropped <<- c(secrets_dropped, shown_location(where))
       return(list(value = NULL))
@@ -488,6 +491,9 @@ anon <- function(
       # environment, met here as a plain environment) isn't copied either.
       if (!global_parent && is_methods_frame(parent)) {
         global_parent <- TRUE
+        approximate_warnings <<- c(approximate_warnings, paste0(
+          "The parent of ", of_where, ", a frame of the methods package, was replaced by the global environment."
+        ))
       }
       if (identical(copying$closures, "detach") || global_parent) {
         if (!global_parent) parents_detached <<- c(parents_detached, of_where)
@@ -503,34 +509,9 @@ anon <- function(
     }
     first <- vapply(read$values, is.environment, logical(1))
     for (i in c(which(keep & first), which(keep & !first))) {
-      if (inherits(read$values[[i]], "anon_dots")) {
-        # `...`, rebuilt from its redacted values (see read_environment()).
-        values <- take(anon(
-          unclass(read$values[[i]]),
-          pattern_list = pattern_list,
-          default_replacement = default_replacement,
-          check_approximate = check_approximate,
-          max_distance = max_distance,
-          check_names = check_names,
-          check_labels = check_labels,
-          .self = TRUE,
-          .pattern_replacements = pattern_replacements,
-          .compiled = compiled,
-          .where = located("...")
-        ))
-        if (length(values) == 0) {
-          # An empty `...` is the missing argument.
-          assign("...", quote(expr = ), envir = result)
-          next
-        }
-        # The values are passed quoted (calls and symbols among them aren't
-        # run), and the promises forced, so that they no longer refer to the
-        # frame that made them (which holds the original values).
-        dots_frame <- do.call(function(...) {
-          list(...)
-          environment()
-        }, values, quote = TRUE)
-        assign("...", get("...", envir = dots_frame), envir = result)
+      if (object_names[i] == "...") {
+        # A function's `...`, rebuilt from its values (see read_environment()).
+        assign("...", rebuild_dots(read$dots, located("...")), envir = result)
         next
       }
       skipped <- skip_element(read$values[[i]], located(shown[i]))
@@ -556,6 +537,54 @@ anon <- function(
       assign(shown[i], value, envir = result)
     }
     result
+  }
+
+  # A `...` holding `values` (a list, as read_dots() reads them), redacted:
+  # the values are passed quoted (calls and symbols among them aren't run),
+  # and the promises forced, so that they no longer refer to the frame that
+  # made them (which holds the original values). An empty `...` is the
+  # missing argument.
+  rebuild_dots <- function(values, where) {
+    values <- take(anon(
+      values,
+      pattern_list = pattern_list,
+      default_replacement = default_replacement,
+      check_approximate = check_approximate,
+      max_distance = max_distance,
+      df_variable_names = df_variable_names,
+      df_classes = df_classes,
+      check_names = check_names,
+      check_labels = check_labels,
+      .self = TRUE,
+      .pattern_replacements = pattern_replacements,
+      .compiled = compiled,
+      .where = where
+    ))
+    if (length(values) == 0) {
+      return(quote(expr = ))
+    }
+    dots_frame <- do.call(function(...) {
+      list(...)
+      environment()
+    }, values, quote = TRUE)
+    get("...", envir = dots_frame)
+  }
+
+  # A `...` object held anywhere but a frame's `...` (in a list, under another
+  # name, in an attribute, or given to anon()), rebuilt redacted; NULL, named
+  # in the warning, when its values can't be computed.
+  redact_dots_object <- function(dots, where) {
+    holder <- new.env(parent = emptyenv())
+    assign("...", dots, envir = holder)
+    values <- read_dots(holder)
+    if (is.null(values)) {
+      approximate_warnings <<- c(approximate_warnings, paste0(
+        "These objects couldn't be read (a missing argument, or code that failed when their value was ",
+        "computed) and were not copied: ", shown_location(where), "."
+      ))
+      return(NULL)
+    }
+    rebuild_dots(values[[1]], where)
   }
 
   # A copy of an S4 object that contains an environment (made with
@@ -591,9 +620,23 @@ anon <- function(
     }
     for (name in names(held)) attr(x, name) <- NULL
     x <- redact_attributes(x, where)
-    # The held attributes are put back where they were.
-    attrs <- c(attributes(x), held)
-    attributes(x) <- attrs[c(intersect(order, names(attrs)), setdiff(names(attrs), order))]
+    attrs <- attributes(x)
+    # A redacted name that became a held one's is made unique instead.
+    clash <- names(attrs) %in% names(held)
+    if (any(clash)) {
+      names(attrs)[clash] <- make.unique(c(names(held), names(attrs)[clash]), sep = "_")[-seq_along(held)]
+    }
+    # The held attributes, and those whose names were redacted, are put back
+    # where they were.
+    attrs <- c(attrs, held)
+    renamed_from <- setdiff(order, names(attrs))
+    renamed_to <- setdiff(names(attrs), order)
+    final <- order
+    if (length(renamed_from) == length(renamed_to)) {
+      final[match(renamed_from, final)] <- renamed_to
+    }
+    final <- c(intersect(final, names(attrs)), setdiff(names(attrs), final))
+    attributes(x) <- attrs[final]
     x
   }
 
@@ -632,7 +675,8 @@ anon <- function(
     v <- clean_attributes(
       v, found_in_attribute(where),
       copy_env = function(env, name) copy_env(env, at(name)),
-      redact_function = function(f, name) redact_code_attributes(f, at(name))
+      redact_function = function(f, name) redact_code_attributes(f, at(name)),
+      redact_dots = function(dots, name) redact_dots_object(dots, at(name))
     )
     if (isTRUE(check_labels) && has_text_attributes(v)) {
       v <- redact_text_attributes(v, redact, where = where)
@@ -776,9 +820,10 @@ anon <- function(
     if (length(enabled_nlp_entities) > 0) {
       nlp_pattern_list <- extract_nlp_patterns(
         nlp_text_source(
-          if (inherits(x, "anon_deid_step")) x$data else if (!is.null(env_read)) env_read else x,
+          if (inherits(x, "anon_deid_step")) x$data else x,
           df_variable_names,
-          df_classes
+          df_classes,
+          read = env_read
         ),
         enabled_nlp_entities
       )
@@ -1365,9 +1410,14 @@ is_reference_object <- function(x) {
 
 # Whether `env` is a frame of the methods package, as the parent of an S4
 # object's environment is: a frame of a function of its namespace, or of the
-# initialize() method that made the object (which holds `.Object`).
+# initialize() method that made the object (whose `.Object` is that S4
+# object).
 is_methods_frame <- function(env) {
-  identical(parent.env(env), asNamespace("methods")) || exists(".Object", envir = env, inherits = FALSE)
+  if (identical(parent.env(env), asNamespace("methods"))) {
+    return(TRUE)
+  }
+  object <- tryCatch(get(".Object", envir = env, inherits = FALSE), error = function(e) NULL)
+  isS4(object)
 }
 
 # The environment a closure, or a formula, terms object or quosure, refers
@@ -1447,7 +1497,7 @@ rehome_environment <- function(x, copy) {
 # attribute, what was found: "secrets", "rehomed", "refs" (reference class
 # objects), or "unredactable" (see is_unredactable(), which are not
 # entered).
-clean_attributes <- function(x, found, copy_env, redact_function = NULL) {
+clean_attributes <- function(x, found, copy_env, redact_function = NULL, redact_dots = NULL) {
   attrs <- attributes(x)
   for (name in setdiff(names(attrs), structural_attributes(x))) {
     if (name %in% source_attributes) {
@@ -1458,6 +1508,7 @@ clean_attributes <- function(x, found, copy_env, redact_function = NULL) {
     state$secrets <- state$rehomed <- state$unredactable <- state$refs <- FALSE
     state$copy_env <- function(env) copy_env(env, name)
     state$redact_function <- if (!is.null(redact_function)) function(f) redact_function(f, name)
+    state$redact_dots <- if (!is.null(redact_dots)) function(d) redact_dots(d, name)
     new <- clean_value(attrs[[name]], state)
     if (!identical(new, attrs[[name]], ignore.srcref = FALSE)) {
       attr(x, name) <- new
@@ -1470,6 +1521,9 @@ clean_attributes <- function(x, found, copy_env, redact_function = NULL) {
 }
 
 clean_value <- function(v, state) {
+  if (typeof(v) == "...") {
+    return(if (!is.null(state$redact_dots)) state$redact_dots(v))
+  }
   if (is_secrets(v)) {
     state$secrets <- TRUE
     return(NULL)
@@ -1530,31 +1584,33 @@ clean_value <- function(v, state) {
 
 # An environment's objects as anon() reads them, once: their names, which
 # are active bindings (not read, as reading one runs its function), the
-# values (forcing promises; a function's `...` as the list of its values, of
-# class "anon_dots"), and which couldn't be read (a missing argument, or a
+# values (forcing promises; a function's `...` read apart, as the list of its
+# values, `dots`), and which couldn't be read (a missing argument, or a
 # promise whose code fails).
 read_environment <- function(x) {
   object_names <- ls(x, all.names = TRUE, sorted = TRUE)
   active <- vapply(object_names, bindingIsActive, logical(1), env = x, USE.NAMES = FALSE)
-  unread <- structure(list(), class = "anon_unread")
-  values <- lapply(seq_along(object_names), function(i) {
-    if (active[i]) {
-      return(unread)
-    }
+  values <- vector("list", length(object_names))
+  unreadable <- logical(length(object_names))
+  dots <- NULL
+  for (i in which(!active)) {
     if (object_names[i] == "...") {
       # A function's `...`: its values (forcing them), to be rebuilt.
-      return(tryCatch(
-        structure(eval(as.call(list(base::list, quote(...))), x), class = "anon_dots"),
-        error = function(e) unread
-      ))
+      read <- read_dots(x)
+      if (is.null(read)) unreadable[i] <- TRUE else dots <- read[[1]]
+      next
     }
-    tryCatch(get(object_names[i], envir = x, inherits = FALSE), error = function(e) unread)
-  })
-  unreadable <- !active & vapply(values, inherits, logical(1), "anon_unread")
-  structure(
-    list(env = x, names = object_names, active = active, values = values, unreadable = unreadable),
-    class = "anon_env_read"
-  )
+    value <- tryCatch(list(get(object_names[i], envir = x, inherits = FALSE)), error = function(e) NULL)
+    if (is.null(value)) unreadable[i] <- TRUE else values[i] <- value
+  }
+  list(env = x, names = object_names, active = active, values = values, unreadable = unreadable, dots = dots)
+}
+
+# The values of the `...` bound in `env` (forcing them), read with base's
+# list() whatever `env` defines, wrapped in a list; NULL when they can't be
+# computed.
+read_dots <- function(env) {
+  tryCatch(list(eval(as.call(list(base::list, quote(...))), env)), error = function(e) NULL)
 }
 
 # Secrets read from a de-identification step with anon_secrets(), or its
@@ -1855,8 +1911,14 @@ redact_names <- function(x, redact) {
 # their parents, the environments of closures and formulas, and environments
 # and functions held in attributes. Environments R saves by reference (see
 # is_shared_environment()) are not entered.
-nlp_text_source <- function(x, df_variable_names, df_classes, visited = new.env(hash = TRUE, parent = emptyenv())) {
+nlp_text_source <- function(x, df_variable_names, df_classes, visited = new.env(hash = TRUE, parent = emptyenv()),
+                            read = NULL) {
   recurse <- function(v) nlp_text_source(v, df_variable_names, df_classes, visited)
+  if (typeof(x) == "...") {
+    holder <- new.env(parent = emptyenv())
+    assign("...", x, envir = holder)
+    return(recurse(read_dots(holder)))
+  }
   if (inherits(x, "anon_deid_step")) {
     return(recurse(x$data))
   }
@@ -1868,22 +1930,22 @@ nlp_text_source <- function(x, df_variable_names, df_classes, visited = new.env(
     }
     return(if (is.environment(env)) recurse(env))
   }
-  if (is.environment(x)) {
+  if (is.environment(x) && is.null(read)) {
     if (is_shared_environment(x) || is_secrets(x) || is_reference_object(x)) {
       return(NULL)
     }
-    x <- read_environment(x)
+    read <- read_environment(x)
   }
-  if (inherits(x, "anon_env_read")) {
-    key <- rlang::obj_address(x$env)
+  if (!is.null(read)) {
+    key <- rlang::obj_address(read$env)
     if (exists(key, envir = visited, inherits = FALSE)) {
       return(NULL)
     }
     assign(key, TRUE, envir = visited)
-    read <- !x$active & !x$unreadable
-    objects <- lapply(x$values[read], function(value) if (!is_secrets(value)) value)
-    parent <- if (!identical(x$env, emptyenv())) parent.env(x$env)
-    return(c(list(x$names), lapply(objects, recurse), list(recurse(parent))))
+    copied <- !read$active & !read$unreadable & read$names != "..."
+    objects <- lapply(read$values[copied], function(value) if (!is_secrets(value)) value)
+    parent <- if (!identical(read$env, emptyenv())) parent.env(read$env)
+    return(c(list(read$names), lapply(objects, recurse), list(recurse(read$dots)), list(recurse(parent))))
   }
   # Environments and functions held in attributes.
   held <- Filter(function(a) is.environment(a) || is.function(a), attributes(x))

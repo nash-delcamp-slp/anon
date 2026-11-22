@@ -84,16 +84,13 @@ anon_nlp_entities <- function(x, entity_types = nlp_entity_sets$all, ...) {
   # Remove the default_replacement from args since we're handling it via pattern_list
   args$default_replacement <- NULL
 
-  # Call anon once with the complete pattern_list
-  if (length(pattern_list) > 0) {
-    x <- do.call(
-      anon,
-      c(list(x = x, pattern_list = pattern_list, nlp_auto = FALSE), args),
-      quote = TRUE
-    )
-  }
-
-  new_anon_context(x)
+  # Call anon once with the complete pattern_list (also when it is empty, as
+  # anon() copies an environment and leaves functions as they are).
+  do.call(
+    anon,
+    c(list(x = x, pattern_list = pattern_list, nlp_auto = FALSE), args),
+    quote = TRUE
+  )
 }
 
 #' @rdname anon_nlp_entities
@@ -166,7 +163,7 @@ extract_nlp_patterns <- function(x, entity_types) {
 
   # An environment's text is that of the objects anon() copies from it.
   if (is.environment(x)) {
-    x <- nlp_text_source(read_environment(x), NULL, NULL)
+    x <- nlp_text_source(x, NULL, NULL, read = read_environment(x))
   }
   text_to_process <- collect_text(x)
 

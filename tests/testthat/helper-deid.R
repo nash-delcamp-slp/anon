@@ -1184,6 +1184,11 @@ deid_anon_env <- function(step, closures = "copy") {
     !is.null(unclass(reader_env$step)$secrets)) {
     stop("anon() didn't replace the closures' environments with redacted copies")
   }
+  # Column rules reach a data frame held in a closure's `...`.
+  ruled <- anon(list(fn = with_dots(step$data$dm)$fn), df_variable_names = "USUBJID", closures = closures)
+  if (closures == "copy" && !all(ruled$fn()$USUBJID == "[REDACTED]")) {
+    stop("anon() didn't apply the column rules inside `...`")
+  }
   if (!identical(eval(as.call(list(base::list, quote(...))), a$dots_call), list(quote(environment())))) {
     stop("anon() ran a call held in `...`")
   }

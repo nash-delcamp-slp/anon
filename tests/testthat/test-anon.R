@@ -1653,6 +1653,7 @@ test_that("methods frames reached as a plain environment's parent aren't copied"
   expect_false(identical(parent.env(out$e), b@.xData))
   expect_identical(parent.env(parent.env(out$e)), globalenv())
   expect_false(any(grepl("couldn't be read", w)))
+  expect_match(w, "a frame of the methods package, was replaced by the global environment", all = FALSE)
 })
 
 test_that("`...` is read with base's list(), whatever the frame defines", {
@@ -1662,4 +1663,87 @@ test_that("`...` is read with base's list(), whatever the frame defines", {
   }, globalenv())
   out <- suppressWarnings(anon(list(fr = frame_of("DRUGQX")), pattern_list = list("[DRUG]" = "DRUGQX")))
   expect_identical(eval(as.call(list(base::list, quote(...))), out$fr), list("[DRUG]"))
+})
+
+test_that("column rules reach data frames held in `...`", {
+  d <- data.frame(USUBJID = c("SUBJ-0001", "SUBJ-0002"), AGE = c(61, 72))
+  factory <- local(function(...) function() ..1, globalenv())
+  frame_of <- local(function(...) {
+    force(list(...))
+    environment()
+  }, globalenv())
+  out <- suppressWarnings(anon(list(f = factory(d), fr = frame_of(d)), df_variable_names = "USUBJID"))
+  expect_identical(out$f()$USUBJID, c("[REDACTED]", "[REDACTED]"))
+  expect_identical(eval(quote(..1), out$fr)$USUBJID, c("[REDACTED]", "[REDACTED]"))
+  out <- suppressWarnings(anon(list(f = factory(d)), df_classes = "character"))
+  expect_false(grepl("SUBJ-0001", rawToChar(serialize(out, NULL, ascii = TRUE))))
+})
+
+test_that("a user frame with a `.Object` that isn't S4 is copied, not replaced", {
+  outer <- local(function(.Object, scale) {
+    inner <- function() function() scale * nrow(.Object)
+    inner()
+  }, globalenv())
+  f <- outer(data.frame(id = c("a", "b")), 10)
+  out <- suppressWarnings(anon(list(f = f)))
+  expect_identical(out$f(), 20)
+})
+
+test_that("`...` objects held anywhere are rebuilt redacted", {
+  grab <- local(function(...) {
+    list(...)
+    get("...")
+  }, globalenv())
+  dots <- grab(paste0("DRUG", "QX"))
+  pl <- list("[DRUG]" = "DRUGQX")
+  saved <- function(x) rawToChar(serialize(x, NULL, ascii = TRUE))
+  holder <- new.env(parent = globalenv())
+  holder$d <- dots
+  cases <- list(list = list(d = dots), env = holder, attribute = structure(list(1), dd = dots), top = dots)
+  for (n in names(cases)) {
+    out <- suppressWarnings(anon(cases[[n]], pattern_list = pl))
+    expect_false(grepl("DRUGQX", saved(out)), info = n)
+  }
+  out <- suppressWarnings(anon(list(d = dots), pattern_list = pl))
+  check <- new.env()
+  assign("...", out$d, envir = check)
+  expect_identical(eval(quote(..1), check), "[DRUG]")
+  # One whose values can't be computed is dropped, with a warning.
+  broken <- local(function(...) get("..."), globalenv())(stop("fails"))
+  expect_warning(out <- anon(list(b = broken)), "couldn't be read[^:]*: `b`")
+  expect_null(out$b)
+})
+
+test_that("anon_nlp_entities() on an environment or a function doesn't change it", {
+  local_mocked_bindings(extract_nlp_patterns = function(x, ...) list())
+  e <- new.env(parent = globalenv())
+  e$x <- "a"
+  out <- anon_nlp_entities(e)
+  expect_false(identical(out, e))
+  expect_null(attributes(e))
+  f <- local(function() 1, globalenv())
+  out <- suppressWarnings(anon_nlp_entities(f))
+  expect_null(attr(f, "class"))
+})
+
+test_that("objects of user classes named like internal markers are copied as data", {
+  e <- new.env(parent = globalenv())
+  e$a <- structure(list("DRUGQX"), class = "anon_dots")
+  e$b <- structure(list("DRUGQX"), class = "anon_unread")
+  e$c <- structure(list(env = e), class = "anon_env_read")
+  out <- suppressWarnings(anon(e, pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_setequal(ls(out), c("a", "b", "c"))
+  expect_identical(unclass(out$a)[[1]], "[DRUG]")
+  expect_identical(unclass(out$b)[[1]], "[DRUG]")
+})
+
+test_that("a redacted attribute name stays in place and doesn't take a kept one's name", {
+  fo <- stats::as.formula("y ~ x", env = globalenv())
+  attr(fo, "DRUGQX") <- "z"
+  attr(fo, "note") <- "n"
+  out <- suppressWarnings(anon(list(fo = fo), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(names(attributes(out$fo)), c("class", ".Environment", "[DRUG]", "note"))
+  out <- suppressWarnings(anon(list(fo = fo), pattern_list = list(".Environment" = "DRUGQX")))
+  expect_true(is.environment(attr(out$fo, ".Environment")))
+  expect_identical(attr(out$fo, ".Environment_1"), "z")
 })
