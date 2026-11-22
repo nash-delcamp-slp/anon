@@ -26,6 +26,13 @@
 #'   information, and requires groups of at least 12. Health Canada equates
 #'   0.09 with a cell size of 11, but `1 / 11` is about 0.0909; to use groups of
 #'   11, pass `max_risk = 1/11`. See Details.
+#' @param na How a missing quasi-identifier value counts when forming groups.
+#'   `"value"` (default): missing is a value of its own, which is right for
+#'   values that are really missing. `"wildcard"`: a missing value matches any
+#'   value, which is the usual way to measure cells blanked by suppression
+#'   (see [anon_suppress()]); a subject's `k` is then the number of subjects
+#'   whose values agree with its own on every quasi-identifier where both have
+#'   a value.
 #'
 #' @details
 #' Subjects are all non-missing key values found in the datasets used by
@@ -35,6 +42,15 @@
 #' `NA` for it, and `NA` is treated as a value of its own when forming groups.
 #' Blank strings, which is how SAS transport (XPT) files store missing text, are
 #' treated as missing. Values are otherwise grouped by exact equality.
+#'
+#' With `na = "wildcard"`, groups overlap: a subject with a missing value can
+#' count towards several groups, and `k` is counted for each subject on its
+#' own, as sdcMicro does for suppressed cells. Subjects with the same values
+#' are counted together, so the work grows with the number of distinct
+#' combinations that have a missing value times the number of distinct
+#' combinations (at most the number of subjects squared, times the number of
+#' quasi-identifiers); a few thousand subjects take well under a second.
+#' Without missing values it gives the same result as `"value"`.
 #'
 #' Risk is measured on one value per subject for each quasi-identifier. A copy
 #' shared with others usually contains every row of a dataset (for example
@@ -87,7 +103,7 @@
 #'     left out). Rows are ordered so the variable whose removal helps most
 #'     comes first: by `n_below_k_without`, then `n_unique_without`, then
 #'     `avg_risk_without` (all ascending), then the order of `quasi`.
-#'   - `quasi`, `key`: the quasi-identifier names and key used.
+#'   - `quasi`, `key`, `na`: the quasi-identifier names, key and `na` used.
 #'   - `sources`: one row per quasi-identifier giving where it comes from:
 #'     `variable`, `dataset`, and either `column` or `test_col`, `test` and
 #'     `result_col`, plus `filtered` (whether a `filter` was used). The filter
@@ -126,19 +142,21 @@
 #' )
 #'
 #' @export
-anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09) {
+anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09, na = c("value", "wildcard")) {
+  na <- match.arg(na)
   k_target <- risk_k_target(max_risk)
   table <- risk_quasi_table(data, quasi, key)
   quasi_names <- setdiff(names(table), key)
-  group_k <- quasi_group_sizes(table[quasi_names])
+  group_k <- quasi_group_sizes(table[quasi_names], na)
 
   structure(
     list(
       summary = risk_summary(group_k, max_risk, k_target, length(quasi_names)),
-      drivers = risk_drivers(table[quasi_names], k_target),
+      drivers = risk_drivers(table[quasi_names], k_target, na),
       quasi = quasi_names,
       sources = attr(table, "sources"),
-      key = key
+      key = key,
+      na = na
     ),
     class = "anon_risk"
   )
@@ -163,9 +181,10 @@ anon_risk <- function(data, quasi, key = "USUBJID", max_risk = 0.09) {
 #' anon_risk_subjects(dm, quasi = "AGE")
 #'
 #' @export
-anon_risk_subjects <- function(data, quasi, key = "USUBJID") {
+anon_risk_subjects <- function(data, quasi, key = "USUBJID", na = c("value", "wildcard")) {
+  na <- match.arg(na)
   table <- risk_quasi_table(data, quasi, key)
-  group_k <- quasi_group_sizes(table[setdiff(names(table), key)])
+  group_k <- quasi_group_sizes(table[setdiff(names(table), key)], na)
   stats::setNames(
     tibble::tibble(table[[key]], group_k, 1 / group_k),
     c(key, "k", "risk")
@@ -242,6 +261,9 @@ print.anon_risk <- function(x, ...) {
   cat("Re-identification risk\n")
   cat("======================\n\n")
   cat("Quasi-identifiers:", paste(x$quasi, collapse = ", "), "\n")
+  if (identical(x$na, "wildcard")) {
+    cat("Missing values match any value (na = \"wildcard\")\n")
+  }
   cat("Subjects:", s$n_subjects, "\n")
   cat("Target: maximum risk", format(s$max_risk_target, digits = 7),
       paste0("(groups of at least ", s$k_target, ")"), "\n")
@@ -276,6 +298,7 @@ as_anon_payload.anon_risk <- function(x, path = "$") {
     kind = "anon_risk",
     key = x$key,
     quasi = x$quasi,
+    na = if (is.null(x$na)) "value" else x$na,
     summary = serialize_table_payload(x$summary, path = paste0(path, "$summary")),
     drivers = serialize_table_payload(x$drivers, path = paste0(path, "$drivers"))
   )
@@ -570,13 +593,61 @@ dataset_label <- function(ds) {
 }
 
 # Size of each subject's group of identical quasi-identifier values, by exact
-# equality. NA is a value of its own.
-quasi_group_sizes <- function(quasi_table) {
+# equality. With na = "value", NA is a value of its own; with "wildcard", it
+# matches any value (see wildcard_group_sizes()).
+quasi_group_sizes <- function(quasi_table, na = "value") {
   if (nrow(quasi_table) == 0) {
     return(integer(0))
   }
   ids <- vctrs::vec_group_id(quasi_table)
+  if (na == "wildcard" && any(vapply(quasi_table, function(x) any(vctrs::vec_detect_missing(x)), logical(1)))) {
+    return(wildcard_group_sizes(quasi_table, ids))
+  }
   tabulate(ids)[ids]
+}
+
+# Each value of each quasi-identifier as a whole number, 0 for missing.
+quasi_codes <- function(quasi_table) {
+  codes <- vapply(quasi_table, function(x) {
+    id <- vctrs::vec_group_id(x)
+    id[vctrs::vec_detect_missing(x)] <- 0L
+    as.integer(id)
+  }, integer(nrow(quasi_table)))
+  matrix(codes, nrow = nrow(quasi_table))
+}
+
+# Group sizes where a missing value matches any value: for each subject, the
+# number of subjects that agree with it on every quasi-identifier where both
+# have a value. Subjects with the same values (`ids`, distinct rows) are
+# handled once. A row without missing values matches only itself among the
+# rows without missing values, so only the rows with a missing value need
+# comparing with all the others: the work is (rows with a missing value) x
+# (distinct rows) x (quasi-identifiers).
+wildcard_group_sizes <- function(quasi_table, ids = vctrs::vec_group_id(quasi_table)) {
+  first <- !duplicated(ids)
+  codes <- quasi_codes(quasi_table[first, , drop = FALSE])[order(ids[first]), , drop = FALSE]
+  counts <- tabulate(ids)
+  k <- counts
+  has_missing <- which(rowSums(codes == 0L) > 0)
+  for (m in has_missing) {
+    matches <- wildcard_matches(codes, codes[m, ])
+    # Rows without missing values gain this row's subjects; a row with a
+    # missing value counts its own matches below.
+    complete <- matches
+    complete[has_missing] <- FALSE
+    k[complete] <- k[complete] + counts[m]
+    k[m] <- sum(counts[matches])
+  }
+  k[ids]
+}
+
+# Which rows of `codes` agree with `row` wherever both have a value.
+wildcard_matches <- function(codes, row) {
+  ok <- rep(TRUE, nrow(codes))
+  for (q in which(row != 0L)) {
+    ok <- ok & (codes[, q] == row[q] | codes[, q] == 0L)
+  }
+  ok
 }
 
 risk_summary <- function(group_k, max_risk_target, k_target, n_quasi) {
@@ -597,11 +668,11 @@ risk_summary <- function(group_k, max_risk_target, k_target, n_quasi) {
   )
 }
 
-risk_drivers <- function(quasi_table, k_target) {
+risk_drivers <- function(quasi_table, k_target, na = "value") {
   vars <- names(quasi_table)
   rows <- lapply(vars, function(v) {
     rest <- quasi_table[setdiff(vars, v)]
-    group_k <- if (ncol(rest) == 0) rep(nrow(quasi_table), nrow(quasi_table)) else quasi_group_sizes(rest)
+    group_k <- if (ncol(rest) == 0) rep(nrow(quasi_table), nrow(quasi_table)) else quasi_group_sizes(rest, na)
     values <- quasi_table[[v]]
     tibble::tibble(
       variable = v,

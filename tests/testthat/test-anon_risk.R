@@ -416,3 +416,49 @@ test_that("anon_risk() rejects key names used for results", {
   expect_error(anon_risk_subjects(df, "X", key = "risk"), "must not be named")
   expect_error(anon_risk(df, "X", key = "k"), "must not be named")
 })
+
+test_that("na = \"wildcard\" lets a missing value match any value", {
+  dm <- data.frame(
+    USUBJID = c("a", "b", "c", "d"),
+    AGE = c(60, 60, 70, NA),
+    SEX = c("F", NA, "F", NA)
+  )
+  # a matches b (SEX missing) and d (both missing); b matches a, c? no (AGE
+  # differs), d; c matches d; d matches everyone.
+  expect_equal(anon_risk_subjects(dm, quasi = c("AGE", "SEX"), na = "wildcard")$k, c(3, 3, 2, 4))
+  expect_equal(anon_risk_subjects(dm, quasi = c("AGE", "SEX"))$k, c(1, 1, 1, 1))
+  risk <- anon_risk(dm, quasi = c("AGE", "SEX"), max_risk = 1/2, na = "wildcard")
+  expect_equal(risk$summary$min_k, 2)
+  expect_true(risk$summary$meets_target)
+  expect_identical(risk$na, "wildcard")
+  expect_match(paste(capture.output(print(risk)), collapse = "\n"), "Missing values match any value")
+  expect_identical(as_anon_payload(risk)$na, "wildcard")
+  # Leaving out SEX: a, b and d share AGE 60 or match it.
+  expect_equal(risk$drivers$min_k_without[risk$drivers$variable == "SEX"], 2)
+  expect_error(anon_risk(dm, quasi = "AGE", na = "x"), "should be one of")
+})
+
+test_that("na = \"wildcard\" agrees with a pairwise count, and with exact groups without missing values", {
+  set.seed(42)
+  n <- 300
+  dm <- data.frame(
+    USUBJID = sprintf("S%03d", seq_len(n)),
+    A = sample(c(1:3, NA), n, replace = TRUE),
+    B = sample(c("x", "y", NA), n, replace = TRUE),
+    C = factor(sample(c("p", "q", "r", NA), n, replace = TRUE))
+  )
+  pairwise <- vapply(seq_len(n), function(i) {
+    ok <- rep(TRUE, n)
+    for (col in c("A", "B", "C")) {
+      x <- as.character(dm[[col]])
+      ok <- ok & (is.na(x) | is.na(x[i]) | x == x[i])
+    }
+    sum(ok)
+  }, numeric(1))
+  expect_equal(anon_risk_subjects(dm, quasi = c("A", "B", "C"), na = "wildcard")$k, pairwise)
+  full <- dm[stats::complete.cases(dm), ]
+  expect_equal(
+    anon_risk_subjects(full, quasi = c("A", "B", "C"), na = "wildcard")$k,
+    anon_risk_subjects(full, quasi = c("A", "B", "C"))$k
+  )
+})
