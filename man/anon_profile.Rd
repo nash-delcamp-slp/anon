@@ -145,8 +145,8 @@ rule came from). \code{as.data.frame()} returns it as a data frame to edit, and
 \strong{Which rule applies.} For a column of a dataset, among the rules (other
 than test rules) whose \code{variable} and \code{datasets} match it, a rule limited
 to datasets wins over one that isn't, an exact name over a pattern, and a
-later rule over an earlier one. Dataset names and patterns are matched
-ignoring case. Test rules apply to the rows of their test in every dataset
+later rule over an earlier one. Variable and dataset names and patterns
+are matched ignoring case (\code{"RACE"} matches \code{race}). Test rules apply to the rows of their test in every dataset
 (in \code{datasets}) with the test and result columns.
 
 \strong{Companion variables.} ADaM names a variable's numeric code \code{XN} and its
@@ -155,24 +155,38 @@ decoded or long label \code{XL} or \code{XC} (\code{SITEIDN}, \code{COUNTRYL}, \
 column the \code{"also"} role (a numeric companion gets the number of the
 subject's pseudonym, 31 for \code{SUBJ-031}, the same in every dataset), and
 makes the companions of each quasi-identifier column \code{"derived"} from it.
-A rule that matches a companion's name wins.
+A rule that matches a companion's name wins, in the datasets it covers.
 
 Columns matched by no rule are kept as they are, except that dates are
 offset and subject IDs replaced wherever \code{\link[=anon_subject_dates]{anon_subject_dates()}} and
-\code{\link[=anon_subject_ids]{anon_subject_ids()}} find them. \code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns
-with the key whose names look like an age, a birth date, a site, a
-numeric ID (\verb{*IDN}), a country, a race (\code{RACE1}), a height, a weight, a
-BMI, a body surface area, a creatinine clearance or an eGFR (units, named
-\verb{*U}, aside) and that no rule matches, unless they hold one value in every
-row; such a column is a reason the target is not met. It also warns about
-\code{"keep"} rules that win over a quasi-identifier's rule for a column.
+\code{\link[=anon_subject_ids]{anon_subject_ids()}} find them. \code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns,
+at any depth, whose names look like an age, a birth date, a site, a
+numeric ID (\verb{*IDN}), a country, a sex or gender, a race (\code{RACE1},
+\code{RACEOTH}), an ethnicity, a height, a weight, a BMI, a body surface area,
+a creatinine clearance or an eGFR, in any case (units, named \verb{*U}, aside),
+and that no rule matches, unless they hold no value, or one value that at
+least as many subjects as the target's group size share; such a column is
+a reason the target is not met. It also warns about \code{"keep"} rules that
+win over a quasi-identifier's rule for a column.
+
+\strong{Datasets without the key.} A dataset without the key column whose
+every row holds, in an \code{"also"} column (such as \code{SUBJID}, or \code{USUBJIDN}),
+a value that the datasets with the key give one subject, is processed as a
+dataset with the key (rows tied to those subjects) and released without
+the key column. Any other dataset without the key that holds a column
+matched by a \code{"key"}, \code{"also"}, \code{"key_cols"}, \code{"quasi"}, \code{"derived"},
+\code{"date"} or \code{"duration"} rule, or that looks like a quasi-identifier, is
+released as it is and is a reason the target is not met.
 
 \strong{Dates.} \code{\link[=anon_deidentify]{anon_deidentify()}} offsets dates with
 \code{\link[=anon_subject_dates]{anon_subject_dates()}}'s own detection (every Date and date-time column
 and every text column whose name ends in \code{DTC}, at any depth), and, with
 the same offsets, the text columns of ISO 8601 dates matched by a
-\code{"date"} rule (such as \code{VISIT_DATE}). A column matched by a \code{"date"} rule
-that can't be offset (a numeric SAS date, say) is named in a warning.
+\code{"date"} or \code{"duration"} rule (such as \code{VISIT_DATE}), at any depth. A
+column matched by such a rule that isn't a Date, a date-time or text (a
+number of days, with or without a SAS date format, whose origin isn't
+known) is left as it is: a warning names it, and it is a reason the
+target is not met.
 
 \strong{\code{anon_profile_sdtm()}.}
 \itemize{
@@ -195,7 +209,8 @@ alike), and baseline \code{HEIGHT} and \code{WEIGHT} from \code{vs}
 record: height is often recorded once, at screening, without the flag),
 rounded to units, then to tens, then in bands of 20;
 \item derived: \code{BMI} and \code{BSA} results in \code{vs}, from \code{HEIGHT} and \code{WEIGHT}
-(blanked where those changed);
+(blanked where those changed); renal function results in \code{lb}
+(\code{CRCL}, \code{EGFR}) are not covered: add derived rules for them if needed;
 \item duration: \code{RFSTDTC} to \code{RFENDTC}, in bands of 7 days;
 \item keep: \code{AGEU} (the unit of \code{AGE}, not identifying), \code{--DY}, \code{--STDY} and
 \code{--ENDY} (study days, which offsetting keeps exact).
@@ -231,8 +246,10 @@ from \code{ETHNIC}; \verb{AGEGR*} (such as \code{AGEGR1} and \code{AGEGR1N}) fro
 (such as \code{BSABL}) from \code{HEIGHT} and \code{WEIGHT}, and \verb{CRCL*} and \verb{EGFR*}
 (\code{CRCLBL}, \code{EGFRBL}) from \code{HEIGHT}, \code{WEIGHT}, \code{AGE} and \code{SEX}, their
 units (\verb{*U}) kept; \verb{AVALCAT*}
-and \code{AVALCA*N} of the \code{HEIGHT} and \code{WEIGHT} rows from them; and the
-\code{BMI} and \code{BSA} parameters, from \code{HEIGHT} and \code{WEIGHT};
+and \code{AVALCA*N} of the \code{HEIGHT} and \code{WEIGHT} rows from them; the
+\code{BMI} and \code{BSA} parameters, from \code{HEIGHT} and \code{WEIGHT}; and the \code{CRCL}
+and \code{EGFR} parameters (renal function in a BDS dataset such as ADLB),
+from \code{HEIGHT}, \code{WEIGHT}, \code{AGE} and \code{SEX};
 \item duration: \code{TRTSDT} to \code{TRTEDT}, in bands of 7 days.
 }
 

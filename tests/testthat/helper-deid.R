@@ -1228,6 +1228,33 @@ deid_profile_run <- function(profile) {
   profile <- c(profile, anon_profile(anon_profile_rule("SITE", "keep"), name = "harness"))
   function(data) anon_deidentify(data, profile, max_risk = 1/2, keep_secrets = TRUE, seed = deid_seeds[1])
 }
+# What the fixture holds that the profiles can't protect, released as it
+# is: anon_deidentify()'s final audit names it in warnings, and each kind is
+# a reason the target isn't met (the measured risk meets it). `notes` has no
+# key and holds an original key in another case and a date (and `qc`, a
+# date column of the ADaM profile's `*DT`); dm.SEXF is a sex without a rule;
+# vs.usubjid is the key in another case; ad.TRTSDT, numbers of days with a
+# SAS format, is a date of the ADaM profile that can't be offset. They are
+# matched as patterns, so that the checks on what leaves the package still
+# see these columns.
+deid_profile_flagged <- function(adam = FALSE) {
+  c(deid_flagged, list(
+    list(pattern = paste0(
+      "^These datasets have no `USUBJID` column[^:]*: notes \\(usubjid, NOTEDTC\\)",
+      if (adam) "; qc \\(RUNDT\\)", "\\. They are released as they are"
+    )),
+    list(pattern = "^These columns look like quasi-identifiers or birth dates but no profile rule matches them: dm\\.SEXF\\. "),
+    list(pattern = "^These columns match a profile rule but were left as they are [^:]*: vs\\.usubjid\\.$")
+  ), if (adam) list(list(pattern = "^These columns are dates in the profile but were not offset [^:]*: ad\\.TRTSDT\\. ")))
+}
+deid_profile_not_met <- function(adam = FALSE) {
+  c(
+    "datasets without the key hold identifiers, quasi-identifiers or dates",
+    "columns that look like quasi-identifiers have no profile rule",
+    if (adam) "profile date columns were not offset",
+    "columns that match a profile rule were left as they are"
+  )
+}
 deid_profile_truth <- function(original, oracle) {
   out <- data.frame(
     key = deid_keys, AGE = floor(original$dm$AGE / 10) * 10, SEX = original$dm$SEX, RACE = original$dm$RACE,
@@ -1358,6 +1385,9 @@ deid_profile_checks <- function(adam = FALSE) {
 # - `deidentify`: for anon_deidentify() pipelines, the columns removed, the
 #   copies of each quasi-identifier and the derived columns to check (see
 #   deid_profile_checks());
+# - `not_met`: for anon_deidentify() pipelines, the reasons the target isn't
+#   met, from what the fixture holds that the profile can't protect (see
+#   deid_profile_flagged());
 # - `dropped`: subjects (positions in deid_keys) whose rows the pipeline
 #   removes from data frames nested at any depth (see deid_expected_frame()).
 deid_pipelines <- list(
@@ -1460,6 +1490,7 @@ deid_pipelines <- list(
     run = deid_profile_run(anon_profile_sdtm(min_n = 2)),
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     fixture = function() deid_profile_fixture(),
+    flagged = deid_profile_flagged(), not_met = deid_profile_not_met(),
     expected = deid_profile_expected(),
     risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
     deidentify = deid_profile_checks()
@@ -1468,6 +1499,7 @@ deid_pipelines <- list(
     run = deid_profile_run(anon_profile_adam(min_n = 2)),
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     fixture = function() deid_profile_fixture(adam = TRUE),
+    flagged = deid_profile_flagged(adam = TRUE), not_met = deid_profile_not_met(adam = TRUE),
     expected = deid_profile_expected(adam = TRUE),
     risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
     deidentify = deid_profile_checks(adam = TRUE)
@@ -1476,6 +1508,7 @@ deid_pipelines <- list(
     run = deid_profile_run(c(anon_profile_sdtm(min_n = 2), anon_profile_adam(min_n = 2))),
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     fixture = function() deid_profile_fixture(adam = TRUE),
+    flagged = deid_profile_flagged(adam = TRUE), not_met = deid_profile_not_met(adam = TRUE),
     expected = deid_profile_expected(adam = TRUE),
     risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
     deidentify = deid_profile_checks(adam = TRUE)
@@ -1496,6 +1529,7 @@ deid_pipeline_defaults <- list(
   keys = deid_all_keys,
   risk = NULL,
   deidentify = NULL,
+  not_met = character(0),
   dropped = integer(0)
 )
 

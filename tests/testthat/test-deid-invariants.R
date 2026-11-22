@@ -483,8 +483,11 @@ for (pipeline_name in names(deid_pipelines)) {
       expect_true(all(deid_release_k(data, step, oracle, truth) >= risk_k_target(r$max_risk)))
       expect_true(step$settings$suppress$meets_target)
       if (!is.null(step$settings$deidentify)) {
-        expect_true(step$settings$deidentify$meets_target)
-        expect_identical(step$settings$deidentify$not_met, character(0))
+        # The measured risk meets the target; what the fixture holds that
+        # the profile can't protect is each kind of reason it isn't met.
+        expect_true(step$risk_after$summary$meets_target)
+        expect_setequal(step$settings$deidentify$not_met, pipeline$not_met)
+        expect_identical(step$settings$deidentify$meets_target, length(pipeline$not_met) == 0)
       }
       # Measured from the step's record of blanked cells too.
       expect_true(anon_risk(step, quasi = r$quasi, max_risk = r$max_risk)$summary$meets_target)

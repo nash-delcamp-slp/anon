@@ -89,8 +89,8 @@
 #' **Which rule applies.** For a column of a dataset, among the rules (other
 #' than test rules) whose `variable` and `datasets` match it, a rule limited
 #' to datasets wins over one that isn't, an exact name over a pattern, and a
-#' later rule over an earlier one. Dataset names and patterns are matched
-#' ignoring case. Test rules apply to the rows of their test in every dataset
+#' later rule over an earlier one. Variable and dataset names and patterns
+#' are matched ignoring case (`"RACE"` matches `race`). Test rules apply to the rows of their test in every dataset
 #' (in `datasets`) with the test and result columns.
 #'
 #' **Companion variables.** ADaM names a variable's numeric code `XN` and its
@@ -99,24 +99,38 @@
 #' column the `"also"` role (a numeric companion gets the number of the
 #' subject's pseudonym, 31 for `SUBJ-031`, the same in every dataset), and
 #' makes the companions of each quasi-identifier column `"derived"` from it.
-#' A rule that matches a companion's name wins.
+#' A rule that matches a companion's name wins, in the datasets it covers.
 #'
 #' Columns matched by no rule are kept as they are, except that dates are
 #' offset and subject IDs replaced wherever [anon_subject_dates()] and
-#' [anon_subject_ids()] find them. [anon_deidentify()] warns about columns
-#' with the key whose names look like an age, a birth date, a site, a
-#' numeric ID (`*IDN`), a country, a race (`RACE1`), a height, a weight, a
-#' BMI, a body surface area, a creatinine clearance or an eGFR (units, named
-#' `*U`, aside) and that no rule matches, unless they hold one value in every
-#' row; such a column is a reason the target is not met. It also warns about
-#' `"keep"` rules that win over a quasi-identifier's rule for a column.
+#' [anon_subject_ids()] find them. [anon_deidentify()] warns about columns,
+#' at any depth, whose names look like an age, a birth date, a site, a
+#' numeric ID (`*IDN`), a country, a sex or gender, a race (`RACE1`,
+#' `RACEOTH`), an ethnicity, a height, a weight, a BMI, a body surface area,
+#' a creatinine clearance or an eGFR, in any case (units, named `*U`, aside),
+#' and that no rule matches, unless they hold no value, or one value that at
+#' least as many subjects as the target's group size share; such a column is
+#' a reason the target is not met. It also warns about `"keep"` rules that
+#' win over a quasi-identifier's rule for a column.
+#'
+#' **Datasets without the key.** A dataset without the key column whose
+#' every row holds, in an `"also"` column (such as `SUBJID`, or `USUBJIDN`),
+#' a value that the datasets with the key give one subject, is processed as a
+#' dataset with the key (rows tied to those subjects) and released without
+#' the key column. Any other dataset without the key that holds a column
+#' matched by a `"key"`, `"also"`, `"key_cols"`, `"quasi"`, `"derived"`,
+#' `"date"` or `"duration"` rule, or that looks like a quasi-identifier, is
+#' released as it is and is a reason the target is not met.
 #'
 #' **Dates.** [anon_deidentify()] offsets dates with
 #' [anon_subject_dates()]'s own detection (every Date and date-time column
 #' and every text column whose name ends in `DTC`, at any depth), and, with
 #' the same offsets, the text columns of ISO 8601 dates matched by a
-#' `"date"` rule (such as `VISIT_DATE`). A column matched by a `"date"` rule
-#' that can't be offset (a numeric SAS date, say) is named in a warning.
+#' `"date"` or `"duration"` rule (such as `VISIT_DATE`), at any depth. A
+#' column matched by such a rule that isn't a Date, a date-time or text (a
+#' number of days, with or without a SAS date format, whose origin isn't
+#' known) is left as it is: a warning names it, and it is a reason the
+#' target is not met.
 #'
 #' **`anon_profile_sdtm()`.**
 #' - remove: `BRTHDTC` (with `AGE` and an offset `RFSTDTC`, a birth date
@@ -138,7 +152,8 @@
 #'   record: height is often recorded once, at screening, without the flag),
 #'   rounded to units, then to tens, then in bands of 20;
 #' - derived: `BMI` and `BSA` results in `vs`, from `HEIGHT` and `WEIGHT`
-#'   (blanked where those changed);
+#'   (blanked where those changed); renal function results in `lb`
+#'   (`CRCL`, `EGFR`) are not covered: add derived rules for them if needed;
 #' - duration: `RFSTDTC` to `RFENDTC`, in bands of 7 days;
 #' - keep: `AGEU` (the unit of `AGE`, not identifying), `--DY`, `--STDY` and
 #'   `--ENDY` (study days, which offsetting keeps exact).
@@ -172,8 +187,10 @@
 #'   (such as `BSABL`) from `HEIGHT` and `WEIGHT`, and `CRCL*` and `EGFR*`
 #'   (`CRCLBL`, `EGFRBL`) from `HEIGHT`, `WEIGHT`, `AGE` and `SEX`, their
 #'   units (`*U`) kept; `AVALCAT*`
-#'   and `AVALCA*N` of the `HEIGHT` and `WEIGHT` rows from them; and the
-#'   `BMI` and `BSA` parameters, from `HEIGHT` and `WEIGHT`;
+#'   and `AVALCA*N` of the `HEIGHT` and `WEIGHT` rows from them; the
+#'   `BMI` and `BSA` parameters, from `HEIGHT` and `WEIGHT`; and the `CRCL`
+#'   and `EGFR` parameters (renal function in a BDS dataset such as ADLB),
+#'   from `HEIGHT`, `WEIGHT`, `AGE` and `SEX`;
 #' - duration: `TRTSDT` to `TRTEDT`, in bands of 7 days.
 #'
 #' Columns that hold a duration exactly, such as `TRTDURD`, `ADURN` or
@@ -390,6 +407,8 @@ anon_profile_adam <- function(min_n = 12) {
     anon_profile_rule(c("AVALCAT*", "AVALCA*N"), "derived", test_col = "PARAMCD", test = "WEIGHT", from = "WEIGHT"),
     anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "BMI", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "BSA", from = c("HEIGHT", "WEIGHT")),
+    anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "CRCL", from = c("HEIGHT", "WEIGHT", "AGE", "SEX")),
+    anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "EGFR", from = c("HEIGHT", "WEIGHT", "AGE", "SEX")),
     anon_profile_rule("VSSTRESN", "derived", test_col = "VSTESTCD", test = "BMI", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule("VSSTRESN", "derived", test_col = "VSTESTCD", test = "BSA", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule("TRTEDT", "duration", from = "TRTSDT", ladder = list(anon_band(7))),
@@ -618,18 +637,19 @@ profile_text <- function(x) {
   tibble::tibble(role = x$role, rule = rule, profile = x$profile)
 }
 
-# Whether names match a rule's variable: an exact name, an SDTM domain
-# wildcard ("--" for any two-letter prefix) or a pattern with * and ?.
+# Whether names match a rule's variable, ignoring case (as dataset names
+# are): an exact name, an SDTM domain wildcard ("--" for any two-letter
+# prefix) or a pattern with * and ?.
 profile_match <- function(pattern, names) {
   if (startsWith(pattern, "--")) {
     rest <- substring(pattern, 3)
     rx <- paste0("^[A-Za-z]{2}", gsub("\\\\\\*", ".*", gsub("\\\\\\?", ".", escape_regex(rest))), "$")
-    return(grepl(rx, names, useBytes = TRUE))
+    return(grepl(rx, names, ignore.case = TRUE, useBytes = TRUE))
   }
   if (grepl("[*?]", pattern)) {
-    return(grepl(utils::glob2rx(pattern), names, useBytes = TRUE))
+    return(grepl(utils::glob2rx(pattern), names, ignore.case = TRUE, useBytes = TRUE))
   }
-  !is.na(names) & names == pattern
+  !is.na(names) & toupper(names) == toupper(pattern)
 }
 
 escape_regex <- function(x) gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", x)
@@ -637,19 +657,14 @@ escape_regex <- function(x) gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", x)
 profile_is_pattern <- function(pattern) startsWith(pattern, "--") | grepl("[*?]", pattern)
 
 # Whether a dataset is in a rule's `datasets`, ignoring case (SUPPDM and suppdm
-# alike). A data frame nested in a dataset (see lift_nested_quasi()) takes the
-# scope of its dataset.
-profile_in_scope <- function(datasets, ds) {
-  ds <- toupper(dataset_scope_name(ds))
+# alike). `scope` maps the data frames nested in a dataset that
+# anon_deidentify() measures as datasets of their own (see
+# lift_nested_quasi()) to that dataset, whose scope they take; it travels
+# with the profile as its attribute "scope".
+profile_in_scope <- function(datasets, ds, scope = NULL) {
+  if (!is.null(scope) && ds %in% names(scope)) {
+    ds <- scope[[ds]]
+  }
+  ds <- toupper(ds)
   length(datasets) == 0 || any(vapply(datasets, function(p) profile_match(toupper(p), ds), logical(1)))
-}
-
-# The dataset whose rules apply to a dataset name: itself, or for the data
-# frames nested in a dataset that anon_deidentify() measures as datasets of
-# their own, that dataset.
-profile_scope <- new.env(parent = emptyenv())
-
-dataset_scope_name <- function(ds) {
-  map <- profile_scope$map
-  if (!is.null(map) && ds %in% names(map)) map[[ds]] else ds
 }

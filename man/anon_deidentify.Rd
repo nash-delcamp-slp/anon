@@ -80,14 +80,18 @@ attributes, so code that uses them still runs, but without value
 labels or missing-value codes, which can hold the identifier. An exact
 \code{"remove"} name found nowhere is noted in the log.
 \item \code{\link[=anon_subject_ids]{anon_subject_ids()}} replaces the key, \code{"also"} and \code{"key_cols"}
-columns.
+columns. A dataset without the key whose rows an \code{"also"} column ties
+to subjects (see \code{\link[=anon_profile]{anon_profile()}}) takes the key for these steps, and
+is released without it.
 \item \code{\link[=anon_subject_dates]{anon_subject_dates()}} offsets every date of each subject by one
 random offset (its own detection: Date and date-time columns, and text
 columns named \verb{*DTC}, at any depth); text columns matched by the
 profile's \code{"date"} rules (such as \code{VISIT_DATE}, in the datasets with the
 key) are offset by the same offsets, as \verb{*DTC} columns are: values that
 aren't ISO 8601 dates (\verb{10MAR2021}, \code{03/10/2021}, \code{--03-10}) are
-removed, with a warning, and bare years move by whole years.
+removed, with a warning, and bare years move by whole years. So are
+those of the data frames nested in them, each row with the offset of
+the subject that owns it (rows no subject owns are blanked).
 \item The quasi-identifiers the profile finds are measured (\code{\link[=anon_risk]{anon_risk()}}).
 Each is measured from its source: the copy with one value per subject
 that holds a value for the most subjects. Every other copy that shows
@@ -182,9 +186,15 @@ only when the risk measured on the released data meets the target and
 \code{\link[=anon_suppress]{anon_suppress()}} found no other reason not to (copies of a
 quasi-identifier that differ, birth dates next to \code{AGE}, values of removed
 subjects left); reasons are in \code{settings$deidentify$not_met}. No
-quasi-identifier found in the data is a reason too, and so are columns
-and supplemental qualifiers that look like quasi-identifiers without a
-rule (see \code{\link[=anon_profile]{anon_profile()}}), which are released as they are.
+quasi-identifier found in the data is a reason too. Last, an audit walks
+every dataset at every depth for what the steps left as it was, each
+kind named in a warning and a reason: columns and supplemental
+qualifiers that look like quasi-identifiers without a rule (see
+\code{\link[=anon_profile]{anon_profile()}}); datasets without the key (and no \code{"also"} column that
+ties their rows to subjects) holding columns the profile names or that
+look like quasi-identifiers; profile date columns that weren't offset
+(such as a number of days); and quasi-identifier or derived columns
+holding lists.
 
 \strong{Residual signals.} Meeting the target is about the quasi-identifiers
 only. Other things a person might know single subjects out too: treatment

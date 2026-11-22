@@ -399,8 +399,9 @@ test_that("a profile's date that can't be offset is named in a warning", {
   # A number of days, without a SAS date format.
   dm <- data.frame(USUBJID = sprintf("S%02d", 1:3), VISITDT = c(18000, 18100, NA), RFSTDTC = "2020-01-01")
   profile <- deid_test_profile(anon_profile_rule("*DT", "date"))
-  w <- capture_warnings(anon_deidentify(list(dm = dm), profile, seed = 1))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, seed = 1))
   expect_true(any(grepl("were not offset[^:]*: dm.VISITDT\\.", w)))
+  expect_true("profile date columns were not offset" %in% r$settings$deidentify$not_met)
 })
 
 test_that("baseline values come from the flagged row, or the first row without one", {
@@ -875,4 +876,160 @@ test_that("a larger budget doesn't stop the search while a step still lowers the
   r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, max_suppressed = 0.6, seed = 1)
   expect_identical(r$settings$deidentify$quasi$level, c(0L, 1L))
   expect_false(any(is.na(r$data$dm$WT)))
+})
+
+test_that("columns of nested data that look like quasi-identifiers without a rule are named", {
+  n <- 6
+  dm <- tibble::tibble(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3))
+  dm$extra <- data.frame(HEIGHTCM = 170 + 1:n)
+  dm$WEIGHTS <- lapply(1:n, function(i) c(70, 71) + i)
+  dm$visits <- lapply(1:n, function(i) data.frame(VISIT = 1:2, GENDER = "F"))
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"))
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
+  # A list column of data frames is walked; one of numbers is named, and so
+  # are the nested columns, except a value that every subject shares.
+  expect_true(any(grepl("no profile rule matches them: dm.WEIGHTS, dm.extra\\[HEIGHTCM\\]\\.", w)))
+  expect_false(r$settings$deidentify$meets_target)
+  expect_true("columns that look like quasi-identifiers have no profile rule" %in% r$settings$deidentify$not_met)
+})
+
+test_that("a look-alike with one value is released only when enough subjects share it", {
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:6), AGE = rep(c(30, 50), 3), BIRTHYR = 1990)
+  profile <- deid_test_profile(anon_profile_rule("AGE", "quasi"))
+  # Six subjects share it, at least the target's 3.
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm), profile, max_risk = 1/3, seed = 1))
+  expect_false(any(grepl("look like quasi-identifiers", w)))
+  expect_true(r$settings$deidentify$meets_target)
+  # In a dataset holding one subject, the same value singles it out.
+  one <- data.frame(USUBJID = "S01", HEIGHTCM = 203.5, BIRTHYR = 1990, VISIT = c("SCREENING", "WEEK 2"))
+  w2 <- capture_warnings(r2 <- anon_deidentify(list(dm = dm[1:2], one = one), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no profile rule matches them: one.HEIGHTCM, one.BIRTHYR\\.", w2)))
+  expect_false(r2$settings$deidentify$meets_target)
+  # Fewer subjects than the target's group size share it.
+  w3 <- capture_warnings(r3 <- anon_deidentify(list(dm = dm), profile, max_risk = 1/12, seed = 1, unresolved = "keep"))
+  expect_true(any(grepl("no profile rule matches them: dm.BIRTHYR\\.", w3)))
+})
+
+test_that("nested profile text dates are offset with their subject's offset, and numbers aren't dates", {
+  n <- 6
+  adsl <- tibble::tibble(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 3), TRTSDT = as.Date("2021-03-01") + 1:n)
+  adsl$visits <- lapply(1:n, function(i) data.frame(AVISITN = 1:2, VISDT = format(as.Date("2021-03-01") + i + c(0, 30))))
+  p <- c(deid_test_profile(anon_profile_rule("AGE", "quasi")), anon_profile(anon_profile_rule("*DT", "date")))
+  w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl), p, max_risk = 1/3, seed = 1))
+  a <- r$data$adsl
+  # Each nested date moved with the subject's TRTSDT.
+  moved <- vapply(seq_len(n), function(i) as.numeric(as.Date(a$visits[[i]]$VISDT[1]) - a$TRTSDT[i]), numeric(1))
+  expect_identical(moved, rep(0, n))
+  expect_false(any(unlist(lapply(a$visits, `[[`, "VISDT")) %in% unlist(lapply(adsl$visits, `[[`, "VISDT"))))
+  expect_false(any(grepl("not shifted|not offset", w)))
+  expect_true(any(r$log$variable %in% "visits[[]][VISDT]" & r$log$step == "subject_dates"))
+  expect_true(r$settings$deidentify$meets_target)
+  # A number of days is left as it is, and the target isn't met.
+  adsl2 <- adsl[c("USUBJID", "AGE")]
+  adsl2$TRTSDT <- as.numeric(as.Date("2021-03-01") + 1:n)
+  w2 <- capture_warnings(r2 <- anon_deidentify(list(adsl = adsl2), p, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("were not offset[^:]*: adsl.TRTSDT\\.", w2)))
+  expect_false(r2$settings$deidentify$meets_target)
+  expect_true("profile date columns were not offset" %in% r2$settings$deidentify$not_met)
+})
+
+test_that("a dataset without the key is processed through an `also` column, or fails the target", {
+  n <- 12
+  adsl <- data.frame(
+    USUBJID = sprintf("01-%03d", 1:n), SUBJID = sprintf("%03d", 1:n), AGE = c(31:36, 51:56), SEX = rep(c("F", "M"), 6)
+  )
+  ex <- data.frame(SUBJID = rev(adsl$SUBJID), AGE = rev(adsl$AGE), EXDOSE = 10)
+  profile <- anon_profile_adam(3)
+  w <- capture_warnings(r <- anon_deidentify(list(adsl = adsl, ex = ex), profile, max_risk = 1/3, seed = 1))
+  e <- r$data$ex
+  a <- r$data$adsl
+  # The rows took their subjects' pseudonymized SUBJID and released AGE, and
+  # the dataset no key column.
+  expect_identical(names(e), names(ex))
+  expect_false(any(e$SUBJID %in% ex$SUBJID))
+  expect_identical(e$AGE, a$AGE[match(e$SUBJID, a$SUBJID)])
+  expect_true(r$settings$deidentify$meets_target)
+  expect_true(any(r$log$dataset %in% "ex" & grepl("tied to subjects through `SUBJID`", r$log$detail)))
+  # A value that ties to no subject: left as it is, and the target isn't met.
+  ex2 <- rbind(ex, data.frame(SUBJID = "999", AGE = 40, EXDOSE = 10))
+  w2 <- capture_warnings(r2 <- anon_deidentify(list(adsl = adsl, ex = ex2), profile, max_risk = 1/3, seed = 1))
+  expect_identical(r2$data$ex, ex2)
+  expect_true(any(grepl("no `USUBJID` column[^:]*: ex \\(SUBJID, AGE\\)", w2)))
+  expect_true("datasets without the key hold identifiers, quasi-identifiers or dates" %in% r2$settings$deidentify$not_met)
+  # NONMEM-style data with a numeric ID companion the keyed datasets lack.
+  nm <- data.frame(ID = 1:n, USUBJIDN = 1:n, WTBL = 60 + 1:n)
+  w3 <- capture_warnings(r3 <- anon_deidentify(list(adsl = adsl, nm = nm), profile, max_risk = 1/3, seed = 1))
+  expect_true(any(grepl("no `USUBJID` column[^:]*: nm \\(USUBJIDN, WTBL\\)", w3)))
+  expect_false(r3$settings$deidentify$meets_target)
+})
+
+test_that("a rule limited to other datasets doesn't cancel a companion", {
+  n <- 24
+  adsl <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 12), RACE = c(rep("WHITE", 22), "ASIAN", "ASIAN"))
+  adsl$RACEL <- tolower(adsl$RACE)
+  p <- c(anon_profile_adam(3), anon_profile(anon_profile_rule("RACEL", "keep", datasets = "adae")))
+  r <- deid_quiet(anon_deidentify(list(adsl = adsl, adae = adsl), p, max_risk = 1/3, seed = 1))
+  a <- r$data$adsl
+  # In adsl, RACEL follows RACE: blanked where RACE was folded or blanked.
+  expect_false(any(a$RACEL %in% "asian"))
+  expect_true(all(a$RACEL[a$RACE == "WHITE"] == "white"))
+  # In adae, the keep rule wins.
+  expect_identical(sort(r$data$adae$RACEL), sort(adsl$RACEL))
+})
+
+test_that("variable names match rules ignoring case, and demographic variants are look-alikes", {
+  n <- 24
+  dm <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = rep(c(30, 50), 12), RACE = c(rep("WHITE", 22), "ASIAN", "ASIAN"))
+  pk <- data.frame(
+    USUBJID = dm$USUBJID, race = dm$RACE, Sex = rep(c("F", "M"), 12), GENDER = "F", RACEOTH = c(rep("", 22), "ASIAN", "ASIAN"),
+    ETHNICITY = rep(c("HISPANIC OR LATINO", "NOT HISPANIC OR LATINO"), 12)
+  )
+  w <- capture_warnings(r <- anon_deidentify(list(dm = dm, pk = pk), anon_profile_sdtm(3), max_risk = 1/3, seed = 1))
+  # race is a copy of RACE, folded alike; Sex a copy of SEX.
+  expect_identical(r$data$pk$race, r$data$dm$RACE[match(r$data$pk$USUBJID, r$data$dm$USUBJID)])
+  expect_false(any(r$data$pk$race %in% "ASIAN"))
+  expect_match(r$settings$deidentify$quasi$copies[r$settings$deidentify$quasi$quasi == "SEX"], "pk.Sex", fixed = TRUE)
+  # GENDER is the same for every subject: not named.
+  expect_true(any(grepl("no profile rule matches them: pk.RACEOTH, pk.ETHNICITY\\.", w)))
+  expect_false(r$settings$deidentify$meets_target)
+})
+
+test_that("a call made while another runs doesn't change the other's result", {
+  n <- 48
+  set.seed(4)
+  x <- data.frame(USUBJID = sprintf("P%02d", 1:n), AGE = sample(20:80, n, TRUE), SEX = rep(c("F", "M"), n / 2))
+  x$pk <- data.frame(AGE = x$AGE, AGEGR1 = ifelse(x$AGE < 50, "<50", ">=50"))
+  x$multi <- lapply(seq_len(n), function(i) data.frame(AGE = c(x$AGE[i], x$AGE[i] + 1)))
+  # Rules limited to adsl: the nested data frames take them through adsl.
+  p <- anon_profile(
+    anon_profile_rule("USUBJID", "key"),
+    anon_profile_rule("AGE", "quasi", datasets = "adsl", ladder = list(anon_band(10), anon_band(20))),
+    anon_profile_rule("AGEGR1", "derived", datasets = "adsl", from = "AGE"),
+    anon_profile_rule("SEX", "quasi", datasets = "adsl")
+  )
+  run <- function(reenter) {
+    done <- FALSE
+    withCallingHandlers(anon_deidentify(list(adsl = x), p, max_risk = 1/6, seed = 1), warning = function(w) {
+      if (reenter && !done) {
+        done <<- TRUE
+        suppressWarnings(anon_deidentify(list(adsl = x[1:3]), p, seed = 9))
+      }
+      invokeRestart("muffleWarning")
+    })
+  }
+  a <- run(FALSE)
+  expect_identical(run(TRUE)$data, a$data)
+  # The nested AGEGR1 was derived from the released AGE.
+  d <- a$data$adsl
+  expect_true(all(d$pk$AGEGR1[d$AGE %in% c(20, 30)] %in% "<50"))
+})
+
+test_that("renal function parameters of a BDS dataset are derived from height, weight, age and sex", {
+  n <- 12
+  adsl <- data.frame(USUBJID = sprintf("S%02d", 1:n), AGE = 30 + 1:n, SEX = rep(c("F", "M"), 6), WEIGHTBL = 60 + 1:n * 1.3)
+  adlb <- data.frame(USUBJID = rep(adsl$USUBJID, 2), PARAMCD = rep(c("CRCL", "ALT"), each = n), AVAL = c(80 + 1:n, 20 + 1:n))
+  r <- deid_quiet(anon_deidentify(list(adsl = adsl, adlb = adlb), anon_profile_adam(3), max_risk = 1/3, seed = 1))
+  l <- r$data$adlb
+  expect_true(all(is.na(l$AVAL[l$PARAMCD == "CRCL"])))
+  expect_identical(sort(l$AVAL[l$PARAMCD == "ALT"]), 20 + 1:n)
 })
