@@ -120,58 +120,92 @@ key cannot be mapped and are removed (set to missing), with a warning.
 `key`, `also` and `key_cols` must not overlap.
 
 Original keys in text that describes the data are replaced with the
-subject's pseudonym, in every dataset (with or without `key`), when they
-appear as a whole value or a whole word: in the attributes of columns,
-data frames and the list of datasets (such as `label`, `comment` or a
-custom note), at any depth (text in list or factor attributes, the
-values of data frames held in attributes, names of attribute vectors,
-attributes of attributes, attribute names); in the names of vector
-columns and the dimnames of matrix columns; in haven value labels of
-columns that are not replaced (the label names, and the label values of
-character columns) and in character user-defined missing values
-(`na_values`, `na_range`) of those columns; and in column names,
-character row names and dataset names. Structural attributes (see
-`other_attributes`) are left alone, except that text in a vctrs `ptype`,
-and the names of a factor's contrasts matrix, are rewritten; a factor
-whose values are replaced or shifted drops a contrasts matrix (named by
-its old levels, it no longer fits the new ones), and keeps a contrasts
-function's name such as `"contr.sum"`. So are environments, functions
-and S4 objects held in attributes (they can refer to themselves, are
-shared with whoever else holds them, or must keep valid slots; S4
-objects are named in a warning). The grouping of a grouped or rowwise
-tibble (`groups`) and the key and indices of a data.table (`sorted`,
-`index`) are renamed with the columns. A grouped tibble held in an
-attribute has its grouping values rewritten with its values. With
-`other_attributes = "drop"`, attributes beyond the core ones are dropped
-instead of rewritten. A label value or missing-value code is rewritten
-only when no value of the column equals it or its rewrite (or, for
-`na_range`, falls in either range), so the mapping from values to labels
-and which values are missing don't change; a code kept this way is named
-in a warning, as is a missing-value range whose rewritten ends would be
-in descending order. Value labels whose codes the rewrite made equal are
-merged into one entry, their original labels joined with `" / "` and
-then rewritten (haven requires distinct codes; label text may repeat),
-and equal missing-value codes are deduplicated; a warning names each.
-Ranges are compared as R compares text in the session's collation, as
-haven does. A rewritten name that clashes with another gets a numeric
-suffix (`"_1"`), and settings and the log name the suffixed column; a
-column name in the settings that was renamed differently in different
-datasets is rewritten as text instead. Column and dataset names marked
-as `"bytes"` are handled like other names and stay marked as `"bytes"`
-unless rewritten. A dataset with nothing to rewrite is returned as the
-same object, so `:=` on a data.table changes the input too; once a later
-step changes it, its `.internal.selfref` is stale (call
+subject's pseudonym (a numeric key with its number), and original values
+of `also` columns with the pseudonym's number as their column gets it
+(with the same zero padding), in every dataset (with or without `key`),
+when they appear as a whole value or a whole word, not next to a letter
+or digit (so a number only as a whole number), compared without leading
+or trailing spaces, and next to `","` or `"."` too (`"AB-1001,AB-1002"`,
+`"AB-1001.1"`, `"77010001,5"`: such text is ambiguous and is rewritten).
+Values made only of digits could be part of a number, so two rules apply
+to them: after a digit and `"."` (the fraction of `"25.701054"` or
+`"10.10005"`) they are found only when the number before the `"."` is
+itself found as a key or `also` value (after a digit and `","`, as in
+`"9999,10000"`, they are found); and values of `also` columns before
+`"."` or `","` and a digit (`"10001.5"`) only when the number after it
+is found, or, in names, before `"."` and digits at the end (as
+[`make.unique()`](https://rdrr.io/r/base/make.unique.html) names
+elements). In names, keys and `also` values as
+[`make.names()`](https://rdrr.io/r/base/make.names.html) writes them (as
+[`data.frame()`](https://rdrr.io/r/base/data.frame.html) names columns:
+`"X77010001"`, `"AB.1001"`) are rewritten too, to their replacement as
+[`make.names()`](https://rdrr.io/r/base/make.names.html) writes it. They
+are replaced in the attributes of columns, data frames and the list of
+datasets (such as `label`, `comment` or a custom note), at any depth
+(text in list or factor attributes, the values of data frames held in
+attributes, names of attribute vectors, attributes of attributes,
+attribute names); in the names of vector columns and the dimnames of
+matrix columns; in haven value labels of columns that are not replaced
+(the label names, and the label values of character columns) and in
+character user-defined missing values (`na_values`, `na_range`) of those
+columns; and in column names, character row names and dataset names.
+Structural attributes (see `other_attributes`) are left alone, except
+that text in a vctrs `ptype`, and the names of a factor's contrasts
+matrix, are rewritten; a factor whose values are replaced or shifted
+drops a contrasts matrix (named by its old levels, it no longer fits the
+new ones), and keeps a contrasts function's name such as `"contr.sum"`.
+So are environments, functions and S4 objects held in attributes (they
+can refer to themselves, are shared with whoever else holds them, or
+must keep valid slots; S4 objects are named in a warning). The grouping
+of a grouped or rowwise tibble (`groups`) and the key and indices of a
+data.table (`sorted`, `index`) are renamed with the columns. A grouped
+tibble held in an attribute has its grouping values rewritten with its
+values. With `other_attributes = "drop"`, attributes beyond the core
+ones are dropped instead of rewritten. A label value or missing-value
+code is rewritten only when no value of the column equals it or its
+rewrite (or, for `na_range`, falls in either range), so the mapping from
+values to labels and which values are missing don't change; a code kept
+this way is named in a warning, as is a missing-value range whose
+rewritten ends would be in descending order. Value labels whose codes
+the rewrite made equal are merged into one entry, their original labels
+joined with `" / "` and then rewritten (haven requires distinct codes;
+label text may repeat), and equal missing-value codes are deduplicated;
+a warning names each. Ranges are compared as R compares text in the
+session's collation, as haven does. A rewritten name that clashes with
+another gets a numeric suffix (`"_1"`), and settings and the log name
+the suffixed column; a column name in the settings that was renamed
+differently in different datasets is rewritten as text instead. Column
+and dataset names marked as `"bytes"` are handled like other names and
+stay marked as `"bytes"` unless rewritten. A dataset with nothing to
+rewrite is returned as the same object, so `:=` on a data.table changes
+the input too; once a later step changes it, its `.internal.selfref` is
+stale (call
 [`data.table::setDT()`](https://rdrr.io/pkg/data.table/man/setDT.html)).
-Keys made only of digits, and numeric keys, are not rewritten, for the
-same reason they are not searched for below. The log has one row per
-dataset with such rewrites (and one for the list of datasets), with
-counts by kind; this and earlier steps' logs and settings are renamed
-and rewritten to match. The same text is rewritten inside nested data
-(packed data frame columns and the data frames in list columns, see
-below), and in list columns the attributes and names of the vectors and
-plain lists the elements hold, at any depth. Text values in the data are
-not rewritten, neither in columns nor in list-column elements or nested
-data frames; they are searched (see below).
+Keys made only of digits, numeric keys and values of `also` columns are
+searched for and rewritten only when at least 5 characters long (digits
+count): shorter ones match too many unrelated numbers and codes. A value
+of an `also` column that belongs to more than one subject becomes the
+column's name in brackets, such as `"[SUBJID]"` (whose number to give it
+isn't known), and a warning counts those found. A value found in both a
+text and a numeric `also` column becomes the text column's form (the
+padded number). In names (column, row and dataset names, vector and list
+names and dimnames, at any depth), a key or `also` value followed by
+digits at the end of the name, as
+[`unlist()`](https://rdrr.io/r/base/unlist.html) names the elements of a
+list named by key (`"AB-1001"` gives `"AB-10011"`, `"AB-10012"`),
+becomes its replacement followed by the same digits, unless the whole
+name is itself a key (the longest key wins). This can't tell such a
+suffix from a name that happens to continue a key with digits (for a
+numeric key, a longer number): such names are rewritten all the same.
+The log has one row per dataset with such rewrites (and one for the list
+of datasets), with counts by kind; this and earlier steps' logs and
+settings are renamed and rewritten to match. The same text is rewritten
+inside nested data (packed data frame columns and the data frames in
+list columns, see below), and in list columns the attributes and names
+of the vectors and plain lists the elements hold, at any depth. Text
+values in the data are not rewritten, neither in columns nor in
+list-column elements or nested data frames; they are searched (see
+below).
 
 **Nested data.** Data frames nested in the datasets are de-identified
 like datasets: packed data frame columns (as made by
@@ -235,22 +269,23 @@ frame (named as `dataset.column[sub]` inside a packed column,
 `dataset.column[[]][sub]` for column `sub` of the data frames in list
 column `column`, and deeper as `dataset.column[sub][[]][subsub]`), in
 any dataset, that still contains original key values as whole values or
-as whole words inside text (checked for character keys that are not made
-only of digits, since numbers match many unrelated codes), and any
-dataset without `key` that has a column named like `key`, `also` or
-`key_cols` in any case. In datasets with `key`, and in nested data
-frames with a subject, a column named like one of them in another case
-(such as `usubjid` beside `USUBJID`) is not replaced and is named in a
-warning. Only text or factor columns can be given in `key_cols`; the
-others must be redacted or removed. Locations printed in warnings have
-keys rewritten, as names can hold them. Columns of S4 objects are not
-searched or changed, and are named in a warning as data that can't be
-checked. Original values of `also` columns (such as `SUBJID`) elsewhere
-are not checked, because short numbers match many unrelated values.
-Missing values in `also` columns stay missing. In `key`, `also` and
-`key_cols` columns, haven user-defined missing values (`na_values`,
-`na_range`) become plain missing values and the codes are dropped,
-because a code can't be told apart from a real identifier.
+as whole words inside text, or followed by digits at the end of a value
+(searched for as described above; values are not rewritten), and, in a
+second warning, original values of `also` columns (such as `SUBJID`) the
+same way; and any dataset without `key` that has a column named like
+`key`, `also` or `key_cols` in any case. In datasets with `key`, and in
+nested data frames with a subject, a column named like one of them in
+another case (such as `usubjid` beside `USUBJID`) is not replaced and is
+named in a warning. Only text or factor columns can be given in
+`key_cols`; the others must be redacted or removed. Locations printed in
+warnings have keys rewritten, as names can hold them. Columns of S4
+objects are not searched or changed, and are named in a warning as data
+that can't be checked. Missing values in `also` columns stay missing. In
+`key`, `also` and `key_cols` columns, haven user-defined missing values
+(`na_values`, `na_range`) become plain missing values and the codes are
+dropped, because a code can't be told apart from a real identifier; a
+warning names the columns where a value that became missing this way is
+also a subject key elsewhere (both steps warn for the `key` column).
 
 Random numbers come from R's random number generator. If your script
 calls [`set.seed()`](https://rdrr.io/r/base/Random.html) before this

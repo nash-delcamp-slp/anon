@@ -66,7 +66,8 @@ each participant.</p>
 <span>  partial <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"shift"</span>, <span class="st">"remove"</span><span class="op">)</span>,</span>
 <span>  keep_secrets <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  seed <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  other_attributes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"rewrite"</span>, <span class="st">"drop"</span><span class="op">)</span></span>
+<span>  other_attributes <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"rewrite"</span>, <span class="st">"drop"</span><span class="op">)</span>,</span>
+<span>  also <span class="op">=</span> <span class="st">"SUBJID"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -159,6 +160,15 @@ formats, and a numeric <code>display_width</code>, on vectors. Elsewhere an
 attribute with one of these names is text (for example free-text <code>units</code>
 on a number). The log counts the attributes dropped in each dataset.</p></dd>
 
+
+<dt id="arg-also">also<a class="anchor" aria-label="anchor" href="#arg-also"></a></dt>
+<dd><p>Names of related identifier columns (default <code>"SUBJID"</code>), as in
+<code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>. This step doesn't replace them; their values are
+masked in the locations its warnings and errors print, each as the
+column's name in brackets (such as <code>"[SUBJID]"</code>). When <code>data</code> is the
+result of <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>, that step's <code>also</code> is used instead (and
+its values are already replaced). Recorded in the settings.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -243,7 +253,9 @@ texts and name the columns, or datasets (<code>"(list)"</code> for attributes of
 list of datasets and dataset names), holding it. Convert it to UTF-8 (for example with <code><a href="https://rdrr.io/r/base/iconv.html" class="external-link">iconv()</a></code>) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (<code>"&lt;e9&gt;"</code>): this
-step shows original keys as <code>"[KEY]"</code>. It names the columns inside nested
+step shows original keys as <code>"[KEY]"</code> and the original values of the
+<code>also</code> columns in data with subjects as the column's name in brackets
+(<code>"[SUBJID]"</code>). It names the columns inside nested
 data by position (<code>dataset.column[2]</code>, <code>dataset.column[[]][2]</code>), in
 warnings and in the log, so that a column is named the same way whether or
 not <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>, which rewrites keys in nested names, ran first.</p>

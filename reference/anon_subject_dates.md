@@ -20,7 +20,8 @@ anon_subject_dates(
   partial = c("shift", "remove"),
   keep_secrets = FALSE,
   seed = NULL,
-  other_attributes = c("rewrite", "drop")
+  other_attributes = c("rewrite", "drop"),
+  also = "SUBJID"
 )
 ```
 
@@ -114,6 +115,17 @@ anon_subject_dates(
   numeric `display_width`, on vectors. Elsewhere an attribute with one
   of these names is text (for example free-text `units` on a number).
   The log counts the attributes dropped in each dataset.
+
+- also:
+
+  Names of related identifier columns (default `"SUBJID"`), as in
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md).
+  This step doesn't replace them; their values are masked in the
+  locations its warnings and errors print, each as the column's name in
+  brackets (such as `"[SUBJID]"`). When `data` is the result of
+  [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md),
+  that step's `also` is used instead (and its values are already
+  replaced). Recorded in the settings.
 
 ## Value
 
@@ -209,10 +221,11 @@ datasets and dataset names), holding it. Convert it to UTF-8 (for
 example with [`iconv()`](https://rdrr.io/r/base/iconv.html)) and run the
 step again. Every location printed in the steps' warnings and errors has
 keys and dates rewritten and unprintable bytes escaped (`"<e9>"`): this
-step shows original keys as `"[KEY]"`. It names the columns inside
-nested data by position (`dataset.column[2]`, `dataset.column[[]][2]`),
-in warnings and in the log, so that a column is named the same way
-whether or not
+step shows original keys as `"[KEY]"` and the original values of the
+`also` columns in data with subjects as the column's name in brackets
+(`"[SUBJID]"`). It names the columns inside nested data by position
+(`dataset.column[2]`, `dataset.column[[]][2]`), in warnings and in the
+log, so that a column is named the same way whether or not
 [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md),
 which rewrites keys in nested names, ran first.
 
