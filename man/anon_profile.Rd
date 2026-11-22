@@ -83,8 +83,9 @@ Default: \code{test} for a test, otherwise \code{variable}.}
 
 \item{test_col, test}{For a quasi-identifier or derived variable held in
 the rows of a test, such as baseline weight in \code{vs}: the column holding
-test codes (\code{"VSTESTCD"}, \code{"PARAMCD"}) and the test code (\code{"WEIGHT"}).
-\code{variable} is then the result column.}
+test codes (\code{"VSTESTCD"}, \code{"PARAMCD"}) and the test code (\code{"WEIGHT"}),
+or a pattern of test codes with \code{*} and \verb{?} (\code{"RACE*"}, each code found
+being a copy of its own). \code{variable} is then the result column.}
 
 \item{flag}{For a test quasi-identifier, the column flagging the baseline
 record (\code{"VSBLFL"}, \code{"ABLFL"}; \code{"Y"} marks it). The measured value is
@@ -102,13 +103,16 @@ duration, one \code{\link[=anon_band]{anon_band()}} giving the width of its band
 \item{from}{For a derived variable, the names of the quasi-identifiers it
 is derived from; for a duration, the start date column.}
 
-\item{priority}{For a quasi-identifier, its usefulness when cells are
-suppressed: lower numbers are blanked first (passed to \code{\link[=anon_suppress]{anon_suppress()}}
-as \code{order}). Quasi-identifiers without one follow, in profile order.}
+\item{priority}{For a quasi-identifier, its usefulness, used to break
+ties when cells are suppressed (passed to \code{\link[=anon_suppress]{anon_suppress()}} as \code{order})
+and in the ladder search: between options that are otherwise equal, a
+lower number is blanked first. It doesn't decide what is blanked when
+one option blanks fewer cells. Quasi-identifiers without one follow, in
+profile order.}
 
 \item{min_n}{For the standard profiles, the smallest number of subjects a
-category must hold to be kept by their \code{\link[=anon_fold]{anon_fold()}} steps (\code{RACE},
-\code{SITEID}, \code{COUNTRY}). Default 12, the group size the default target of
+category must hold to be kept by their \code{\link[=anon_fold]{anon_fold()}} steps (\code{RACE}, the
+race qualifiers of \code{SUPPDM}, \code{SITEID}). Default 12, the group size the default target of
 \code{\link[=anon_deidentify]{anon_deidentify()}} (\code{max_risk = 0.09}) requires; set it to the group
 size of your target.}
 
@@ -143,15 +147,19 @@ than test rules) whose \code{variable} and \code{datasets} match it, a rule limi
 to datasets wins over one that isn't, an exact name over a pattern, and a
 later rule over an earlier one. Columns matched by no rule are kept as
 they are, except that dates are offset and subject IDs replaced wherever
-\code{\link[=anon_subject_dates]{anon_subject_dates()}} and \code{\link[=anon_subject_ids]{anon_subject_ids()}} find them. Test rules
-apply to the rows of their test in every dataset (in \code{datasets}) with the
-test and result columns.
+\code{\link[=anon_subject_dates]{anon_subject_dates()}} and \code{\link[=anon_subject_ids]{anon_subject_ids()}} find them;
+\code{\link[=anon_deidentify]{anon_deidentify()}} warns about columns with the key whose names look like
+an age, a birth date, a site, a height, a weight or a BMI and that no rule
+matches, and about \code{"keep"} rules that win over a quasi-identifier's rule
+for a column. Test rules apply to the rows of their test in every dataset
+(in \code{datasets}) with the test and result columns.
 
 \strong{Dates.} \code{\link[=anon_deidentify]{anon_deidentify()}} offsets dates with
-\code{\link[=anon_subject_dates]{anon_subject_dates()}}'s own detection: every Date and date-time column
-and every text column whose name ends in \code{DTC}, at any depth. The \code{"date"}
-rules name them; a column matched by a \code{"date"} rule that isn't such a
-column (a numeric SAS date, say) is named in a warning.
+\code{\link[=anon_subject_dates]{anon_subject_dates()}}'s own detection (every Date and date-time column
+and every text column whose name ends in \code{DTC}, at any depth), and, with
+the same offsets, the text columns of ISO 8601 dates matched by a
+\code{"date"} rule (such as \code{VISIT_DATE}). A column matched by a \code{"date"} rule
+that can't be offset (a numeric SAS date, say) is named in a warning.
 
 \strong{\code{anon_profile_sdtm()}.}
 \itemize{
@@ -166,8 +174,10 @@ bands, ages of 90 and over as 90), \code{SEX} (suppressed only), \code{RACE}
 (categories of fewer than \code{min_n} subjects folded into \code{"OTHER"}, a
 CDISC controlled term), \code{ETHNIC} (suppressed only: its controlled
 terminology has no neutral other value), \code{SITEID} (small sites merged
-into \code{"OTHER"}, then removed), \code{COUNTRY} (small countries folded into
-\code{"OTHER"}, then removed), and baseline \code{HEIGHT} and \code{WEIGHT} from \code{vs}
+into \code{"OTHER"}, then removed), \code{COUNTRY} (removed: ISO 3166 has no code
+for "other", so a small country can't be folded), the race qualifiers of
+\code{SUPPDM} (\code{QVAL} where \code{QNAM} is \verb{RACE*}: copies of \code{RACE}, folded
+alike), and baseline \code{HEIGHT} and \code{WEIGHT} from \code{vs}
 (\code{VSSTRESN} with \code{VSORRES} and \code{VSSTRESC}; flag \code{VSBLFL}, else the first
 record: height is often recorded once, at screening, without the flag),
 rounded to units, then to tens, then in bands of 20;
@@ -178,8 +188,14 @@ rounded to units, then to tens, then in bands of 20;
 \code{--ENDY} (study days, which offsetting keeps exact).
 }
 
-Suppression priority, from the first blanked: \code{SITEID}, \code{COUNTRY},
+Priorities (ties are broken by blanking first): \code{SITEID}, \code{COUNTRY},
 \code{ETHNIC}, \code{RACE}, \code{HEIGHT}, \code{WEIGHT}, \code{AGE}, \code{SEX}.
+
+The \code{AGE} ladder doesn't follow a study's age groups (such as \code{AGEGR1}
+cut at 65): where a band straddles a cut, the group is blanked. To keep
+them, combine the profile with an \code{AGE} rule whose ladder uses bands that
+align with the cuts, such as \code{anon_band(5, bottom = 15)} for cuts at 65
+(\code{AAGE} in ADaM takes its own rule).
 
 \strong{\code{anon_profile_adam()}.} Rules match ADSL variables in every dataset
 that carries them (ADSL, BDS and OCCDS datasets alike).
@@ -188,19 +204,26 @@ that carries them (ADSL, BDS and OCCDS datasets alike).
 \item key, also and key_cols as for SDTM;
 \item dates: \verb{*DT}, \verb{*DTM} and \verb{*DTC} (such as \code{TRTSDT}, \code{TRTEDT}, \code{RANDDT},
 \code{ADT}, \code{ADTM});
-\item quasi-identifiers: \code{AGE}, \code{SEX}, \code{RACE}, \code{ETHNIC}, \code{SITEID} and
-\code{COUNTRY} as for SDTM; \code{HEIGHT} and \code{WEIGHT} as copies in
-\code{HEIGHTBL}/\code{HTBL} and \code{WEIGHTBL}/\code{WTBL}, in the \code{AVAL} of their \code{PARAMCD}
+\item quasi-identifiers: \code{AGE} (with \code{AAGE}, the age at an event, as a copy),
+\code{SEX}, \code{RACE}, \code{ETHNIC}, \code{SITEID} and \code{COUNTRY} as for SDTM; \code{EDUCLVL}
+(suppressed only); \code{HEIGHT} and \code{WEIGHT} as copies in
+\code{HEIGHTBL}/\code{HTBL}/\code{HGTBL} and \code{WEIGHTBL}/\code{WTBL}/\code{WGTBL}, in the \code{AVAL} of their \code{PARAMCD}
 rows (flag \code{ABLFL}; \code{AVALC}, \code{BASE}, \code{BASEC}, \code{CHG}, \code{PCHG} and \code{R2BASE}
 follow, see \code{\link[=anon_rule]{anon_rule()}}) and in the SDTM results (\code{VSSTRESN}) that BDS
 datasets carry, with the SDTM ladders;
 \item derived: \code{RACEN}, \verb{RACEGR*} from \code{RACE}; \code{SEXN} from \code{SEX}; \code{ETHNICN}
 from \code{ETHNIC}; \verb{AGEGR*} (such as \code{AGEGR1} and \code{AGEGR1N}) from \code{AGE};
-\verb{REGION*} from \code{COUNTRY}; \code{BMIBL} from \code{HEIGHT} and \code{WEIGHT}; \verb{AVALCAT*}
+\verb{AAGEGR*} from \code{AAGE}; \verb{REGION*} from \code{COUNTRY}; \verb{SITEGR*} from
+\code{SITEID}; \code{BMIBL} and \verb{BMIBLGR*} from \code{HEIGHT} and \code{WEIGHT}; \verb{AVALCAT*}
 and \code{AVALCA*N} of the \code{HEIGHT} and \code{WEIGHT} rows from them; and the
 \code{BMI} and \code{BSA} parameters, from \code{HEIGHT} and \code{WEIGHT};
 \item duration: \code{TRTSDT} to \code{TRTEDT}, in bands of 7 days.
 }
+
+Columns that hold a duration exactly, such as \code{TRTDURD}, \code{ADURN} or
+\code{--DUR}, and study days (\code{ADY}, \code{--DY}) are kept: offsetting doesn't change
+them, and they can single subjects out like the durations measured among
+the residual signals. Remove them if that matters.
 
 In BDS datasets, results (\code{AVAL}, \code{AVALC}, \code{BASE}, \code{BASEC}, \code{CHG}, \code{PCHG},
 \code{R2BASE}) are not quasi-identifiers, except for the baseline height and

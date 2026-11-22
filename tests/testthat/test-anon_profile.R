@@ -109,6 +109,11 @@ test_that("the standard profiles hold the roles the spec gives them", {
   ))
   expect_identical(ladder("RACE"), "anon_fold(min_n = 5, to = \"OTHER\")")
   expect_identical(ladder("SITEID"), c("anon_fold(min_n = 5, to = \"OTHER\")", "remove"))
+  # ISO 3166 has no "other": COUNTRY can only be removed.
+  expect_identical(ladder("COUNTRY"), "remove")
+  supp <- which(p$test %in% "RACE*")
+  expect_identical(p$quasi_name[supp], "RACE")
+  expect_identical(p$test_col[supp], "QNAM")
   expect_length(p$ladder[[which(p$quasi_name == "ETHNIC")]], 0)
   expect_length(p$ladder[[which(p$quasi_name == "SEX")]], 0)
   expect_identical(ladder("WEIGHT"), c("anon_round(digits = 0)", "anon_round(digits = -1)", "anon_band(width = 20)"))
@@ -116,7 +121,7 @@ test_that("the standard profiles hold the roles the spec gives them", {
 
   a <- anon_profile_adam()
   expect_setequal(a$variable[a$role == "remove"], c("INVNAM", "INVID", "BRTHDT", "BRTHDTM", "BRTHDTC"))
-  expect_setequal(a$variable[a$role == "quasi" & a$quasi_name == "WEIGHT"], c("WEIGHTBL", "WTBL", "AVAL", "VSSTRESN"))
+  expect_setequal(a$variable[a$role == "quasi" & a$quasi_name == "WEIGHT"], c("WEIGHTBL", "WTBL", "WGTBL", "AVAL", "VSSTRESN"))
   expect_identical(a$from[[match("AGEGR*", a$variable)]], "AGE")
   expect_identical(a$from[[match("BMIBL", a$variable)]], c("HEIGHT", "WEIGHT"))
   expect_error(anon_profile_sdtm(min_n = 0), "at least 1")
@@ -125,7 +130,7 @@ test_that("the standard profiles hold the roles the spec gives them", {
 test_that("a profile prints by role and goes to and from a data frame", {
   p <- anon_profile_sdtm()
   out <- capture.output(print(p))
-  expect_match(out[1], "<anon_profile> sdtm: 25 rule\\(s\\)")
+  expect_match(out[1], "<anon_profile> sdtm: 26 rule\\(s\\)")
   expect_true(any(grepl("^  BRTHDTC$", out)))
   expect_true(any(grepl("AGE, ladder: anon_band\\(width = 5, top = 90\\) > ", out)))
   expect_true(any(grepl("SITEID, ladder: .* > remove, priority 1", out)))

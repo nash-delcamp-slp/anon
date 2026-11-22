@@ -47,8 +47,9 @@
 #'   Default: `test` for a test, otherwise `variable`.
 #' @param test_col,test For a quasi-identifier or derived variable held in
 #'   the rows of a test, such as baseline weight in `vs`: the column holding
-#'   test codes (`"VSTESTCD"`, `"PARAMCD"`) and the test code (`"WEIGHT"`).
-#'   `variable` is then the result column.
+#'   test codes (`"VSTESTCD"`, `"PARAMCD"`) and the test code (`"WEIGHT"`),
+#'   or a pattern of test codes with `*` and `?` (`"RACE*"`, each code found
+#'   being a copy of its own). `variable` is then the result column.
 #' @param flag For a test quasi-identifier, the column flagging the baseline
 #'   record (`"VSBLFL"`, `"ABLFL"`; `"Y"` marks it). The measured value is
 #'   the subject's first flagged result, or, for a subject without a flagged
@@ -62,12 +63,15 @@
 #'   duration, one [anon_band()] giving the width of its bands in days.
 #' @param from For a derived variable, the names of the quasi-identifiers it
 #'   is derived from; for a duration, the start date column.
-#' @param priority For a quasi-identifier, its usefulness when cells are
-#'   suppressed: lower numbers are blanked first (passed to [anon_suppress()]
-#'   as `order`). Quasi-identifiers without one follow, in profile order.
+#' @param priority For a quasi-identifier, its usefulness, used to break
+#'   ties when cells are suppressed (passed to [anon_suppress()] as `order`)
+#'   and in the ladder search: between options that are otherwise equal, a
+#'   lower number is blanked first. It doesn't decide what is blanked when
+#'   one option blanks fewer cells. Quasi-identifiers without one follow, in
+#'   profile order.
 #' @param min_n For the standard profiles, the smallest number of subjects a
-#'   category must hold to be kept by their [anon_fold()] steps (`RACE`,
-#'   `SITEID`, `COUNTRY`). Default 12, the group size the default target of
+#'   category must hold to be kept by their [anon_fold()] steps (`RACE`, the
+#'   race qualifiers of `SUPPDM`, `SITEID`). Default 12, the group size the default target of
 #'   [anon_deidentify()] (`max_risk = 0.09`) requires; set it to the group
 #'   size of your target.
 #' @param x A profile.
@@ -87,15 +91,19 @@
 #' to datasets wins over one that isn't, an exact name over a pattern, and a
 #' later rule over an earlier one. Columns matched by no rule are kept as
 #' they are, except that dates are offset and subject IDs replaced wherever
-#' [anon_subject_dates()] and [anon_subject_ids()] find them. Test rules
-#' apply to the rows of their test in every dataset (in `datasets`) with the
-#' test and result columns.
+#' [anon_subject_dates()] and [anon_subject_ids()] find them;
+#' [anon_deidentify()] warns about columns with the key whose names look like
+#' an age, a birth date, a site, a height, a weight or a BMI and that no rule
+#' matches, and about `"keep"` rules that win over a quasi-identifier's rule
+#' for a column. Test rules apply to the rows of their test in every dataset
+#' (in `datasets`) with the test and result columns.
 #'
 #' **Dates.** [anon_deidentify()] offsets dates with
-#' [anon_subject_dates()]'s own detection: every Date and date-time column
-#' and every text column whose name ends in `DTC`, at any depth. The `"date"`
-#' rules name them; a column matched by a `"date"` rule that isn't such a
-#' column (a numeric SAS date, say) is named in a warning.
+#' [anon_subject_dates()]'s own detection (every Date and date-time column
+#' and every text column whose name ends in `DTC`, at any depth), and, with
+#' the same offsets, the text columns of ISO 8601 dates matched by a
+#' `"date"` rule (such as `VISIT_DATE`). A column matched by a `"date"` rule
+#' that can't be offset (a numeric SAS date, say) is named in a warning.
 #'
 #' **`anon_profile_sdtm()`.**
 #' - remove: `BRTHDTC` (with `AGE` and an offset `RFSTDTC`, a birth date
@@ -109,8 +117,10 @@
 #'   (categories of fewer than `min_n` subjects folded into `"OTHER"`, a
 #'   CDISC controlled term), `ETHNIC` (suppressed only: its controlled
 #'   terminology has no neutral other value), `SITEID` (small sites merged
-#'   into `"OTHER"`, then removed), `COUNTRY` (small countries folded into
-#'   `"OTHER"`, then removed), and baseline `HEIGHT` and `WEIGHT` from `vs`
+#'   into `"OTHER"`, then removed), `COUNTRY` (removed: ISO 3166 has no code
+#'   for "other", so a small country can't be folded), the race qualifiers of
+#'   `SUPPDM` (`QVAL` where `QNAM` is `RACE*`: copies of `RACE`, folded
+#'   alike), and baseline `HEIGHT` and `WEIGHT` from `vs`
 #'   (`VSSTRESN` with `VSORRES` and `VSSTRESC`; flag `VSBLFL`, else the first
 #'   record: height is often recorded once, at screening, without the flag),
 #'   rounded to units, then to tens, then in bands of 20;
@@ -120,8 +130,14 @@
 #' - keep: `AGEU` (the unit of `AGE`, not identifying), `--DY`, `--STDY` and
 #'   `--ENDY` (study days, which offsetting keeps exact).
 #'
-#' Suppression priority, from the first blanked: `SITEID`, `COUNTRY`,
+#' Priorities (ties are broken by blanking first): `SITEID`, `COUNTRY`,
 #' `ETHNIC`, `RACE`, `HEIGHT`, `WEIGHT`, `AGE`, `SEX`.
+#'
+#' The `AGE` ladder doesn't follow a study's age groups (such as `AGEGR1`
+#' cut at 65): where a band straddles a cut, the group is blanked. To keep
+#' them, combine the profile with an `AGE` rule whose ladder uses bands that
+#' align with the cuts, such as `anon_band(5, bottom = 15)` for cuts at 65
+#' (`AAGE` in ADaM takes its own rule).
 #'
 #' **`anon_profile_adam()`.** Rules match ADSL variables in every dataset
 #' that carries them (ADSL, BDS and OCCDS datasets alike).
@@ -129,18 +145,25 @@
 #' - key, also and key_cols as for SDTM;
 #' - dates: `*DT`, `*DTM` and `*DTC` (such as `TRTSDT`, `TRTEDT`, `RANDDT`,
 #'   `ADT`, `ADTM`);
-#' - quasi-identifiers: `AGE`, `SEX`, `RACE`, `ETHNIC`, `SITEID` and
-#'   `COUNTRY` as for SDTM; `HEIGHT` and `WEIGHT` as copies in
-#'   `HEIGHTBL`/`HTBL` and `WEIGHTBL`/`WTBL`, in the `AVAL` of their `PARAMCD`
+#' - quasi-identifiers: `AGE` (with `AAGE`, the age at an event, as a copy),
+#'   `SEX`, `RACE`, `ETHNIC`, `SITEID` and `COUNTRY` as for SDTM; `EDUCLVL`
+#'   (suppressed only); `HEIGHT` and `WEIGHT` as copies in
+#'   `HEIGHTBL`/`HTBL`/`HGTBL` and `WEIGHTBL`/`WTBL`/`WGTBL`, in the `AVAL` of their `PARAMCD`
 #'   rows (flag `ABLFL`; `AVALC`, `BASE`, `BASEC`, `CHG`, `PCHG` and `R2BASE`
 #'   follow, see [anon_rule()]) and in the SDTM results (`VSSTRESN`) that BDS
 #'   datasets carry, with the SDTM ladders;
 #' - derived: `RACEN`, `RACEGR*` from `RACE`; `SEXN` from `SEX`; `ETHNICN`
 #'   from `ETHNIC`; `AGEGR*` (such as `AGEGR1` and `AGEGR1N`) from `AGE`;
-#'   `REGION*` from `COUNTRY`; `BMIBL` from `HEIGHT` and `WEIGHT`; `AVALCAT*`
+#'   `AAGEGR*` from `AAGE`; `REGION*` from `COUNTRY`; `SITEGR*` from
+#'   `SITEID`; `BMIBL` and `BMIBLGR*` from `HEIGHT` and `WEIGHT`; `AVALCAT*`
 #'   and `AVALCA*N` of the `HEIGHT` and `WEIGHT` rows from them; and the
 #'   `BMI` and `BSA` parameters, from `HEIGHT` and `WEIGHT`;
 #' - duration: `TRTSDT` to `TRTEDT`, in bands of 7 days.
+#'
+#' Columns that hold a duration exactly, such as `TRTDURD`, `ADURN` or
+#' `--DUR`, and study days (`ADY`, `--DY`) are kept: offsetting doesn't change
+#' them, and they can single subjects out like the durations measured among
+#' the residual signals. Remove them if that matters.
 #'
 #' In BDS datasets, results (`AVAL`, `AVALC`, `BASE`, `BASEC`, `CHG`, `PCHG`,
 #' `R2BASE`) are not quasi-identifiers, except for the baseline height and
@@ -305,6 +328,12 @@ anon_profile_sdtm <- function(min_n = 12) {
     profile_common_rules(min_n, dates = c("--DTC", "--STDTC", "--ENDTC", "*DTC")),
     anon_profile_rule("BRTHDTC", "remove"),
     sdtm_test_quasi("VSTESTCD", "VSSTRESN", "VSBLFL"),
+    # Race qualifiers of SUPPDM (RACE1, RACE2, RACEOTH, ...) are copies of
+    # RACE, folded and blanked with it.
+    anon_profile_rule(
+      "QVAL", "quasi", datasets = "supp*", quasi_name = "RACE", test_col = "QNAM", test = "RACE*",
+      ladder = list(anon_fold(min_n, "OTHER")), priority = 4
+    ),
     anon_profile_rule("VSSTRESN", "derived", test_col = "VSTESTCD", test = "BMI", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule("VSSTRESN", "derived", test_col = "VSTESTCD", test = "BSA", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule("RFENDTC", "duration", from = "RFSTDTC", ladder = list(anon_band(7))),
@@ -321,8 +350,10 @@ anon_profile_adam <- function(min_n = 12) {
   anon_profile(
     profile_common_rules(min_n, dates = c("*DT", "*DTM", "*DTC")),
     anon_profile_rule(c("BRTHDT", "BRTHDTM", "BRTHDTC"), "remove"),
-    anon_profile_rule(c("HEIGHTBL", "HTBL"), "quasi", quasi_name = "HEIGHT", ladder = ladder, priority = 5),
-    anon_profile_rule(c("WEIGHTBL", "WTBL"), "quasi", quasi_name = "WEIGHT", ladder = ladder, priority = 6),
+    anon_profile_rule("AAGE", "quasi", quasi_name = "AGE", ladder = age_ladder(), priority = 7),
+    anon_profile_rule("EDUCLVL", "quasi", priority = 3),
+    anon_profile_rule(c("HEIGHTBL", "HTBL", "HGTBL"), "quasi", quasi_name = "HEIGHT", ladder = ladder, priority = 5),
+    anon_profile_rule(c("WEIGHTBL", "WTBL", "WGTBL"), "quasi", quasi_name = "WEIGHT", ladder = ladder, priority = 6),
     anon_profile_rule("AVAL", "quasi", test_col = "PARAMCD", test = "HEIGHT", flag = "ABLFL", ladder = ladder, priority = 5),
     anon_profile_rule("AVAL", "quasi", test_col = "PARAMCD", test = "WEIGHT", flag = "ABLFL", ladder = ladder, priority = 6),
     sdtm_test_quasi("VSTESTCD", "VSSTRESN", "VSBLFL"),
@@ -330,8 +361,10 @@ anon_profile_adam <- function(min_n = 12) {
     anon_profile_rule("SEXN", "derived", from = "SEX"),
     anon_profile_rule("ETHNICN", "derived", from = "ETHNIC"),
     anon_profile_rule("AGEGR*", "derived", from = "AGE"),
+    anon_profile_rule("AAGEGR*", "derived", from = "AAGE"),
     anon_profile_rule("REGION*", "derived", from = "COUNTRY"),
-    anon_profile_rule("BMIBL", "derived", from = c("HEIGHT", "WEIGHT")),
+    anon_profile_rule("SITEGR*", "derived", from = "SITEID"),
+    anon_profile_rule(c("BMIBL", "BMIBLGR*"), "derived", from = c("HEIGHT", "WEIGHT")),
     anon_profile_rule(c("AVALCAT*", "AVALCA*N"), "derived", test_col = "PARAMCD", test = "HEIGHT", from = "HEIGHT"),
     anon_profile_rule(c("AVALCAT*", "AVALCA*N"), "derived", test_col = "PARAMCD", test = "WEIGHT", from = "WEIGHT"),
     anon_profile_rule("AVAL", "derived", test_col = "PARAMCD", test = "BMI", from = c("HEIGHT", "WEIGHT")),
@@ -428,18 +461,19 @@ profile_common_rules <- function(min_n, dates) {
     anon_profile_rule("SUBJID", "also"),
     anon_profile_rule("RSUBJID", "key_cols"),
     anon_profile_rule(dates, "date"),
-    anon_profile_rule(
-      "AGE", "quasi",
-      ladder = list(anon_band(5, top = 90), anon_band(10, top = 90), anon_band(20, top = 90)), priority = 7
-    ),
+    anon_profile_rule("AGE", "quasi", ladder = age_ladder(), priority = 7),
     anon_profile_rule("SEX", "quasi", priority = 8),
     anon_profile_rule("RACE", "quasi", ladder = list(fold), priority = 4),
     anon_profile_rule("ETHNIC", "quasi", priority = 3),
     anon_profile_rule("SITEID", "quasi", ladder = list(fold, "remove"), priority = 1),
-    anon_profile_rule("COUNTRY", "quasi", ladder = list(fold, "remove"), priority = 2),
+    # ISO 3166 has no code for "other": a country can only be removed.
+    anon_profile_rule("COUNTRY", "quasi", ladder = list("remove"), priority = 2),
     name = "rules"
   )
 }
+
+# Ages in 5-, 10- and 20-year bands, 90 and over as 90.
+age_ladder <- function() list(anon_band(5, top = 90), anon_band(10, top = 90), anon_band(20, top = 90))
 
 # Height and weight rounded to units, then to tens, then in bands of 20.
 measure_ladder <- function() list(anon_round(0), anon_round(-1), anon_band(20))

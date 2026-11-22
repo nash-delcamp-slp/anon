@@ -568,16 +568,18 @@ deid_fixture <- function() {
 # with a birth date (a direct identifier) and SEX (a quasi-identifier only
 # suppressed) in dm, and, with `adam`, an ADSL and a BDS dataset carrying
 # ADSL variables: copies of AGE, SEX and RACE, AGEGR1 and AGEGR1N derived
-# from AGE, RACEN from RACE, baseline weight (WEIGHTBL, equal to each
-# subject's first vs WEIGHT), BMIBL and the BMI parameter (derived from
-# height and weight), a birth date, and dates (RANDDT, TRTSDT, TRTEDT, ADT)
-# among the fixture's sentinel dates.
+# from AGE (cut at 55), RACEN from RACE, baseline weight (WEIGHTBL, each
+# subject's first vs WEIGHT, but from another visit for subject 1), BMIBL
+# and the BMI parameter (derived from height and weight), a birth date, and
+# dates (RANDDT, TRTSDT, TRTEDT, ADT) among the fixture's sentinel dates.
 deid_profile_sex <- c("F", "F", "M", "M", "F", "M", "F", "F")
 deid_profile_fixture <- function(adam = FALSE) {
   data <- deid_fixture()
   n <- length(deid_keys)
   data$dm$BRTHDTC <- format(deid_start - 10)
   data$dm$SEX <- deid_profile_sex
+  # Subject 3 is 50, on the lower bound of its band.
+  data$dm$AGE[3] <- 50
   if (!adam) {
     return(data)
   }
@@ -585,9 +587,10 @@ deid_profile_fixture <- function(adam = FALSE) {
   first_weight <- deid_vs_weights[seq(1, 2 * n, by = 2)]
   adsl <- data.frame(
     USUBJID = deid_keys, SUBJID = deid_subjids, AGE = as.numeric(age),
-    AGEGR1 = ifelse(age < 50, "<50", ">=50"), AGEGR1N = ifelse(age < 50, 1, 2),
+    AGEGR1 = ifelse(age < 55, "<55", ">=55"), AGEGR1N = ifelse(age < 55, 1, 2),
     SEX = deid_profile_sex, RACE = data$dm$RACE, RACEN = ifelse(data$dm$RACE == "ASIAN", 2, 1),
-    WEIGHTBL = first_weight, BMIBL = round(first_weight / 1.7^2, 1),
+    # Baseline weight from another visit for subject 1.
+    WEIGHTBL = replace(first_weight, 1, 76.3), BMIBL = round(first_weight / 1.7^2, 1),
     BRTHDT = deid_start + 7, RANDDT = deid_start, TRTSDT = deid_start, TRTEDT = deid_start + 7,
     stringsAsFactors = FALSE
   )
@@ -1125,7 +1128,11 @@ deid_release_k <- function(original, step, oracle, truth = deid_release_truth) {
   first <- !duplicated(vs_keys) & out$vs$VSTESTCD == "WEIGHT"
   released <- data.frame(key = back(out$dm))
   for (q in setdiff(quasi, "WEIGHT")) {
-    released[[q]] <- if (is.numeric(truth[[q]])) as.numeric(out$dm[[q]]) else as.character(out$dm[[q]])
+    # "ds.col" for a column of another dataset, by subject.
+    ds <- if (grepl(".", q, fixed = TRUE)) sub("\\..*$", "", q) else "dm"
+    col <- sub("^.*\\.", "", q)
+    x <- out[[ds]][[col]][match(released$key, back(out[[ds]]))]
+    released[[q]] <- if (is.numeric(truth[[q]])) as.numeric(x) else as.character(x)
   }
   released$WEIGHT <- as.numeric(out$vs$VSSTRESN[first][match(released$key, vs_keys[first])])
   truth <- truth[match(released$key, truth$key), ]
@@ -1199,23 +1206,31 @@ deid_keep_rows_without <- function(dropped) {
 
 # The profile pipelines (anon_deidentify() on deid_profile_fixture(), with
 # min_n = 2 and max_risk = 1/2) measure AGE, SEX and RACE of dm and each
-# subject's first (baseline) WEIGHT. Climbing the ladders, AGE goes to
-# bands of 10 and WEIGHT is rounded to tens (each step tried after these
-# leaves more to suppress or no less, and is undone), so the subjects are:
-# 1-2 (30, F, WHITE, 70) and 3-4 (50, M, WHITE, 70), pairs; 5 (40, F,
-# ASIAN, 60) and 6 (40, M, WHITE, 60), which differ by SEX and RACE; 7 (60,
-# F, WHITE, 80) and 8 (60, F, WHITE, 90), only by WEIGHT. Suppression
-# blanks SEX and RACE of 5 and 6, and WEIGHT of 7 and 8 in every copy
-# (every row of vs, WEIGHTBL and the WEIGHT rows of the BDS dataset).
+# subject's first (baseline) WEIGHT; with the ADaM datasets, WEIGHTBL too,
+# which shows subject 1 another value than vs. Climbing the ladders, AGE
+# goes to bands of 10 and WEIGHT (with WEIGHTBL) is rounded to tens (each
+# step tried after these needs more cells or no fewer, and is undone), so
+# the subjects are: 1 (30, F, WHITE, 70; WEIGHTBL 80) and 2 (30, F, WHITE,
+# 70; 70); 3-4 (50, M, WHITE, 70; 70), a pair; 5 (40, F, ASIAN, 60; 60) and
+# 6 (40, M, WHITE, 60; 60), which differ by SEX and RACE; 7 (60, F, WHITE,
+# 80; 80) and 8 (60, F, WHITE, 90; 90), by WEIGHT. Suppression blanks SEX
+# and RACE of 5 and 6, and WEIGHT of 7 and 8 in every copy (every row of
+# vs and the WEIGHT rows of the BDS dataset); with WEIGHTBL, it blanks
+# WEIGHTBL of 1, 2, 7 and 8, and (not the fewest cells, as PR 3's heuristic
+# allows) RACE of 7 and 8.
 deid_profile_quasi <- list(dm = c("AGE", "SEX", "RACE"), anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"))
 deid_profile_run <- function(profile) {
   function(data) anon_deidentify(data, profile, max_risk = 1/2, keep_secrets = TRUE, seed = deid_seeds[1])
 }
 deid_profile_truth <- function(original, oracle) {
-  data.frame(
+  out <- data.frame(
     key = deid_keys, AGE = floor(original$dm$AGE / 10) * 10, SEX = original$dm$SEX, RACE = original$dm$RACE,
     WEIGHT = round(deid_vs_weights[seq(1, length(deid_vs_weights), by = 2)], -1)
   )
+  if (!is.null(original$adsl)) {
+    out$adsl.WEIGHTBL <- round(original$adsl$WEIGHTBL[match(deid_keys, original$adsl$USUBJID)], -1)
+  }
+  out
 }
 
 # Expected values of the profile pipelines' columns (see above), by subject
@@ -1227,8 +1242,7 @@ deid_profile_expected <- function(adam = FALSE) {
   per_subject <- function(values) function(x, keys, oracle) values[subject(keys)]
   age <- c(30, 30, 50, 50, 40, 40, 60, 60)
   sex <- replace(deid_profile_sex, 5:6, "")
-  race <- c("WHITE", "WHITE", "WHITE", "WHITE", "", "", "WHITE", "WHITE")
-  base_weight <- c(70, 70, 70, 70, 60, 60, NA, NA)
+  race <- c("WHITE", "WHITE", "WHITE", "WHITE", "", "", if (adam) c("", "") else c("WHITE", "WHITE"))
   weights <- deid_generalized_expected(list(WEIGHT = 7:8))
   out <- c(
     list(
@@ -1240,13 +1254,14 @@ deid_profile_expected <- function(adam = FALSE) {
   if (!adam) {
     return(out)
   }
-  # AGEGR1 ("<50" up to 47, ">=50" from 51 in the data) is kept where the
-  # band lies within one category: 30-39 and 60-69; 40-49 and 50-59 could
-  # hold 48 to 50, whose category the data doesn't show.
-  group <- c("<50", "<50", "", "", "", "", ">=50", ">=50")
-  group_n <- c(1, 1, NA, NA, NA, NA, 2, 2)
+  # AGEGR1 ("<55" up to 50, ">=55" from 58 in the data) is kept where the
+  # band lies within one category: 30-39, 40-49 and 60-69; 50-59 could hold
+  # 51 to 57, whose category the data doesn't show, so it is blanked for 3
+  # (truly 50, on the band's bound) and 4.
+  group <- c("<55", "<55", "", "", "<55", "<55", ">=55", ">=55")
+  group_n <- c(1, 1, NA, NA, 1, 1, 2, 2)
   # RACEN follows RACE: blank where RACE is.
-  race_n <- c(1, 1, 1, 1, NA, NA, 1, 1)
+  race_n <- c(1, 1, 1, 1, NA, NA, NA, NA)
   bds_weight <- function(x, keys, oracle) {
     s <- subject(keys)
     weight_row <- rep(c(TRUE, TRUE, FALSE), length(deid_keys))
@@ -1257,7 +1272,7 @@ deid_profile_expected <- function(adam = FALSE) {
   c(out, list(
     adsl.AGE = per_subject(age), adsl.SEX = per_subject(sex), adsl.RACE = per_subject(race),
     adsl.AGEGR1 = per_subject(group), adsl.AGEGR1N = per_subject(group_n), adsl.RACEN = per_subject(race_n),
-    adsl.WEIGHTBL = per_subject(base_weight),
+    adsl.WEIGHTBL = per_subject(c(NA, NA, 70, 70, 60, 60, NA, NA)),
     # From height and weight, which changed for every subject.
     adsl.BMIBL = per_subject(rep(NA_real_, 8)),
     adsl.BRTHDT = function(x, keys, oracle) x[NA_integer_][seq_along(x)],
@@ -1290,7 +1305,9 @@ deid_profile_checks <- function(adam = FALSE) {
       AGE = c("dm.AGE", "adsl.AGE", "adbds.AGE"),
       SEX = c("dm.SEX", "adsl.SEX", "adbds.SEX"),
       RACE = c("dm.RACE", "adsl.RACE", "adbds.RACE"),
-      WEIGHT = c("vs.VSSTRESN[VSTESTCD=WEIGHT]", "adsl.WEIGHTBL", "adbds.AVAL[PARAMCD=WEIGHT,ABLFL=Y]")
+      # WEIGHTBL shows subject 1 another value: it is measured on its own
+      # (see deid_profile_truth()), not a copy that must agree.
+      WEIGHT = c("vs.VSSTRESN[VSTESTCD=WEIGHT]", "adbds.AVAL[PARAMCD=WEIGHT,ABLFL=Y]")
     )
     out$derived <- list(
       adsl.AGEGR1 = "adsl.AGE", adsl.AGEGR1N = "adsl.AGE", adsl.RACEN = "adsl.RACE",

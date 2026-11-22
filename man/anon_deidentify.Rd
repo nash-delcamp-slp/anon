@@ -36,8 +36,9 @@ information, and requires groups of at least 12. Health Canada equates
 11, pass \code{max_risk = 1/11}. See Details.}
 
 \item{max_suppressed}{Largest share of quasi-identifier cells (subjects
-times the quasi-identifiers that vary) that suppression may blank before
-the search generalizes further. Default 0.05.}
+times the measures of the quasi-identifiers that vary) that suppression
+may blank before the search stops generalizing; above it, the search
+climbs the ladders even when a step saves no cells. Default 0.05.}
 
 \item{unresolved}{What to do with subjects still in groups smaller than
 the target when nothing is left to blank: \code{"drop"} (default) removes
@@ -72,47 +73,65 @@ up their ladders, and suppresses what remains.
 \strong{Steps.}
 \enumerate{
 \item Direct identifiers (\code{"remove"} rules) are blanked in every row of the
-datasets themselves; the columns are kept, with their type and
-attributes, so code that uses them still runs.
+datasets and of the data frames nested in them (packed and list
+columns, at any depth); the columns are kept, with their type and
+attributes, so code that uses them still runs, but without value
+labels or missing-value codes, which can hold the identifier. An exact
+\code{"remove"} name found nowhere is noted in the log.
 \item \code{\link[=anon_subject_ids]{anon_subject_ids()}} replaces the key, \code{"also"} and \code{"key_cols"}
 columns.
 \item \code{\link[=anon_subject_dates]{anon_subject_dates()}} offsets every date of each subject by one
 random offset (its own detection: Date and date-time columns, and text
-columns named \verb{*DTC}, at any depth).
-\item The risk is measured (\code{\link[=anon_risk]{anon_risk()}}) on the quasi-identifiers the
-profile finds in the data, each from its first copy found (the source).
-\item \strong{Ladder search} (greedy, as Datafly): while the suppression needed to
-meet the target would blank more than \code{max_suppressed} of the
-quasi-identifier cells, it takes one step up the ladder of the
-quasi-identifier whose next step leaves the least to suppress (ties:
-the step that loses the fewest distinct values, then profile order).
-The suppression needed is estimated by running \code{\link[=anon_suppress]{anon_suppress()}}'s
-algorithm on the measured values, one value per subject; a subject it
-can't resolve counts as all its cells. It stops when within the budget
-or when every ladder is exhausted; then it keeps the state, among those
-it went through, that needed the least suppression (the earliest on
-ties). Last, it steps back down wherever a step isn't needed: the
-suppression needed stays within the budget, or no larger than the
-search reached (most useful quasi-identifiers first). Each ladder step
-applies to the original values. A quasi-identifier with one value for
-every subject can't split a group: it is measured, but neither
+columns named \verb{*DTC}, at any depth); text columns of ISO 8601 dates
+matched by the profile's \code{"date"} rules (such as \code{VISIT_DATE}, in the
+datasets with the key) are offset by the same offsets.
+\item The quasi-identifiers the profile finds are measured (\code{\link[=anon_risk]{anon_risk()}}).
+Each is measured from its source: the copy with one value per subject
+that holds a value for the most subjects. Every other copy that shows
+some subject another value than the source (such as \code{WEIGHTBL} from
+another visit than the \code{vs} baseline, or a copy holding subjects the
+source doesn't) is measured too, as a measure of its own: it is
+generalized at the quasi-identifier's level and suppressed like the
+others, so the released combination is what is measured. Copies are
+never overwritten with the source's values. A column copy with more
+than one value for a subject (such as \code{AAGE} across events) can't be
+measured: a warning names it, and the target is not met.
+\item \strong{Ladder search} (greedy, as Datafly), on the measured values (one
+per subject and measure). The cost of a state is the cells
+suppression would blank, estimated with \code{\link[=anon_suppress]{anon_suppress()}}'s algorithm
+(a subject it can't resolve counts as all its cells), plus every cell
+of a removed quasi-identifier. While above \code{max_suppressed} of the
+cells, or while a step lowers the cost, it takes one step up the
+ladder of the quasi-identifier whose next step costs least (ties: the
+step that loses the fewest distinct values, then profile order). When
+every ladder is exhausted above the budget, it keeps the state that
+cost least (the earliest on ties). Last, it steps back down wherever
+that doesn't raise the cost (most useful quasi-identifiers first), so
+steps taken on a plateau are undone. Each ladder step applies to the
+original values. A quasi-identifier with one value for every subject
+in every measure can't split a group: it is measured, but neither
 generalized nor suppressed.
 \item The chosen steps are applied to every copy of each quasi-identifier
 (\code{\link[=anon_generalize]{anon_generalize()}}, in every dataset with the key that the rule
 covers; \code{"remove"} blanks every copy in every row), then
-\code{\link[=anon_suppress]{anon_suppress()}} blanks what remains, with \code{everywhere = TRUE} and the
-profile's priorities as \code{order}. Cells blanked in a source are blanked
-in its other copies for the same subjects (copies under another name,
-such as \code{WEIGHTBL} in \code{adsl} for weight in \code{vs}, and test copies, such
-as the \code{WEIGHT} rows of \code{advs}).
+\code{\link[=anon_suppress]{anon_suppress()}} blanks what remains in every measure, with
+\code{everywhere = TRUE} and the profile's priorities as \code{order} (they
+break ties). Cells blanked in a source are blanked for the same
+subjects in its copies that aren't measured on their own (copies
+under another name, and test copies such as the \code{WEIGHT} rows of
+\code{advs}).
 \item Derived variables are kept where they still follow from the released
-values of their quasi-identifiers, and blanked elsewhere (below). The
-risk is measured again.
+values of their quasi-identifiers, and blanked elsewhere (below). Value
+labels of generalized or suppressed columns keep only the values still
+released. The risk is measured again.
 }
 
-\strong{Derived variables.} A derived variable is left as it is in rows where
-its quasi-identifiers didn't change. Where they did, with one
-quasi-identifier in the same row (such as \code{AGEGR1} with \code{AGE} in \code{adsl}):
+\strong{Derived variables.} A derived variable is left as it is where no
+ladder step applies to its quasi-identifiers and the subject's cells of
+them weren't blanked. Otherwise (in every row, when a ladder step
+applies; whether a value happened to stay the same, as an age on a
+band's lower bound, doesn't matter), with one quasi-identifier in the
+same row (such as \code{AGEGR1} with \code{AGE} in \code{adsl}):
 \itemize{
 \item from a text quasi-identifier (\code{RACEN} from \code{RACE}), it takes the value
 that the released value had in the original data (the code of
@@ -129,10 +148,12 @@ the cut lies isn't known); otherwise it is blanked.
 
 A derived variable with several quasi-identifiers (\code{BMIBL}), or whose
 quasi-identifiers aren't in the same row (the \code{BMI} parameter), is blanked
-wherever one of them changed for the row or the subject; for a result
-column (\code{AVAL}, \code{--STRESN}), with the other results of the row. Blanking
-keeps values truthful: a derived value recomputed from a representative
-(such as a BMI from a rounded weight) would not be any subject's.
+in every row when a ladder step applies to one of them, and otherwise for
+the subjects whose cells of one of them were blanked; for a result column
+(\code{AVAL}, \code{--STRESN}), with the other results of the row. Blanking keeps
+values truthful: a derived value recomputed from a representative (such
+as a BMI from a rounded weight) would not be any subject's. \code{from} can
+name the column of a copy (\code{AAGEGR1} from \code{AAGE}).
 
 \strong{When the target is met.} \code{settings$deidentify$meets_target} is \code{TRUE}
 only when the risk measured on the released data meets the target and
@@ -144,8 +165,13 @@ quasi-identifier found in the data is a reason too.
 \strong{Residual signals.} Meeting the target is about the quasi-identifiers
 only. Other things a person might know single subjects out too: treatment
 duration (the profile's \code{"duration"} rules, which offsetting doesn't
-change), the number of rows a subject has in each dataset, and the set of
-tests (\code{--TESTCD}, \code{PARAMCD}) a subject has. \code{signals} counts, for each,
+change; in days and in the rule's bands), the number of rows a subject
+has in each dataset, the visits (\code{VISITNUM}, \code{AVISITN}) and study days
+(\code{--DY}, \code{ADY}) it has, the set of tests (\code{--TESTCD}, \code{PARAMCD}) it has,
+and, for each generalized test, the set of its released values across
+all rows (such as weights at every visit, not only the measured
+baseline). Columns that hold a duration exactly (\code{TRTDURD}, \code{ADURN},
+\code{--DUR}) are kept and not measured. \code{signals} counts, for each,
 the subjects unique on it alone and in groups smaller than the target,
 alone and together with the released quasi-identifiers. They are
 measured, not changed (changing dates would break study days). When
