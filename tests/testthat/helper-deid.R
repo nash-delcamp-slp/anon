@@ -1157,6 +1157,10 @@ deid_anon_env <- function(step, closures = "copy") {
   made <- with_dots(deid_patterns[[1]])
   assign("dots_frame", made$frame, envir = e)
   assign("dots_fn", made$fn, envir = e)
+  # An empty `...`, and one holding a call that would save the frame making
+  # the copy if it were run.
+  assign("dots_empty", with_dots()$frame, envir = e)
+  assign("dots_call", with_dots(quote(environment()))$frame, envir = e)
   # The objects, saved (`own` and `box` are left out: saving them saves `e`
   # itself).
   snapshot <- function() serialize(mget(setdiff(ls(e, all.names = TRUE), c("own", "box")), envir = e), NULL)
@@ -1167,7 +1171,7 @@ deid_anon_env <- function(step, closures = "copy") {
     !identical(inner$note, "DRUGQX note") || !identical(inner$outer, e)) {
     stop("anon() changed the environment it was given")
   }
-  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "dots_fn", "dots_frame", "own", "reader", "sourced", "step")))) {
+  if (!identical(sort(ls(a, all.names = TRUE)), sort(c("[DRUG]_dm", "box", "dots_call", "dots_empty", "dots_fn", "dots_frame", "own", "reader", "sourced", "step")))) {
     stop("anon() returned an environment holding other objects than expected")
   }
   if (!inherits(a$step, "anon_deid_step")) stop("anon() didn't keep the step a step")
@@ -1179,6 +1183,9 @@ deid_anon_env <- function(step, closures = "copy") {
   } else if (!identical(environment(a$own), a) || identical(reader_env, holder) ||
     !is.null(unclass(reader_env$step)$secrets)) {
     stop("anon() didn't replace the closures' environments with redacted copies")
+  }
+  if (!identical(eval(as.call(list(base::list, quote(...))), a$dots_call), list(quote(environment())))) {
+    stop("anon() ran a call held in `...`")
   }
   if (closures == "copy" && !identical(a$dots_fn(), names(deid_patterns)[1])) {
     stop("anon() didn't rebuild a closure's `...` redacted")

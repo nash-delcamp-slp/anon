@@ -319,7 +319,8 @@ anon <- function(
     copying$guarded <- TRUE
     on.exit(copying$guarded <- FALSE, add = TRUE)
     args <- mget(names(formals(sys.function())), envir = environment())
-    return(tryCatch(do.call(anon, args), error = function(e) {
+    # (Quoted, so that a call or symbol given to anon() isn't evaluated.)
+    return(tryCatch(do.call(anon, args, quote = TRUE), error = function(e) {
       # R classes these errors from version 4.4; earlier, only the message
       # tells them apart.
       too_deep <- inherits(e, "stackOverflowError") ||
@@ -483,6 +484,11 @@ anon <- function(
       secrets_dropped <<- c(secrets_dropped, paste("the parent of", of_where))
       parent <- globalenv()
     } else if (!is_shared_environment(parent)) {
+      # A frame of the methods package (the parent of an S4 object's
+      # environment, met here as a plain environment) isn't copied either.
+      if (!global_parent && is_methods_frame(parent)) {
+        global_parent <- TRUE
+      }
       if (identical(copying$closures, "detach") || global_parent) {
         if (!global_parent) parents_detached <<- c(parents_detached, of_where)
         parent <- globalenv()
@@ -512,12 +518,18 @@ anon <- function(
           .compiled = compiled,
           .where = located("...")
         ))
-        # The promises are forced, so that they no longer refer to the frame
-        # that made them (which holds the original values).
+        if (length(values) == 0) {
+          # An empty `...` is the missing argument.
+          assign("...", quote(expr = ), envir = result)
+          next
+        }
+        # The values are passed quoted (calls and symbols among them aren't
+        # run), and the promises forced, so that they no longer refer to the
+        # frame that made them (which holds the original values).
         dots_frame <- do.call(function(...) {
           list(...)
           environment()
-        }, values)
+        }, values, quote = TRUE)
         assign("...", get("...", envir = dots_frame), envir = result)
         next
       }
@@ -572,10 +584,16 @@ anon <- function(
     if (!is.function(x) && !is.language(x)) {
       return(x)
     }
-    held <- attributes(x)[intersect(names(attributes(x)), c(".Environment", if (inherits(x, "terms")) terms_attributes))]
+    order <- names(attributes(x))
+    held <- attributes(x)[intersect(order, c(".Environment", if (inherits(x, "terms")) terms_attributes))]
+    if (length(held) == 0) {
+      return(redact_attributes(x, where))
+    }
     for (name in names(held)) attr(x, name) <- NULL
     x <- redact_attributes(x, where)
-    for (name in names(held)) attr(x, name) <- held[[name]]
+    # The held attributes are put back where they were.
+    attrs <- c(attributes(x), held)
+    attributes(x) <- attrs[c(intersect(order, names(attrs)), setdiff(names(attrs), order))]
     x
   }
 
@@ -1345,6 +1363,13 @@ is_reference_object <- function(x) {
   (isS4(x) && inherits(x, "envRefClass")) || inherits(x, "refObjectGenerator")
 }
 
+# Whether `env` is a frame of the methods package, as the parent of an S4
+# object's environment is: a frame of a function of its namespace, or of the
+# initialize() method that made the object (which holds `.Object`).
+is_methods_frame <- function(env) {
+  identical(parent.env(env), asNamespace("methods")) || exists(".Object", envir = env, inherits = FALSE)
+}
+
 # The environment a closure, or a formula, terms object or quosure, refers
 # to (NULL for other objects), and the object given another one.
 environment_of <- function(x) {
@@ -1519,7 +1544,7 @@ read_environment <- function(x) {
     if (object_names[i] == "...") {
       # A function's `...`: its values (forcing them), to be rebuilt.
       return(tryCatch(
-        structure(eval(quote(list(...)), x), class = "anon_dots"),
+        structure(eval(as.call(list(base::list, quote(...))), x), class = "anon_dots"),
         error = function(e) unread
       ))
     }

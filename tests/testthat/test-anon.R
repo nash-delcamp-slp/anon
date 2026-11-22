@@ -1593,3 +1593,73 @@ test_that("a secrets environment met as a parent becomes the global environment"
   expect_identical(parent.env(environment(out$g)), globalenv())
   expect_identical(out$g(), 3)
 })
+
+test_that("an empty `...` is kept as it is", {
+  mk <- local(function(x, ...) function() x, globalenv())
+  frame_of <- local(function(...) environment(), globalenv())
+  for (mode in c("copy", "detach")) {
+    out <- suppressWarnings(anon(list(f = mk(1), fr = frame_of()), closures = mode))
+    expect_true(exists("...", envir = out$fr, inherits = FALSE), info = mode)
+    expect_length(eval(as.call(list(base::list, quote(...))), out$fr), 0)
+  }
+  expect_identical(suppressWarnings(anon(list(f = mk(1))))$f(), 1)
+  skip_if_not_installed("memoise")
+  # memoise isn't a dependency: its function is looked up only when installed.
+  memoise <- getExportedValue("memoise", "memoise")
+  m <- memoise(local(function(x) x + 1, globalenv()))
+  expect_identical(suppressWarnings(anon(list(m = m)))$m(1), 2)
+})
+
+test_that("calls and symbols in `...`, or given to anon(), aren't evaluated", {
+  ran <- new.env(parent = emptyenv())
+  ran$count <- 0
+  frame_of <- local(function(key, ...) {
+    force(key)
+    list(...)
+    environment()
+  }, globalenv())
+  side <- bquote(assign("count", count + 1, envir = .(ran)))
+  fr <- frame_of(paste0("DRUG", "QX"), side, quote(environment()), quote(undefined_symbol))
+  out <- suppressWarnings(anon(list(fr = fr), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(ran$count, 0)
+  dots <- eval(as.call(list(base::list, quote(...))), out$fr)
+  expect_identical(dots[[2]], quote(environment()))
+  expect_identical(dots[[3]], quote(undefined_symbol))
+  expect_false(grepl("DRUGQX", rawToChar(serialize(out, NULL, ascii = TRUE))))
+  # Given to anon() directly.
+  f <- function(x) stop("evaluated")
+  expect_identical(suppressWarnings(anon(quote(f(x)))), quote(f(x)))
+  expect_identical(suppressWarnings(anon(as.name("zz"))), as.name("zz"))
+})
+
+test_that("a formula keeps the order of its attributes", {
+  fo <- structure(stats::as.formula("y ~ x", env = globalenv()), note = "DRUGQX")
+  out <- suppressWarnings(anon(list(fo = fo), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(names(attributes(out$fo)), names(attributes(fo)))
+})
+
+test_that("methods frames reached as a plain environment's parent aren't copied", {
+  where <- new.env()
+  methods::setClass("AnonTestBox2", contains = "environment", where = where)
+  b <- methods::new(methods::getClass("AnonTestBox2", where = where))
+  e <- new.env(parent = b@.xData)
+  w <- character(0)
+  out <- withCallingHandlers(anon(list(e = e)), warning = function(c) {
+    w <<- c(w, conditionMessage(c))
+    invokeRestart("muffleWarning")
+  })
+  # The S4 object's environment is copied; its parent (the frame of the
+  # initialize() method) isn't.
+  expect_false(identical(parent.env(out$e), b@.xData))
+  expect_identical(parent.env(parent.env(out$e)), globalenv())
+  expect_false(any(grepl("couldn't be read", w)))
+})
+
+test_that("`...` is read with base's list(), whatever the frame defines", {
+  frame_of <- local(function(...) {
+    list <- function(...) stop("the frame's own list()")
+    environment()
+  }, globalenv())
+  out <- suppressWarnings(anon(list(fr = frame_of("DRUGQX")), pattern_list = list("[DRUG]" = "DRUGQX")))
+  expect_identical(eval(as.call(list(base::list, quote(...))), out$fr), list("[DRUG]"))
+})

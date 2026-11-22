@@ -88,7 +88,8 @@ anon_nlp_entities <- function(x, entity_types = nlp_entity_sets$all, ...) {
   if (length(pattern_list) > 0) {
     x <- do.call(
       anon,
-      c(list(x = x, pattern_list = pattern_list, nlp_auto = FALSE), args)
+      c(list(x = x, pattern_list = pattern_list, nlp_auto = FALSE), args),
+      quote = TRUE
     )
   }
 
