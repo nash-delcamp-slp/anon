@@ -178,6 +178,9 @@ deid_vs_times <- function(tz) {
   as.POSIXct(paste(format(dates), "08:30"), tz = tz)
 }
 
+# Weights in vs, two rows per subject (see deid_risk_quasi).
+deid_vs_weights <- c(71.3, 68.9, 69.6, 72.4, 70.8, 67.7, 73.2, 70.6, 61.4, 63, 58.6, 62.2, 79.5, 81.3, 88.7, 91.2)
+
 deid_fixture <- function() {
   n <- length(deid_keys)
 
@@ -186,8 +189,8 @@ deid_fixture <- function() {
     SUBJID = deid_subjids,
     # Ages and races for the generalization pipelines (see
     # deid_generalized_expected()).
-    AGE = c(34, 37, 51, 58, 31, 55, 39, 52),
-    RACE = c("WHITE", "WHITE", "WHITE", "WHITE", "ASIAN", "BLACK OR AFRICAN AMERICAN", "WHITE", "WHITE"),
+    AGE = c(34, 37, 51, 58, 43, 47, 62, 66),
+    RACE = c("WHITE", "WHITE", "WHITE", "WHITE", "ASIAN", "WHITE", "WHITE", "WHITE"),
     RFSTDTC = format(deid_start),
     # A factor date column with a lower-case name, and an unused level that
     # still holds a real date.
@@ -305,7 +308,7 @@ deid_fixture <- function() {
     USUBJID = factor(rep(deid_keys, each = 2), levels = c(deid_keys, "ZQ-7701-0009")),
     VSDTC = paste0(format(vs_dates), "T08:30"),
     VSDY = deid_study_day(vs_dates, rep(deid_start, each = 2)),
-    VSSTRESN = c(61.4, 63, 58.6, 60.2, 71.3, 69.8, 68.7, 72.1, 62.2, 64.9, 73.6, 70.4, 79.5, 81.3, 57.1, 59.9),
+    VSSTRESN = deid_vs_weights,
     VSDTM = deid_vs_times("UTC"),
     # Local times on either side of a daylight saving change: shifting by
     # calendar days keeps 08:30, shifting by 86400 seconds a day does not.
@@ -993,62 +996,150 @@ deid_sentinels <- function(patterns = FALSE) {
 }
 
 # The pipelines that generalize and suppress: AGE in bands of 10 from 0
-# (50 and over become 50), races held by fewer than 2 subjects folded into
+# (60 and over become 60), races held by fewer than 2 subjects folded into
 # "OTHER", and every WEIGHT row rounded to tens, with its text results.
 deid_generalize_rules <- function() {
   list(
-    dm = list(AGE = anon_band(10, top = 50), RACE = anon_fold(2, "OTHER")),
+    dm = list(AGE = anon_band(10, top = 60), RACE = anon_fold(2, "OTHER")),
     anon_rule(anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"), anon_round(-1))
   )
 }
 # What they measure, and the target they must meet. After generalization the
-# subjects (AGE, RACE, first WEIGHT) are: 1-2 (30, WHITE, 60) and 3-4 (50,
-# WHITE, 70), pairs; 5 (30, OTHER, 60) and 6 (50, OTHER, 70), unique only by
-# RACE; 7 (30, WHITE, 80), only by WEIGHT; 8 (50, WHITE, 60), by AGE or
-# WEIGHT, of which AGE is the less useful (first in `quasi`). Suppressing
-# cells blanks RACE of 5 and 6, WEIGHT of 7 and AGE of 8 whatever order they
-# are handled in; dropping removes 5 to 8.
+# subjects (AGE, RACE, first WEIGHT) are: 1-2 (30, WHITE, 70) and 3-4 (50,
+# WHITE, 70), pairs; 5 (40, OTHER, 60) and 6 (40, WHITE, 60), which differ
+# only by RACE; 7 (60, WHITE, 80) and 8 (60, WHITE, 90), only by WEIGHT.
+# Each of 5-8 has exactly one record that a single cell makes consistent
+# with it, the cheapest by `order`: the other of its pair. Suppressing cells
+# blanks RACE of 5 and 6 and WEIGHT of 7 and 8 (every WEIGHT row) whatever
+# order they are handled in (which follows the pseudonyms); dropping removes
+# 5 to 8.
 deid_risk_quasi <- list(dm = c("AGE", "RACE"), anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"))
 deid_risk_max <- 1 / 2
 
 # Expected values of the generalized columns, with the quasi-identifiers in
-# `blank` (by subject, as positions in deid_keys) blanked: NA, as none of
-# these columns holds blank strings.
+# `blank` (by subject, as positions in deid_keys) blanked: "" for text, as
+# none of these columns uses NA for missing text, NA for numbers.
 deid_generalized_expected <- function(blank = list()) {
   blanked <- function(keys, what) keys %in% deid_keys[blank[[what]]]
-  weight <- function(rounded) {
+  weight <- function(generalized, missing) {
     function(x, keys, oracle) {
-      out <- rounded(x)
-      out[blanked(keys, "WEIGHT")] <- NA
+      out <- generalized(x)
+      out[blanked(keys, "WEIGHT")] <- missing
       out
     }
   }
+  # VSSTRESN rounded to tens; VSORRESU is kg on each subject's first row, LB
+  # on its second.
+  rounded <- round(deid_vs_weights, -1)
+  pounds <- rep(c(FALSE, TRUE), length(deid_vs_weights) / 2)
   list(
     dm.AGE = function(x, keys, oracle) {
-      out <- ifelse(x >= 50, 50, floor(unclass(x) / 10) * 10)
+      out <- ifelse(x >= 60, 60, floor(unclass(x) / 10) * 10)
       out[blanked(keys, "AGE")] <- NA
       out
     },
     dm.RACE = function(x, keys, oracle) {
-      out <- ifelse(x %in% c("ASIAN", "BLACK OR AFRICAN AMERICAN"), "OTHER", x)
-      out[blanked(keys, "RACE")] <- NA
+      out <- ifelse(x %in% "ASIAN", "OTHER", x)
+      out[blanked(keys, "RACE")] <- ""
       out
     },
-    vs.VSSTRESN = weight(function(x) round(unclass(x), -1)),
-    # The text results at their one decimal; VSORRES in pounds rounded on its
-    # own.
-    vs.VSSTRESC = weight(function(x) sprintf("%.1f", round(as.numeric(x), -1))),
-    vs.VSORRES = weight(function(x) sprintf("%.1f", round(as.numeric(x), -1)))
+    vs.VSSTRESN = weight(function(x) rounded, NA),
+    vs.VSSTRESC = weight(function(x) sprintf("%.1f", rounded), ""),
+    # In kg as VSSTRESN; in pounds, by each row's own factor (original
+    # VSORRES / VSSTRESN), at one decimal.
+    vs.VSORRES = weight(function(x) {
+      factor <- ifelse(pounds, as.numeric(x) / deid_vs_weights, 1)
+      sprintf("%.1f", round(rounded * factor, 1))
+    }, "")
   )
 }
 
+# The attacker's count for the pipelines that generalize and suppress,
+# written apart from the package: for each subject left in dm, the released
+# subjects whose AGE, RACE and first WEIGHT each equal its true
+# (generalized) value or are blanked (missing where the true value isn't).
+deid_attacker_k <- function(original, step, oracle) {
+  truth_of <- function(data, keys_of) {
+    first <- !duplicated(keys_of(data$vs)) & data$vs$VSTESTCD == "WEIGHT"
+    w <- data$vs$VSSTRESN[first][match(keys_of(data$dm), keys_of(data$vs)[first])]
+    data.frame(key = keys_of(data$dm), AGE = as.numeric(data$dm$AGE), RACE = as.character(data$dm$RACE), WEIGHT = as.numeric(w))
+  }
+  expected <- deid_generalized_expected()
+  dm <- original$dm
+  truth <- data.frame(
+    key = deid_keys,
+    AGE = expected$dm.AGE(dm$AGE, deid_keys, oracle),
+    RACE = expected$dm.RACE(dm$RACE, deid_keys, oracle),
+    WEIGHT = round(deid_vs_weights[seq(1, length(deid_vs_weights), by = 2)], -1)
+  )
+  back <- function(df) names(oracle$new_key)[match(as.character(df$USUBJID), oracle$new_key)]
+  released <- truth_of(step$data, back)
+  truth <- truth[match(released$key, truth$key), ]
+  missing <- function(x) is.na(x) | (is.character(x) & !is.na(x) & x == "")
+  vapply(seq_len(nrow(truth)), function(i) {
+    ok <- rep(TRUE, nrow(released))
+    for (q in c("AGE", "RACE", "WEIGHT")) {
+      rel <- released[[q]]
+      tru <- truth[[q]]
+      blank <- missing(rel) & !missing(tru)
+      same <- (missing(rel) & missing(tru[i])) | (!missing(rel) & !missing(tru[i]) & rel == tru[i])
+      ok <- ok & (blank | same)
+    }
+    sum(ok)
+  }, numeric(1))
+}
+
+# The subjects a data frame's rows have of their own (kept apart from the
+# package's own rule, covering the same cases): from its key column; from a
+# packed column that has its own (each packed row belongs to its outer row);
+# or from a list column whose data frames hold one subject per row. Returns
+# the keys (NA: none) and where they came from, or NULL.
+deid_frame_owners <- function(df, key) {
+  if (key %in% names(df)) {
+    k <- as.character(deid_zap_codes(df[[key]]))
+    # Blank keys, also of spaces only, are no key.
+    k[!is.na(k) & trimws(k) == ""] <- NA
+    return(list(keys = k, from = "own"))
+  }
+  for (v in unclass(df)) {
+    if (is.data.frame(v)) {
+      o <- deid_frame_owners(v, key)
+      if (!is.null(o) && o$from != "list") return(list(keys = o$keys, from = "packed"))
+    }
+  }
+  # The subjects of all data frames a list element holds, at any depth
+  # through plain lists.
+  held <- function(e) {
+    if (is.data.frame(e)) {
+      return(deid_frame_owners(e, key)$keys)
+    }
+    if (deid_plain_list(e)) {
+      return(unlist(lapply(e, held), use.names = FALSE))
+    }
+    NULL
+  }
+  for (v in unclass(df)) {
+    if (!is.data.frame(v) && deid_plain_list(v)) {
+      per_row <- lapply(v, function(e) unique(stats::na.omit(held(e))))
+      # Every row must hold exactly one subject.
+      if (length(per_row) > 0 && all(lengths(per_row) == 1)) {
+        return(list(keys = unlist(per_row), from = "list"))
+      }
+    }
+  }
+  NULL
+}
+
 # keep_rows for pipelines that drop subjects (positions in deid_keys): rows
-# of the dropped subjects go, and rows referring to them in RSUBJID.
+# of the dropped subjects go, whether their subject comes from the key
+# column, a packed column with it, or a list column of one subject per row
+# (see deid_frame_owners()), and rows referring to them in RSUBJID.
 deid_keep_rows_without <- function(dropped) {
   function(ds, original, oracle) {
     keep <- rep(TRUE, nrow(original))
-    if ("USUBJID" %in% names(original)) {
-      keep <- keep & !as.character(deid_zap_codes(original$USUBJID)) %in% deid_keys[dropped]
+    owners <- deid_frame_owners(original, "USUBJID")
+    if (!is.null(owners)) {
+      keep <- keep & !owners$keys %in% deid_keys[dropped]
     }
     if ("RSUBJID" %in% names(original)) {
       keep <- keep & !as.character(original$RSUBJID) %in% deid_keys[dropped]
@@ -1083,7 +1174,9 @@ deid_keep_rows_without <- function(dropped) {
 #   variant), and `keys`: its subject keys as text, in the order of
 #   `deid_all_keys`;
 # - `risk`: `list(quasi, max_risk)`, a target the input misses and the
-#   result must meet, measured with missing values as wildcards.
+#   result must meet, counted as an attacker would (deid_attacker_k());
+# - `dropped`: subjects (positions in deid_keys) whose rows the pipeline
+#   removes from data frames nested at any depth (see deid_expected_frame()).
 deid_pipelines <- list(
   ids_then_dates = list(
     run = function(data) {
@@ -1143,7 +1236,7 @@ deid_pipelines <- list(
       anon_suppress(anon_generalize(step, deid_generalize_rules()), deid_risk_quasi, max_risk = deid_risk_max)
     },
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
-    expected = deid_generalized_expected(list(AGE = 8, RACE = 5:6, WEIGHT = 7)),
+    expected = deid_generalized_expected(list(RACE = 5:6, WEIGHT = 7:8)),
     risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
   ),
   # The same before the dates and IDs steps, which run on the generalized
@@ -1157,10 +1250,11 @@ deid_pipelines <- list(
       )
     },
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
-    expected = deid_generalized_expected(list(AGE = 8, RACE = 5:6, WEIGHT = 7)),
+    expected = deid_generalized_expected(list(RACE = 5:6, WEIGHT = 7:8)),
     risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
   ),
-  # Subjects at risk dropped from every dataset with the key.
+  # Subjects at risk dropped from every dataset, at any depth (rows of data
+  # frames nested with the key too; `dropped` names them for the oracle).
   suppress_drop = list(
     run = function(data) {
       step <- anon_subject_dates(
@@ -1173,6 +1267,7 @@ deid_pipelines <- list(
     keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
     expected = deid_generalized_expected(),
     keep_rows = deid_keep_rows_without(5:8),
+    dropped = 5:8,
     risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
   )
 )
@@ -1189,7 +1284,8 @@ deid_pipeline_defaults <- list(
   other_attributes = "rewrite",
   fixture = deid_fixture,
   keys = deid_all_keys,
-  risk = NULL
+  risk = NULL,
+  dropped = integer(0)
 )
 
 # A pipeline record with the optional fields filled in.
@@ -1575,10 +1671,11 @@ deid_leaks <- function(results, sentinels = NULL) {
 }
 
 # From a step's secrets: per original key, the new key, the date offset in
-# days and the direction of year-only dates; per fixture SUBJID, the pseudonym's number as the SUBJID column gets
+# days and the direction of year-only dates; the original keys of subjects
+# the pipeline drops (`dropped`); per fixture SUBJID, the pseudonym's number as the SUBJID column gets
 # it (`new_also`); and what the pipeline does with other attributes
 # (`other`).
-deid_oracle <- function(step, other = "rewrite") {
+deid_oracle <- function(step, other = "rewrite", dropped = integer(0)) {
   secrets <- anon_secrets(step)
   ids <- secrets$subject_ids
   offsets <- secrets$date_offsets
@@ -1599,6 +1696,7 @@ deid_oracle <- function(step, other = "rewrite") {
   new_also <- stats::setNames(formatC(numbers, width = nchar(length(new_key)), flag = "0"), subjids)
   list(
     new_key = new_key, new_also = new_also, offset = stats::setNames(offsets$offset_days, offset_key),
-    year_direction = stats::setNames(offsets$year_direction, offset_key), other = other
+    year_direction = stats::setNames(offsets$year_direction, offset_key), other = other,
+    dropped = deid_keys[dropped]
   )
 }
