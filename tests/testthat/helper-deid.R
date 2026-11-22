@@ -184,7 +184,10 @@ deid_fixture <- function() {
   dm <- data.frame(
     USUBJID = deid_keys,
     SUBJID = deid_subjids,
-    AGE = c(34, 51, 47, 62, 29, 58, 41, 66),
+    # Ages and races for the generalization pipelines (see
+    # deid_generalized_expected()).
+    AGE = c(34, 37, 51, 58, 31, 55, 39, 52),
+    RACE = c("WHITE", "WHITE", "WHITE", "WHITE", "ASIAN", "BLACK OR AFRICAN AMERICAN", "WHITE", "WHITE"),
     RFSTDTC = format(deid_start),
     # A factor date column with a lower-case name, and an unused level that
     # still holds a real date.
@@ -302,7 +305,7 @@ deid_fixture <- function() {
     USUBJID = factor(rep(deid_keys, each = 2), levels = c(deid_keys, "ZQ-7701-0009")),
     VSDTC = paste0(format(vs_dates), "T08:30"),
     VSDY = deid_study_day(vs_dates, rep(deid_start, each = 2)),
-    VSSTRESN = seq_len(2 * n) + 60,
+    VSSTRESN = c(61.4, 63, 58.6, 60.2, 71.3, 69.8, 68.7, 72.1, 62.2, 64.9, 73.6, 70.4, 79.5, 81.3, 57.1, 59.9),
     VSDTM = deid_vs_times("UTC"),
     # Local times on either side of a daylight saving change: shifting by
     # calendar days keeps 08:30, shifting by 86400 seconds a day does not.
@@ -315,6 +318,13 @@ deid_fixture <- function() {
   # are replaced.
   stats::contrasts(vs$USUBJID) <- stats::contr.treatment(levels(vs$USUBJID))
   attr(vs$VSSTRESN, "label") <- "DRUGQX Concentration"
+  # Weight results as SDTM writes them: each subject's first row in the
+  # standard units, its second in pounds.
+  vs$VSTESTCD <- "WEIGHT"
+  vs$VSORRES <- sprintf("%.1f", unclass(vs$VSSTRESN) * rep(c(1, 2.2), n))
+  vs$VSORRESU <- rep(c("kg", "LB"), n)
+  vs$VSSTRESC <- sprintf("%.1f", unclass(vs$VSSTRESN))
+  vs$VSSTRESU <- "kg"
   # User-pattern terms in attributes that aren't text: SPSS variable labels
   # held in a list (as haven and foreign write them), a factor with an
   # attribute of its own, and the name of an attribute. anon() must redact
@@ -982,6 +992,71 @@ deid_sentinels <- function(patterns = FALSE) {
   )
 }
 
+# The pipelines that generalize and suppress: AGE in bands of 10 from 0
+# (50 and over become 50), races held by fewer than 2 subjects folded into
+# "OTHER", and every WEIGHT row rounded to tens, with its text results.
+deid_generalize_rules <- function() {
+  list(
+    dm = list(AGE = anon_band(10, top = 50), RACE = anon_fold(2, "OTHER")),
+    anon_rule(anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"), anon_round(-1))
+  )
+}
+# What they measure, and the target they must meet. After generalization the
+# subjects (AGE, RACE, first WEIGHT) are: 1-2 (30, WHITE, 60) and 3-4 (50,
+# WHITE, 70), pairs; 5 (30, OTHER, 60) and 6 (50, OTHER, 70), unique only by
+# RACE; 7 (30, WHITE, 80), only by WEIGHT; 8 (50, WHITE, 60), by AGE or
+# WEIGHT, of which AGE is the less useful (first in `quasi`). Suppressing
+# cells blanks RACE of 5 and 6, WEIGHT of 7 and AGE of 8 whatever order they
+# are handled in; dropping removes 5 to 8.
+deid_risk_quasi <- list(dm = c("AGE", "RACE"), anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN"))
+deid_risk_max <- 1 / 2
+
+# Expected values of the generalized columns, with the quasi-identifiers in
+# `blank` (by subject, as positions in deid_keys) blanked: NA, as none of
+# these columns holds blank strings.
+deid_generalized_expected <- function(blank = list()) {
+  blanked <- function(keys, what) keys %in% deid_keys[blank[[what]]]
+  weight <- function(rounded) {
+    function(x, keys, oracle) {
+      out <- rounded(x)
+      out[blanked(keys, "WEIGHT")] <- NA
+      out
+    }
+  }
+  list(
+    dm.AGE = function(x, keys, oracle) {
+      out <- ifelse(x >= 50, 50, floor(unclass(x) / 10) * 10)
+      out[blanked(keys, "AGE")] <- NA
+      out
+    },
+    dm.RACE = function(x, keys, oracle) {
+      out <- ifelse(x %in% c("ASIAN", "BLACK OR AFRICAN AMERICAN"), "OTHER", x)
+      out[blanked(keys, "RACE")] <- NA
+      out
+    },
+    vs.VSSTRESN = weight(function(x) round(unclass(x), -1)),
+    # The text results at their one decimal; VSORRES in pounds rounded on its
+    # own.
+    vs.VSSTRESC = weight(function(x) sprintf("%.1f", round(as.numeric(x), -1))),
+    vs.VSORRES = weight(function(x) sprintf("%.1f", round(as.numeric(x), -1)))
+  )
+}
+
+# keep_rows for pipelines that drop subjects (positions in deid_keys): rows
+# of the dropped subjects go, and rows referring to them in RSUBJID.
+deid_keep_rows_without <- function(dropped) {
+  function(ds, original, oracle) {
+    keep <- rep(TRUE, nrow(original))
+    if ("USUBJID" %in% names(original)) {
+      keep <- keep & !as.character(deid_zap_codes(original$USUBJID)) %in% deid_keys[dropped]
+    }
+    if ("RSUBJID" %in% names(original)) {
+      keep <- keep & !as.character(original$RSUBJID) %in% deid_keys[dropped]
+    }
+    keep
+  }
+}
+
 # Each pipeline record has `run` (takes the fixture, returns a step),
 # `keep_secrets`, `prefix` (of character pseudonyms), `min_days` and
 # `max_days`. A pipeline without secrets names, in `same_as`, the pipeline
@@ -1006,7 +1081,9 @@ deid_sentinels <- function(patterns = FALSE) {
 #   core ones ("rewrite" or "drop"), which the expected attributes follow;
 # - `fixture`: the function giving the input (deid_fixture(), or its numeric
 #   variant), and `keys`: its subject keys as text, in the order of
-#   `deid_all_keys`.
+#   `deid_all_keys`;
+# - `risk`: `list(quasi, max_risk)`, a target the input misses and the
+#   result must meet, measured with missing values as wildcards.
 deid_pipelines <- list(
   ids_then_dates = list(
     run = function(data) {
@@ -1055,6 +1132,48 @@ deid_pipelines <- list(
       if (identical(f$id, "s4_attribute")) f$pattern <- sub("SUBJ-[0-9]+", "[0-9]+", f$pattern, fixed = TRUE)
       f
     })
+  ),
+  # Generalization and suppression of cells after the IDs and dates steps.
+  generalize_suppress = list(
+    run = function(data) {
+      step <- anon_subject_dates(
+        anon_subject_ids(data, keep_secrets = TRUE, seed = deid_seeds[1]),
+        keep_secrets = TRUE, seed = deid_seeds[2]
+      )
+      anon_suppress(anon_generalize(step, deid_generalize_rules()), deid_risk_quasi, max_risk = deid_risk_max)
+    },
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    expected = deid_generalized_expected(list(AGE = 8, RACE = 5:6, WEIGHT = 7)),
+    risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
+  ),
+  # The same before the dates and IDs steps, which run on the generalized
+  # data.
+  generalize_first = list(
+    run = function(data) {
+      step <- anon_suppress(anon_generalize(data, deid_generalize_rules()), deid_risk_quasi, max_risk = deid_risk_max)
+      anon_subject_ids(
+        anon_subject_dates(step, keep_secrets = TRUE, seed = deid_seeds[3]),
+        keep_secrets = TRUE, seed = deid_seeds[4]
+      )
+    },
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    expected = deid_generalized_expected(list(AGE = 8, RACE = 5:6, WEIGHT = 7)),
+    risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
+  ),
+  # Subjects at risk dropped from every dataset with the key.
+  suppress_drop = list(
+    run = function(data) {
+      step <- anon_subject_dates(
+        anon_subject_ids(data, keep_secrets = TRUE, seed = deid_seeds[1]),
+        keep_secrets = TRUE, seed = deid_seeds[2]
+      )
+      step <- anon_generalize(step, deid_generalize_rules())
+      anon_suppress(step, deid_risk_quasi, max_risk = deid_risk_max, method = "drop")
+    },
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    expected = deid_generalized_expected(),
+    keep_rows = deid_keep_rows_without(5:8),
+    risk = list(quasi = deid_risk_quasi, max_risk = deid_risk_max)
   )
 )
 
@@ -1069,7 +1188,8 @@ deid_pipeline_defaults <- list(
   removed = character(0),
   other_attributes = "rewrite",
   fixture = deid_fixture,
-  keys = deid_all_keys
+  keys = deid_all_keys,
+  risk = NULL
 )
 
 # A pipeline record with the optional fields filled in.

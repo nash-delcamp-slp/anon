@@ -501,6 +501,17 @@ for (pipeline_name in names(deid_pipelines)) {
     })
   }
 
+  if (!is.null(pipeline$risk)) {
+    test_that(paste0(pipeline_name, ": the measured risk meets the target the input misses"), {
+      r <- pipeline$risk
+      before <- anon_risk(pipeline$fixture(), quasi = r$quasi, max_risk = r$max_risk, na = "wildcard")
+      expect_false(before$summary$meets_target)
+      step <- deid_run(pipeline, pipeline$fixture())$step
+      after <- anon_risk(step, quasi = r$quasi, max_risk = r$max_risk, na = "wildcard")
+      expect_true(after$summary$meets_target)
+    })
+  }
+
   if (!is.null(pipeline$same_as)) {
     test_that(paste0(pipeline_name, ": gives the same data as ", pipeline$same_as, ", and holds nothing to link back"), {
       step <- deid_run(pipeline, pipeline$fixture())$step
@@ -561,14 +572,16 @@ for (pipeline_name in names(deid_pipelines)) {
           expect_null(attr(x, "contrasts", exact = TRUE), info = id)
         }
         expect_identical(keep(x, c(also, "names")), keep(want, c(also, "names")), info = id)
-        # Names of a vector column follow its values (in any row order),
-        # rewritten; a packed data frame column's names are rewritten.
+        # Names of a vector column follow its values (in any row order, of
+        # the rows kept), rewritten; a packed data frame column's names are
+        # rewritten.
         if (is.data.frame(x)) {
           expect_identical(names(x), rewrite(names(data[[ds]][[col]])), info = id)
         } else if (is.null(names(data[[ds]][[col]]))) {
           expect_null(names(x), info = id)
         } else {
-          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))), info = id)
+          kept_rows <- pipeline$keep_rows(ds, data[[ds]], oracle)
+          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))[kept_rows]), info = id)
         }
         # Value labels and missing-value codes are kept on columns that are
         # neither replaced nor shifted, and are never anything but the
@@ -584,7 +597,11 @@ for (pipeline_name in names(deid_pipelines)) {
   })
 
   test_that(paste0(pipeline_name, ": datasets still join and study days stay consistent"), {
-    out <- deid_run(pipeline, pipeline$fixture())$step$data
+    data <- pipeline$fixture()
+    out <- deid_run(pipeline, data)$step$data
+    # Subjects dropped from the datasets with the key are still in nested
+    # data of datasets without it (documented), where they can't be joined.
+    n_dropped <- sum(!pipeline$keep_rows("dm", data$dm, NULL))
     keys <- as.character(out$dm[[key]])
     expect_false(anyDuplicated(keys) > 0)
     for (ds in setdiff(names(out), "dm")) {
@@ -620,11 +637,13 @@ for (pipeline_name in names(deid_pipelines)) {
       expect_identical(as.numeric(out$dm$WHEN[[match(as.character(vsn[[key]][i]), keys)]]), as.numeric(ref[i]))
     }
     expect_s3_class(vsn$data, "vctrs_list_of")
+    lbn_subjects <- unlist(lapply(out$lbn$data, function(rows) as.character(rows[[key]])))
+    expect_lte(length(setdiff(lbn_subjects[!is.na(lbn_subjects) & lbn_subjects != ""], keys)), n_dropped)
     for (rows in out$lbn$data) {
       k <- as.character(rows[[key]])
       # A blank key is missing in the numeric fixture.
       blank <- is.na(k) | k == ""
-      present <- !blank & !is.na(rows$LBDTC) & rows$LBDTC != ""
+      present <- !blank & !is.na(rows$LBDTC) & rows$LBDTC != "" & k %in% keys
       expect_false(is.unsorted(k[!blank]))
       day <- as.Date(substr(rows$LBDTC[present], 1, 10))
       expect_identical(deid_study_day(day, as.Date(out$dm$RFSTDTC[match(k[present], keys)])), rows$LBDY[present])
