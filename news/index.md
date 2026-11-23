@@ -23,11 +23,6 @@
   and
   [`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
   bring the measured risk down.
-- [`anon_deidentify()`](https://nash-delcamp-slp.github.io/anon/reference/anon_deidentify.md)
-  de-identifies SDTM and ADaM datasets in one call, with
-  [`anon_profile_sdtm()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md),
-  [`anon_profile_adam()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
-  or both combined.
 - [`anon()`](https://nash-delcamp-slp.github.io/anon/reference/anon.md)
   redacts a copy of an environment, and text at any depth in attributes;
   reports and the app show object names redacted.

@@ -74,12 +74,11 @@ nested in them (packed columns and list columns, see
 are not generalized. A warning names the datasets with the key that hold
 a generalized column under the same name without a rule for it.
 
-A birth date more precise than a year (a column named like a birth date,
-such as `BRTHDTC`, a Date `BRTHDT`, `BIRTHDATE` or `DOB`) in a dataset
-whose `AGE` is generalized gives the age back with a reference date such
-as `RFSTDTC`, even after the dates are offset: a warning names it.
-Remove birth dates or reduce them to the year. Other dates and derived
-columns can give a quasi-identifier back the same way (see
+A birth date more precise than a year (`BRTHDTC`, or a Date `BRTHDT`) in
+a dataset whose `AGE` is generalized gives the age back with a reference
+date such as `RFSTDTC`, even after the dates are offset: a warning names
+it. Remove birth dates or reduce them to the year. Other dates and
+derived columns can give a quasi-identifier back the same way (see
 [`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)).
 
 The log has one row per dataset, column and test, counting the values

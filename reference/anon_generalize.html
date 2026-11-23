@@ -104,9 +104,8 @@ datasets together, so the same categories are folded everywhere.</p>
 in them (packed columns and list columns, see <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>) are
 not generalized. A warning names the datasets with the key that hold a
 generalized column under the same name without a rule for it.</p>
-<p>A birth date more precise than a year (a column named like a birth date,
-such as <code>BRTHDTC</code>, a Date <code>BRTHDT</code>, <code>BIRTHDATE</code> or <code>DOB</code>) in a dataset
-whose <code>AGE</code> is generalized gives the age back with a reference
+<p>A birth date more precise than a year (<code>BRTHDTC</code>, or a Date <code>BRTHDT</code>) in a
+dataset whose <code>AGE</code> is generalized gives the age back with a reference
 date such as <code>RFSTDTC</code>, even after the dates are offset: a warning names
 it. Remove birth dates or reduce them to the year. Other dates and derived
 columns can give a quasi-identifier back the same way (see

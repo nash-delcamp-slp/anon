@@ -142,13 +142,7 @@ transformed data, in the same form as the input), <code>log</code> (a tibble wit
 <code>step</code>, <code>dataset</code>, <code>variable</code>, <code>n_changed</code>, <code>n_removed</code> and <code>detail</code>; the
 first row of each step records its settings; earlier steps are included
 when <code>data</code> was a step result), <code>settings</code> (a named list with each step's
-arguments, without the seed value, and <code>findings</code>: a tibble of what its
-warnings name as left in the data, one row per location, with <code>kind</code>
-(such as <code>"keys_left"</code>, <code>"dates_unshifted"</code> or <code>"objects"</code>), <code>dataset</code>,
-<code>column</code> (as the warnings print them), <code>n_values</code> (the distinct text
-values holding what was found, <code>NA</code> where that doesn't apply) and
-<code>single_value</code> (whether the column holds one value in every row); no
-values) and
+arguments, without the seed value) and
 <code>secrets</code> (<code>NULL</code> unless <code>keep_secrets = TRUE</code> here or in an earlier step).
 Saving the object (for example with <code><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS()</a></code>) also saves its secrets.</p>
     </div>
