@@ -200,7 +200,8 @@
 #' @return An object of class `"anon_deid_step"` (see [anon_subject_ids()]),
 #'   chainable with the other steps, with the steps' logs and settings
 #'   (`settings$deidentify` for this function; `deidentify_1` and so on when
-#'   it runs again on its own result), the record of suppressed
+#'   it runs again on its own result; its `tied` names, by dataset without
+#'   the key, the `also` columns that tied its rows to subjects), the record of suppressed
 #'   cells, and also `risk_before` and `risk_after` (from [anon_risk()]) and
 #'   `signals` (a tibble with `signal`, `dataset`, `n_subjects`, `n_unique`,
 #'   `n_below_k` and `n_below_k_with_quasi`). Secrets only with
@@ -530,6 +531,7 @@ anon_deidentify <- function(
     profile_rules = profile_text(profile),
     max_risk = max_risk, k_target = k_target, max_suppressed = max_suppressed, unresolved = unresolved,
     also = also, key_cols = key_cols,
+    tied = mapped$columns,
     quasi = quasi_settings(qis, measures),
     moves = search_moves_table(search),
     estimated_suppressed = if (!is.null(search)) search$estimate$prop else NA_real_,
@@ -648,10 +650,12 @@ profile_role_columns <- function(profile, data, columns, role, key) {
 # with a value that ties to no subject, to several, or to another subject
 # than the row's other `also` columns, is left as it is (the final audit
 # names it, and the target is not met). Returns the data, the datasets given
-# the key (`added`) and the column each was tied through (`through`: the
-# first that ties every row, else those that tie them together).
+# the key (`added`), the column each was tied through (`through`: the
+# first that ties every row, else those that tie them together), and, by
+# dataset, the `also` columns that tie its rows (`columns`, in the order a
+# row's first value in them gives its subject).
 map_keyless_datasets <- function(data, key, columns) {
-  out <- list(data = data, added = character(0), through = character(0))
+  out <- list(data = data, added = character(0), through = character(0), columns = list())
   keyed <- names(data)[vapply(data, function(df) key %in% names(df), logical(1))]
   if (length(keyed) == 0) {
     return(out)
@@ -712,6 +716,7 @@ map_keyless_datasets <- function(data, key, columns) {
     out$added <- c(out$added, ds)
     held_by <- names(by_column)[vapply(by_column, function(at) !anyNA(at), logical(1))]
     out$through <- c(out$through, if (length(held_by) > 0) held_by[1] else paste(names(by_column), collapse = ", "))
+    out$columns[[ds]] <- names(by_column)
   }
   out
 }

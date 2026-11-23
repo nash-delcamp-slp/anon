@@ -57,7 +57,8 @@ set it for data you share.}
 An object of class \code{"anon_deid_step"} (see \code{\link[=anon_subject_ids]{anon_subject_ids()}}),
 chainable with the other steps, with the steps' logs and settings
 (\code{settings$deidentify} for this function; \code{deidentify_1} and so on when
-it runs again on its own result), the record of suppressed
+it runs again on its own result; its \code{tied} names, by dataset without
+the key, the \code{also} columns that tied its rows to subjects), the record of suppressed
 cells, and also \code{risk_before} and \code{risk_after} (from \code{\link[=anon_risk]{anon_risk()}}) and
 \code{signals} (a tibble with \code{signal}, \code{dataset}, \code{n_subjects}, \code{n_unique},
 \code{n_below_k} and \code{n_below_k_with_quasi}). Secrets only with
