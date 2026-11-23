@@ -746,3 +746,147 @@ test_that("nested values name their path, and print counts warnings", {
   out <- capture.output(print(anon_check_fidelity(data, copy)))
   expect_match(out[1], "passed with [0-9]+ warning\\(s\\)")
 })
+
+test_that("the change count exempts only derived values the step mapped", {
+  data <- fid_data()
+  data$dm$RACEN <- match(data$dm$RACE, unique(data$dm$RACE))
+  res <- fid_run(data)
+  # A generalize step logged on the derived column with 0 changes frees
+  # nothing there, though the column is derived too.
+  res$log <- rbind(res$log, tibble::tibble(
+    step = "generalize", dataset = "dm", variable = "RACEN", n_changed = 0L, n_removed = 0L, detail = "banded: width 10"
+  ))
+  res$settings$generalize$rules <- c(
+    res$settings$generalize$rules, list(list(dataset = "dm", column = "RACEN", rule = "band", width = 10, value = "lower"))
+  )
+  expect_true(attr(anon_check_fidelity(data, res), "passed"))
+  s <- res
+  i <- which(!is.na(s$data$dm$RACEN))[1]
+  s$data$dm$RACEN[i] <- as.integer(floor(s$data$dm$RACEN[i] / 10) * 10)
+  f <- anon_check_fidelity(data, s)
+  expect_identical(f$check[f$status == "fail"], "values")
+  expect_match(fid_row(f, "dm", "values")$detail, "RACEN (1)", fixed = TRUE)
+})
+
+test_that("chained generalization steps on one column are replayed in order", {
+  data <- fid_data()
+  g1 <- anon_generalize(data, list(dm = list(AGE = anon_band(5))))
+  g2 <- anon_generalize(g1, list(dm = list(AGE = anon_band(10))))
+  expect_true(attr(anon_check_fidelity(data, g2), "passed"))
+  s <- g2
+  s$data$dm$AGE <- g1$data$dm$AGE
+  expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "values")$status, "fail")
+  # Text rewritten from a chained result, at its own form.
+  w <- anon_quasi_values("vs", "VSTESTCD", "WEIGHT", "VSSTRESN")
+  r2 <- anon_generalize(anon_generalize(data, list(anon_rule(w, anon_round(0)))), list(anon_rule(w, anon_band(10))))
+  expect_true(attr(anon_check_fidelity(data, r2), "passed"))
+  s <- r2
+  s$data$vs$VSSTRESC <- sprintf("%.2f", s$data$vs$VSSTRESN)
+  expect_match(fid_row(anon_check_fidelity(data, s), "vs", "values")$detail, "VSSTRESC", fixed = TRUE)
+})
+
+test_that("a fold after subjects were dropped is counted on the subjects kept", {
+  n <- 20
+  dm <- data.frame(
+    USUBJID = sprintf("ZZF-%03d", 1:n), AGE = c(rep(40, 15), 41:45), SEX = "M",
+    RACE = c(rep("A", 12), rep("B", 3), "B", rep("C", 2), "D", "A"), stringsAsFactors = FALSE
+  )
+  s <- suppressWarnings(anon_suppress(list(dm = dm), quasi = list(dm = "AGE"), max_risk = 0.5, method = "drop"))
+  g <- suppressWarnings(anon_generalize(s, list(dm = list(RACE = anon_fold(4, "OTHER")))))
+  expect_true("OTHER" %in% g$data$dm$RACE[g$data$dm$RACE != "D"] || "B" %in% dm$RACE)
+  expect_false(any(anon_check_fidelity(list(dm = dm), g)$status == "fail"))
+  # A category the fold kept, made the fold's category.
+  b <- g
+  b$data$dm$RACE[b$data$dm$RACE == "A"][1] <- "OTHER"
+  expect_identical(fid_row(anon_check_fidelity(list(dm = dm), b), "dm", "values")$status, "fail")
+})
+
+test_that("a dataset tied through two related ID columns, each blank on some rows, is checked", {
+  n <- 24
+  dm <- data.frame(
+    USUBJID = sprintf("ZZT-%03d", 1:n), SUBJID = sprintf("%03d", 1:n), USUBJIDN = 1:n,
+    AGE = rep(c(30, 40, 50), 8), SEX = rep(c("F", "M"), 12), RFSTDTC = format(as.Date("2021-01-01") + 1:n),
+    stringsAsFactors = FALSE
+  )
+  at <- rev(rep(1:n, each = 2))
+  xs <- data.frame(
+    SUBJID = dm$SUBJID[at], USUBJIDN = dm$USUBJIDN[at], XSSTRESN = seq_along(at) * 1.5,
+    XSDTC = format(as.Date(dm$RFSTDTC[at]) + c(2, 5)), stringsAsFactors = FALSE
+  )
+  xs$SUBJID[c(TRUE, FALSE)] <- NA
+  xs$USUBJIDN[c(FALSE, TRUE)] <- NA
+  d <- list(dm = dm, xs = xs)
+  r <- suppressWarnings(anon_deidentify(d, anon_profile_sdtm(min_n = 2), max_risk = 1/2, seed = 5))
+  f <- anon_check_fidelity(d, r)
+  expect_true(attr(f, "passed"))
+  expect_identical(fid_row(f, "xs", "row order")$n_checked, 24L)
+  s <- r
+  s$data$xs$XSSTRESN[1] <- 999
+  expect_identical(fid_row(anon_check_fidelity(d, s), "xs", "values")$status, "fail")
+})
+
+test_that("a class pairs only when every pair's offset is one the dates step gives", {
+  n <- 20
+  start <- c(as.Date("2021-01-04") + (0:9) * 3, as.Date("2023-06-01") + (0:9) * 3)
+  orig <- list(dm = data.frame(
+    USUBJID = sprintf("ZZO-%03d", 1:n), SUBJID = sprintf("%03d", 1:n), ARM = "SCREEN FAILURE", COUNTRY = "USA",
+    RFSTDTC = format(start), RFENDTC = format(start + 180), stringsAsFactors = FALSE
+  ))
+  step <- fid_alike_run(orig)
+  expect_true(attr(anon_check_fidelity(orig, step), "passed"))
+  # Later subjects moved into the earlier group's range: each fits some
+  # original, but no matching fits them all.
+  cs <- as.Date(step$data$dm$RFSTDTC)
+  later <- which(cs > as.Date("2022-06-01"))[-1]
+  x <- step
+  for (j in seq_along(later)) {
+    i <- later[j]
+    k <- as.integer(as.Date("2021-01-04") + 100 + j - cs[i])
+    x$data$dm$RFSTDTC[i] <- format(cs[i] + k)
+    x$data$dm$RFENDTC[i] <- format(as.Date(x$data$dm$RFENDTC[i]) + k)
+  }
+  row <- fid_row(anon_check_fidelity(orig, x), "(all)", "pseudonyms")
+  expect_identical(row$status, "fail")
+  expect_match(row$detail, "offset within the dates step's range", fixed = TRUE)
+})
+
+test_that("a related ID naming a subject outside the data is blank in the copy", {
+  # Subjects told apart by AGE (paired exactly), and alike (paired as a
+  # class).
+  for (age in list(c(31, 42, 53, 64), rep(40, 4))) {
+    dm <- data.frame(
+      USUBJID = sprintf("ZZR-%03d", 1:4), AGE = age, RSUBJID = c("ZZR-002", "ZZR-999", NA, "ZZR-001"), stringsAsFactors = FALSE
+    )
+    s <- suppressWarnings(anon_subject_ids(list(dm = dm), key_cols = "RSUBJID", seed = 1))
+    expect_true(attr(anon_check_fidelity(list(dm = dm), s), "passed"))
+    for (value in list(function(d) d$USUBJID[1], function(d) "ZZR-998")) {
+      x <- s
+      blank <- which(is.na(x$data$dm$RSUBJID))
+      x$data$dm$RSUBJID[blank] <- value(x$data$dm)
+      expect_identical(fid_row(anon_check_fidelity(list(dm = dm), x), "(all)", "pseudonyms")$status, "fail")
+    }
+  }
+})
+
+test_that("a value derived from a numeric quasi-identifier is kept or blanked, never mapped", {
+  adsl <- data.frame(
+    USUBJID = sprintf("ZZD-%02d", 1:12), AGE = rep(c(40, 42, 44, 50, 52, 54), 2), stringsAsFactors = FALSE
+  )
+  adsl$AGEGR1 <- ifelse(adsl$AGE < 45, "<45", ">=45")
+  data <- list(adsl = adsl)
+  step <- anon_generalize(data, list(adsl = list(AGE = anon_band(20))))
+  # As anon_deidentify() does: the 40-59 band straddles the cut, so AGEGR1
+  # is blanked for the subjects aged 45 and over (the others keep theirs).
+  blank <- step$data$adsl$AGEGR1 == ">=45"
+  step$data$adsl$AGEGR1[blank] <- ""
+  step$log <- rbind(step$log, tibble::tibble(
+    step = "deidentify", dataset = "adsl", variable = "AGEGR1", n_changed = sum(blank), n_removed = 0L,
+    detail = paste0("derived from AGE: 0 row(s) where AGE was generalized or suppressed keep a value that follows from it; ", sum(blank), " blanked")
+  ))
+  expect_true(attr(anon_check_fidelity(data, step), "passed"))
+  # A blanked one given the category another subject of the same released
+  # age has: not what the step does.
+  s <- step
+  s$data$adsl$AGEGR1[which(s$data$adsl$AGEGR1 == "")[1]] <- "<45"
+  expect_identical(fid_row(anon_check_fidelity(data, s), "adsl", "values")$status, "fail")
+})

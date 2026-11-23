@@ -67,7 +67,14 @@ when the copy holds as many of them as the original, they are compared as
 a class: each copy subject is paired, in a fixed order, with an original
 whose values explain the cells a step logged (blanked, generalized or
 derived where the step says so, and otherwise equal), and the checks run
-on them. If no pairing explains them all, the subjects left fail. A class
+on them. With offset dates, each pair's offset must be one the dates step
+can give (a full matching of the class is required). If no pairing
+explains them all, the subjects left fail. A very large class can't be
+paired this way: one whose logged cells take more than 250,000
+combinations of an original's and a copy's values, or of more than 300
+subjects that a greedy pass on their dates can't pair; it is reported
+as not compared, and the result is incomplete. Run the steps with
+\code{keep_secrets = TRUE} to pair such subjects by the kept map. A class
 with a different number of subjects in the copy can't be paired: those
 subjects are counted (\code{pseudonyms} is \code{"warn"}), their rows are not
 compared one by one, and the result is incomplete. A copy subject whose
@@ -101,7 +108,8 @@ pseudonym one subject: every copy subject's rows across datasets match
 one original subject's. Related IDs follow the pseudonyms, row by row: a
 column the IDs step replaces (\code{SUBJID}) holds the pseudonym's number,
 and a key column (\code{RSUBJID}) the pseudonym of the subject the original
-names; a blank where the original held a value fails.
+names, or a blank where it names a subject the data doesn't hold; a
+blank where the original named one fails.
 \item \code{values}: every column no step logged keeps its values, row by row over
 the paired rows; the key, related IDs and dates have checks of their
 own. A cell a step logged may differ only by the change it logged:

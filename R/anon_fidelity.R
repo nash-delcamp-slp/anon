@@ -46,7 +46,14 @@
 #' a class: each copy subject is paired, in a fixed order, with an original
 #' whose values explain the cells a step logged (blanked, generalized or
 #' derived where the step says so, and otherwise equal), and the checks run
-#' on them. If no pairing explains them all, the subjects left fail. A class
+#' on them. With offset dates, each pair's offset must be one the dates step
+#' can give (a full matching of the class is required). If no pairing
+#' explains them all, the subjects left fail. A very large class can't be
+#' paired this way: one whose logged cells take more than 250,000
+#' combinations of an original's and a copy's values, or of more than 300
+#' subjects that a greedy pass on their dates can't pair; it is reported
+#' as not compared, and the result is incomplete. Run the steps with
+#' `keep_secrets = TRUE` to pair such subjects by the kept map. A class
 #' with a different number of subjects in the copy can't be paired: those
 #' subjects are counted (`pseudonyms` is `"warn"`), their rows are not
 #' compared one by one, and the result is incomplete. A copy subject whose
@@ -79,7 +86,8 @@
 #'   one original subject's. Related IDs follow the pseudonyms, row by row: a
 #'   column the IDs step replaces (`SUBJID`) holds the pseudonym's number,
 #'   and a key column (`RSUBJID`) the pseudonym of the subject the original
-#'   names; a blank where the original held a value fails.
+#'   names, or a blank where it names a subject the data doesn't hold; a
+#'   blank where the original named one fails.
 #' - `values`: every column no step logged keeps its values, row by row over
 #'   the paired rows; the key, related IDs and dates have checks of their
 #'   own. A cell a step logged may differ only by the change it logged:
@@ -188,6 +196,12 @@ anon_check_fidelity <- function(original, deidentified, key = "USUBJID", dm = "d
   copy_common <- copy[common]
   align <- fidelity_align(orig, copy_common, key, intent)
   rewritable <- fidelity_rewritable(orig, align, intent)
+  # Folds are also counted as anon_generalize() counts a fold group, on the
+  # subjects the copy kept (fidelity_group_fold()).
+  intent$fold_ctx <- list(
+    orig = orig, owners = align$owners_o,
+    kept = setdiff(unique(unlist(align$owners_o, use.names = FALSE)), align$dropped)
+  )
 
   for (ds in common) {
     o <- orig[[ds]]
@@ -337,7 +351,7 @@ fidelity_intent <- function(step, key) {
   out <- list(
     step = !is.null(step), ids = character(0), also = character(0), key_cols = character(0), pseudonymized = FALSE, dates = FALSE,
     partial = "shift", logged = fidelity_log_cells(NULL), shifted = list(), rules = list(), n_dropped = 0L,
-    date_rules = character(0), map = NULL, rewrites = list(), tied = character(0)
+    date_rules = character(0), map = NULL, rewrites = list(), tied = list()
   )
   if (is.null(step)) {
     return(out)
@@ -362,10 +376,20 @@ fidelity_intent <- function(step, key) {
   out$logged <- fidelity_log_cells(step$log)
   out$rewrites <- fidelity_rewrites(step$log)
   # Datasets without the key that anon_deidentify() tied to subjects
-  # through an `also` column ("rows tied to subjects through `SUBJID`").
-  tied <- step$log[step$log$step == "subject_ids" & !is.na(step$log$dataset) & is.na(step$log$variable) &
-    grepl("^rows tied to subjects through `", step$log$detail), , drop = FALSE]
-  out$tied <- stats::setNames(sub("^rows tied to subjects through `([^`]+)`.*$", "\\1", tied$detail), tied$dataset)
+  # through `also` columns, by dataset: from its settings, or, for a step
+  # made before it recorded them there, from its log ("rows tied to subjects
+  # through `SUBJID`").
+  tied_settings <- do.call(c, unname(lapply(pick("deidentify"), `[[`, "tied")))
+  if (length(tied_settings) > 0) {
+    out$tied <- tied_settings
+  } else {
+    tied <- step$log[step$log$step == "subject_ids" & !is.na(step$log$dataset) & is.na(step$log$variable) &
+      grepl("^rows tied to subjects through `", step$log$detail), , drop = FALSE]
+    out$tied <- stats::setNames(
+      lapply(sub("^rows tied to subjects through `([^`]+)`.*$", "\\1", tied$detail), function(x) strsplit(x, ", ", fixed = TRUE)[[1]]),
+      tied$dataset
+    )
+  }
   shifted <- out$logged[out$logged$step == "subject_dates" & is.na(out$logged$test_col), , drop = FALSE]
   out$shifted <- split(shifted$column, shifted$dataset)
   out$rules <- unlist(lapply(pick("generalize"), `[[`, "rules"), recursive = FALSE)
@@ -444,17 +468,6 @@ fidelity_log_covers <- function(lg, df) {
   if (is.null(t) || is.list(t)) rep(FALSE, nrow_of(df)) else fidelity_text(t) %in% lg$test
 }
 
-# The generalization rule (from the step's settings) that a generalize log
-# row of `ds` applied: the column's rule, or the rule of the row's test.
-fidelity_log_rule <- function(intent, ds, lg) {
-  for (r in intent$rules) {
-    if (!identical(r$dataset, ds)) next
-    if (is.na(lg$test_col) && identical(r$column, lg$column)) return(r)
-    if (!is.na(lg$test_col) && identical(r$test_col, lg$test_col) && identical(r$test, lg$test)) return(r)
-  }
-  NULL
-}
-
 # Values as text for comparing cells: text as it reads, numbers at full
 # precision, blanks as "".
 fidelity_cell_text <- function(x) {
@@ -463,37 +476,146 @@ fidelity_cell_text <- function(x) {
   v
 }
 
-# What a generalization rule makes of each original value of `col` in
-# dataset `ds` (`o`, every row, with `owners` the subject of each row for
-# folds), as text: NA where no rule applies, so the copy must keep the value.
-fidelity_rule_values <- function(ds, col, o, owners, intent) {
+# What the generalization rules make of each original value of `col` in
+# dataset `ds` (`o`, every row, with `owners` the subject of each row), as
+# text: the column's rules (or its test's) applied in the settings' order,
+# each to the previous result (steps chained on one column). NA where no
+# rule applies, so the copy must keep the value. A fold is counted two
+# ways, and either result is accepted (`alt`): on the rows of this dataset
+# (`a`), and, as anon_generalize() counts a fold group, on the subjects the
+# copy kept, across the datasets whose rules fold the same column with the
+# same parameters (`b`, from `intent$fold_ctx`). Per-dataset counts can
+# only fold more, and the change count limits what they free.
+fidelity_rule_values <- function(ds, col, o, owners, intent, alt = "a") {
   out <- rep(NA_character_, nrow_of(o))
   lg <- intent$logged
   lg <- lg[lg$dataset == ds & lg$column == col & lg$step == "generalize", , drop = FALSE]
+  lg <- lg[!startsWith(lg$detail, "recomputed") & !grepl("rewritten from the generalized `", lg$detail, fixed = TRUE), , drop = FALSE]
+  lg <- lg[!duplicated(lg$test), , drop = FALSE]
   for (i in seq_len(nrow(lg))) {
-    if (startsWith(lg$detail[i], "recomputed") || grepl("rewritten from the generalized `", lg$detail[i], fixed = TRUE)) next
-    r <- fidelity_log_rule(intent, ds, lg[i, ])
-    if (is.null(r)) next
+    rules <- Filter(function(r) {
+      identical(r$dataset, ds) && (if (is.na(lg$test_col[i])) identical(r$column, col) else {
+        identical(r$test_col, lg$test_col[i]) && identical(r$test, lg$test[i])
+      })
+    }, intent$rules)
     rows <- which(fidelity_log_covers(lg[i, ], o))
-    if (length(rows) == 0) next
-    params <- r[setdiff(names(r), c("dataset", "column", "test_col", "test", "result_col", "rule"))]
+    if (length(rules) == 0 || length(rows) == 0) next
     x <- vctrs::vec_slice(o[[col]], rows)
-    v <- tryCatch({
-      if (identical(r$rule, "fold")) {
-        subjects <- if (is.null(owners)) rows else owners[rows]
-        generalize_values("fold", params, x, subjects = subjects)$values
-      } else {
-        num <- as.numeric(fidelity_plain(x))
-        out_num <- num
-        ok <- !is.na(num)
-        out_num[ok] <- numeric_rule(r$rule, params, num[ok])
-        out_num
-      }
-    }, error = function(e) NULL)
-    if (is.null(v)) next
-    out[rows] <- fidelity_cell_text(v)
+    for (r in rules) {
+      params <- r[setdiff(names(r), c("dataset", "column", "test_col", "test", "result_col", "rule"))]
+      x <- tryCatch({
+        if (identical(r$rule, "fold")) {
+          if (alt == "b") {
+            fidelity_group_fold(r, params, col, lg[i, ], x, intent)
+          } else {
+            subjects <- if (is.null(owners)) rows else owners[rows]
+            fidelity_cell_text(generalize_values("fold", params, x, subjects = subjects)$values)
+          }
+        } else {
+          num <- as.numeric(fidelity_plain(x))
+          ok <- !is.na(num)
+          num[ok] <- numeric_rule(r$rule, params, num[ok])
+          num
+        }
+      }, error = function(e) NULL)
+      if (is.null(x)) break
+    }
+    if (is.null(x)) next
+    out[rows] <- fidelity_cell_text(x)
   }
   out
+}
+
+# The text anon_generalize() writes in a result text column (`--STRESC`,
+# `--ORRES`, `AVALC`, `BASEC`) that it rewrites from a generalized number,
+# replayed rule by rule in the settings' order: each step writes the new
+# number (times the row's own conversion for `--ORRES` in other units) in
+# the previous text's form and decimals (see rewrite_number_text()). NA where
+# no rewrite applies.
+fidelity_rewrite_values <- function(ds, col, o, intent) {
+  out <- rep(NA_character_, nrow_of(o))
+  lg <- intent$logged
+  lg <- lg[lg$dataset == ds & lg$column == col & lg$step == "generalize" &
+    grepl("rewritten from the generalized `", lg$detail, fixed = TRUE), , drop = FALSE]
+  lg <- lg[!duplicated(lg$test), , drop = FALSE]
+  for (i in seq_len(nrow(lg))) {
+    src <- sub("^.*rewritten from the generalized `([^`]+)`.*$", "\\1", lg$detail[i])
+    base_col <- if (col == "BASEC") "BASE" else src
+    rules <- Filter(function(r) {
+      identical(r$dataset, ds) && identical(r$test_col, lg$test_col[i]) && identical(r$test, lg$test[i])
+    }, intent$rules)
+    rows <- which(fidelity_log_covers(lg[i, ], o))
+    if (length(rules) == 0 || length(rows) == 0 || is.null(o[[base_col]])) next
+    prefix <- sub("ORRES$", "", col)
+    same <- if (grepl("ORRES$", col)) same_units(o, paste0(prefix, c("ORRESU", "STRESU")), rows) else rep(TRUE, length(rows))
+    base <- as.numeric(fidelity_plain(vctrs::vec_slice(o[[base_col]], rows)))
+    text <- fidelity_text(vctrs::vec_slice(o[[col]], rows))
+    ok <- TRUE
+    for (r in rules) {
+      params <- r[setdiff(names(r), c("dataset", "column", "test_col", "test", "result_col", "rule"))]
+      step <- tryCatch({
+        new_base <- base
+        has <- !is.na(base)
+        new_base[has] <- numeric_rule(r$rule, params, base[has])
+        parsed <- parse_number_text(text)
+        ratio <- ifelse(same, 1, ifelse(has & base != 0, parsed$value / base, NA_real_))
+        avail <- parsed$ok & !is.na(new_base) & !is.na(ratio)
+        own <- parsed$ok & !avail & same
+        blank <- parsed$ok & !avail & !same
+        value <- rep(NA_real_, length(rows))
+        value[avail] <- new_base[avail] * ratio[avail]
+        value[own] <- numeric_rule(r$rule, params, parsed$value[own])
+        new_text <- text
+        exact <- (avail & ratio == 1) | own
+        scaled <- avail & ratio != 1
+        new_text[exact] <- format_number(value[exact], parsed$decimals[exact], parsed$style[exact], extend = TRUE)
+        new_text[scaled] <- format_number(value[scaled], parsed$decimals[scaled], parsed$style[scaled], extend = FALSE)
+        new_text[blank] <- ""
+        list(base = new_base, text = new_text)
+      }, error = function(e) NULL)
+      if (is.null(step)) {
+        ok <- FALSE
+        break
+      }
+      base <- step$base
+      text <- step$text
+    }
+    if (!ok) next
+    text[is.na(text)] <- ""
+    out[rows] <- text
+  }
+  out
+}
+
+# A fold counted as anon_generalize() counts a fold group: the distinct
+# subjects of each category, among those the copy kept, across every dataset
+# whose rule folds the same column (or test) with the same parameters.
+# Categories held by fewer than `min_n` become `to`. Returns text.
+fidelity_group_fold <- function(r, params, col, lg, x, intent) {
+  ctx <- intent$fold_ctx
+  values <- fidelity_cell_text(x)
+  if (is.null(ctx)) {
+    return(values)
+  }
+  same <- Filter(function(g) {
+    identical(g$rule, "fold") && identical(g$min_n, r$min_n) && identical(g$to, r$to) &&
+      (if (is.null(r$column)) identical(g$test_col, r$test_col) && identical(g$test, r$test) else identical(g$column, r$column))
+  }, intent$rules)
+  held <- do.call(rbind, lapply(same, function(g) {
+    df <- ctx$orig[[g$dataset]]
+    own <- ctx$owners[[g$dataset]]
+    column <- if (is.null(g$column)) g$result_col else g$column
+    if (is.null(df) || is.null(own) || is.null(df[[column]])) return(NULL)
+    rows <- if (is.null(g$test_col)) seq_len(nrow_of(df)) else which(fidelity_text(df[[g$test_col]]) %in% g$test)
+    data.frame(s = own[rows], v = fidelity_cell_text(vctrs::vec_slice(df[[column]], rows)), stringsAsFactors = FALSE)
+  }))
+  if (is.null(held)) {
+    return(values)
+  }
+  held <- unique(held[!is.na(held$s) & held$s %in% ctx$kept & held$v != "", , drop = FALSE])
+  counts <- table(held$v)
+  folded <- setdiff(names(counts)[counts < r$min_n], as.character(r$to))
+  ifelse(values %in% folded, as.character(r$to), values)
 }
 
 # The copy cells (rows `rows` of column `col` of dataset `ds`, in `df`) that
@@ -516,7 +638,7 @@ fidelity_free_cells <- function(ds, col, df, rows, intent, o) {
     }
     if (lg$step[i] == "deidentify" && lg$derived[i]) {
       q <- sub("^derived from ([^:]+):.*$", "\\1", lg$detail[i])
-      if (!grepl(",", q, fixed = TRUE) && q %in% names(o) && q %in% names(df)) {
+      if (!grepl(",", q, fixed = TRUE) && q %in% names(o) && q %in% names(df) && fidelity_is_text(o[[q]])) {
         pairs <- paste(fidelity_cell_text(o[[q]]), fidelity_cell_text(o[[col]]), sep = "\x1f")
         now <- paste(fidelity_cell_text(vctrs::vec_slice(df[[q]], rows)), b, sep = "\x1f")
         free <- free | (on & now %in% pairs)
@@ -546,7 +668,9 @@ fidelity_cell_status <- function(ds, col, o, c, ro, rc, owners, intent) {
     return(status)
   }
   blank <- b == ""
+  rewritten <- NULL
   rule <- fidelity_rule_values(ds, col, o, owners, intent)[ro]
+  rule_b <- fidelity_rule_values(ds, col, o, owners, intent, alt = "b")[ro]
   for (i in seq_len(nrow(lg))) {
     on <- status == "bad" & fidelity_log_covers(lg[i, ], c)[rc]
     if (!any(on)) next
@@ -556,32 +680,30 @@ fidelity_cell_status <- function(ds, col, o, c, ro, rc, owners, intent) {
       status[on & blank] <- "blanked"
     }
     if (step == "deidentify" && lg$derived[i]) {
-      # One quasi-identifier in the row: the original data's pairs of its
-      # value and the derived value.
+      # One text quasi-identifier in the row (RACE for RACEN): the original
+      # data's pairs of its value and the derived value. From a numeric one
+      # (AGE for AGEGR1), 4a keeps the derived value or blanks it.
       q <- sub("^derived from ([^:]+):.*$", "\\1", detail)
-      if (!grepl(",", q, fixed = TRUE) && q %in% names(o) && q %in% names(c)) {
+      if (!grepl(",", q, fixed = TRUE) && q %in% names(o) && q %in% names(c) && fidelity_is_text(o[[q]])) {
         pairs <- paste(fidelity_cell_text(o[[q]]), fidelity_cell_text(o[[col]]), sep = "\x1f")
         now <- paste(fidelity_cell_text(vctrs::vec_slice(c[[q]], rc)), b, sep = "\x1f")
-        status[on & !blank & now %in% pairs] <- "changed"
+        # Counted apart: 4a's log counts the derived values it blanked, not
+        # those it mapped.
+        status[on & !blank & now %in% pairs] <- "derived"
       }
     } else if (step == "generalize") {
       if (startsWith(detail, "recomputed")) {
         status[on & !blank] <- "changed"
       } else if (grepl("rewritten from the generalized `", detail, fixed = TRUE)) {
-        src <- sub("^.*rewritten from the generalized `([^`]+)`.*$", "\\1", detail)
-        if (src %in% names(o) && src %in% names(c)) {
-          so <- as.numeric(fidelity_plain(vctrs::vec_slice(o[[src]], ro)))
-          sc <- as.numeric(fidelity_plain(vctrs::vec_slice(c[[src]], rc)))
-          av <- suppressWarnings(as.numeric(a))
-          bv <- suppressWarnings(as.numeric(b))
-          conversion <- ifelse(!is.na(so) & so != 0 & !is.na(av), av / so, 1)
-          decimals <- ifelse(grepl(".", a, fixed = TRUE), nchar(sub("^[^.]*[.]", "", a)), 0)
-          ok <- !is.na(bv) & !is.na(sc) & abs(bv - sc * conversion) <= 0.5 * 10^-decimals + 1e-9
-          status[on & !blank & ok] <- "changed"
-        }
+        # The text 4a writes, replayed (fidelity_rewrite_values()).
+        if (is.null(rewritten)) rewritten <- fidelity_rewrite_values(ds, col, o, intent)[ro]
+        status[on & !blank & !is.na(rewritten) & b == rewritten] <- "changed"
       } else {
-        num_ok <- suppressWarnings(abs(as.numeric(b) - as.numeric(rule)) <= 1e-9 * pmax(1, abs(as.numeric(rule))))
-        ok <- !is.na(rule) & (b == rule | num_ok %in% TRUE)
+        fits <- function(rule) {
+          num_ok <- suppressWarnings(abs(as.numeric(b) - as.numeric(rule)) <= 1e-9 * pmax(1, abs(as.numeric(rule))))
+          !is.na(rule) & (b == rule | num_ok %in% TRUE)
+        }
+        ok <- fits(rule) | fits(rule_b)
         status[on & !blank & ok] <- "changed"
       }
     }
@@ -601,12 +723,11 @@ fidelity_cell_status <- function(ds, col, o, c, ro, rc, owners, intent) {
       if (length(at) > limit) status[utils::tail(at, length(at) - limit)] <<- "bad"
     }
     over("blanked", budget(fidelity_blank_steps))
-    # Derived values mapped to the released category aren't counted by the
-    # log (it counts the blanked ones); every other change is.
-    if (!any(rows_lg & lg$derived)) {
-      over("changed", budget("generalize"))
-    }
+    over("changed", budget("generalize"))
   }
+  # Derived values mapped to the released category (only those) aren't
+  # counted by the log; every other change is.
+  status[status == "derived"] <- "changed"
   status
 }
 
@@ -989,25 +1110,27 @@ fidelity_owners <- function(df, key) {
 }
 
 # The subject of each row of dataset `ds`, which has no key column but was
-# tied to subjects through its `also` column `col` (as anon_deidentify()
-# does): the key that holds the row's value in the datasets with both, as
-# long as one key holds it. NULL when some row has none.
-fidelity_tied_owners <- function(data, ds, col, key) {
+# tied to subjects through its `also` columns `cols` (as anon_deidentify()
+# does): through the first of them that holds a value in the row, the key
+# that holds that value in the datasets with both, as long as one key holds
+# it. NULL when some row has none.
+fidelity_tied_owners <- function(data, ds, cols, key) {
   df <- data[[ds]]
-  if (is.null(df[[col]]) || is.list(df[[col]])) {
-    return(NULL)
+  owners <- rep(NA_character_, nrow_of(df))
+  for (col in cols) {
+    if (is.null(df[[col]]) || is.list(df[[col]])) next
+    pairs <- lapply(data, function(d) {
+      if (!key %in% names(d) || !col %in% names(d) || is.list(d[[col]])) return(NULL)
+      data.frame(v = fidelity_keys(d[[col]]), k = fidelity_keys(d[[key]]), stringsAsFactors = FALSE)
+    })
+    pairs <- unique(do.call(rbind, Filter(Negate(is.null), pairs)))
+    if (is.null(pairs)) next
+    pairs <- pairs[!is.na(pairs$v) & !is.na(pairs$k), , drop = FALSE]
+    pairs <- pairs[!pairs$v %in% pairs$v[duplicated(pairs$v)], , drop = FALSE]
+    v <- fidelity_keys(df[[col]])
+    take <- is.na(owners) & !is.na(v)
+    owners[take] <- pairs$k[match(v[take], pairs$v)]
   }
-  pairs <- lapply(data, function(d) {
-    if (!key %in% names(d) || !col %in% names(d) || is.list(d[[col]])) return(NULL)
-    data.frame(v = fidelity_keys(d[[col]]), k = fidelity_keys(d[[key]]), stringsAsFactors = FALSE)
-  })
-  pairs <- unique(do.call(rbind, Filter(Negate(is.null), pairs)))
-  if (is.null(pairs)) {
-    return(NULL)
-  }
-  pairs <- pairs[!is.na(pairs$v) & !is.na(pairs$k), , drop = FALSE]
-  pairs <- pairs[!pairs$v %in% pairs$v[duplicated(pairs$v)], , drop = FALSE]
-  owners <- pairs$k[match(fidelity_keys(df[[col]]), pairs$v)]
   if (anyNA(owners)) NULL else owners
 }
 
@@ -1110,7 +1233,8 @@ fidelity_align <- function(orig, copy, key, intent) {
     res <- list(
       map = stats::setNames(rep(NA_character_, length(subjects_o)), subjects_o), dropped = character(0),
       near = character(0), n_unmatched = 0L, n_mismatched = 0L, n_surplus = 0L, n_alike = 0L, n_pattern = 0L,
-      n_class = 0L, n_inconsistent = 0L, class_subjects = character(0)
+      n_class = 0L, n_inconsistent = 0L, n_offsets = 0L, class_subjects = character(0),
+      n_classes = 0L, class_o = character(0), class_c = character(0)
     )
     if (by_key) {
       target <- if (use_secret) secret$pseudonym[match(subjects_o, secret$key)] else subjects_o
@@ -1191,24 +1315,27 @@ fidelity_align <- function(orig, copy, key, intent) {
         aa <- a[fa == fp]
         bb <- b[fb == fp]
         if (length(aa) != length(bb)) next
-        paired <- fidelity_class_pairs(aa, bb, orig, copy, owners_o, owners_c, keyed, key, intent, kept)
-        if (is.null(paired)) next
-        # Which original a copy subject of the class pairs with is arbitrary,
-        # so its own offset can't be checked; each copy subject must have
-        # some original of the class whose first date it is within the
-        # offset range of, and each original some copy subject.
+        # With offset dates, every pair's offset must be one the step can
+        # give (fidelity_offset_pairs()).
         range <- if (intent$dates) intent$offset_range else if (intent$step) c(0, 0) else NULL
-        if (!is.null(range)) {
-          d <- outer(attr(fp_c, "first")[bb], attr(fp_o, "first")[aa], "-")
-          fits <- is.na(d) | (abs(d) >= range[1] & abs(d) <= range[2])
-          lone_c <- bb[rowSums(fits) == 0]
-          lone_a <- aa[colSums(fits) == 0]
-          paired[names(paired) %in% lone_a | paired %in% lone_c] <- NA_character_
-        }
+        paired <- fidelity_class_pairs(
+          aa, bb, orig, copy, owners_o, owners_c, keyed, key, intent, kept,
+          attr(fp_o, "first"), attr(fp_c, "first"), range
+        )
+        if (is.null(paired)) next
         res$class_subjects <- c(res$class_subjects, names(paired)[!is.na(paired)])
+        # The class of each subject on both sides, for related IDs that
+        # name a subject of the class (any of whose pseudonyms fits).
+        res$n_classes <- res$n_classes + 1L
+        res$class_o[aa] <- res$n_classes
+        res$class_c[bb] <- res$n_classes
         res$map[names(paired)] <- paired
         res$n_class <- res$n_class + sum(!is.na(paired))
-        res$n_inconsistent <- res$n_inconsistent + sum(is.na(paired))
+        if (isTRUE(attr(paired, "offsets"))) {
+          res$n_offsets <- res$n_offsets + sum(is.na(paired))
+        } else {
+          res$n_inconsistent <- res$n_inconsistent + sum(is.na(paired))
+        }
         done_a <- c(done_a, aa)
         done_b <- c(done_b, bb)
       }
@@ -1262,6 +1389,9 @@ fidelity_align <- function(orig, copy, key, intent) {
   out$n_near <- length(res$near)
   out$n_pattern <- res$n_pattern
   out$n_class <- res$n_class
+  out$class_o <- res$class_o
+  out$class_c <- res$class_c
+  out$n_offsets <- res$n_offsets
   out$class_subjects <- res$class_subjects
   out$n_inconsistent <- res$n_inconsistent
   out$dropped <- dropped
@@ -1430,7 +1560,8 @@ fidelity_match_rows <- function(o, c) {
 # subjects' positions. Returns the copy subject of each original (NA for
 # those no pairing explains: a change), or NULL when the groups are too many
 # to compare (the class then stays unpaired).
-fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, key, intent, kept) {
+fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, key, intent, kept,
+                                 first_a = NULL, first_b = NULL, range = NULL) {
   cells <- function(data, owners, subjects, side) {
     parts <- list()
     for (ds in keyed) {
@@ -1447,13 +1578,23 @@ fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, ke
           # An original cell stands for what its generalization rule makes
           # of it.
           rule <- fidelity_rule_values(ds, col, df, own, intent)
-          v <- ifelse(is.na(rule), v, rule)
+          rule_b <- fidelity_rule_values(ds, col, df, own, intent, alt = "b")
+          # Where the two counts of a fold differ, either value fits.
+          v <- ifelse(is.na(rule), v, ifelse(rule == rule_b | is.na(rule_b), rule, paste(rule, rule_b, sep = "\x1e")))
         }
         v <- v[rows]
         if (side == "c" && intent$step) {
           v[fidelity_free_cells(ds, col, df, rows, intent, orig[[ds]])] <- "\r*"
         }
         parts[[length(parts) + 1]] <- data.frame(s = own[rows], v = v, stringsAsFactors = FALSE)
+      }
+      # Whether a key column (RSUBJID) names a subject: blank in the copy
+      # where the original is blank or names one the data doesn't hold.
+      for (col in intersect(intent$key_cols, names(df))) {
+        if (is.list(df[[col]])) next
+        v <- fidelity_keys(df[[col]])[rows]
+        named <- !is.na(v) & (side == "c" | v %in% unlist(owners, use.names = FALSE))
+        parts[[length(parts) + 1]] <- data.frame(s = own[rows], v = ifelse(named, "\r=", "-"), stringsAsFactors = FALSE)
       }
     }
     if (length(parts) == 0) {
@@ -1477,8 +1618,18 @@ fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, ke
   for (j in seq_along(gb)) {
     wild <- cb[[j]] == "\r*"
     fits[, j] <- vapply(ca, function(x) {
-      length(x) == length(cb[[j]]) && all(wild | x == cb[[j]])
+      if (length(x) != length(cb[[j]])) return(FALSE)
+      same <- wild | x == cb[[j]]
+      either <- !same & grepl("\x1e", x, fixed = TRUE)
+      if (any(either)) {
+        alts <- strsplit(x[either], "\x1e", fixed = TRUE)
+        same[either] <- vapply(seq_along(alts), function(k) cb[[j]][either][k] %in% alts[[k]], logical(1))
+      }
+      all(same)
     }, logical(1))
+  }
+  if (!is.null(range)) {
+    return(fidelity_offset_pairs(a, b, match(ta, ga), match(tb, gb), fits, first_a, first_b, range))
   }
   flow <- fidelity_max_flow(as.vector(table(factor(ta, ga))), as.vector(table(factor(tb, gb))), fits)
   out <- stats::setNames(rep(NA_character_, length(a)), a)
@@ -1494,6 +1645,73 @@ fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, ke
   }
   out
 }
+
+# Pairs a class subject by subject when the dates were offset (or a step
+# ran that doesn't offset them, `range` 0 to 0): a copy subject `b` fits an
+# original `a` when their cells fit (`fits`, by group) and the distance of
+# their first dates is within the offset range, so that every pair's offset
+# is one the step can give. A greedy pass in date order finds a full
+# matching in the usual case; when it doesn't, a maximum matching by
+# augmenting paths decides, for classes of up to `fidelity_class_exact`
+# subjects. Returns the copy subject of each original (NA where no full
+# matching exists: those subjects fail), with attribute `offsets` TRUE when
+# the cells alone would have fitted (the offsets are what fails), or NULL for
+# a larger class that the greedy pass can't pair (it stays unpaired).
+fidelity_offset_pairs <- function(a, b, group_a, group_b, fits, first_a, first_b, range) {
+  # No dates (no first date) fit any offset.
+  da <- if (is.null(first_a)) rep(NA_real_, length(a)) else unname(first_a[a])
+  db <- if (is.null(first_b)) rep(NA_real_, length(b)) else unname(first_b[b])
+  ok <- function(i) {
+    d <- db - da[i]
+    fits[group_a[i], group_b] & (is.na(d) | (abs(d) >= range[1] & abs(d) <= range[2]))
+  }
+  match_b <- rep(NA_integer_, length(a))
+  used <- rep(FALSE, length(b))
+  for (i in order(da, na.last = TRUE)) {
+    cand <- which(!used & ok(i))
+    if (length(cand) == 0) next
+    j <- cand[order(db[cand], na.last = TRUE)][1]
+    match_b[i] <- j
+    used[j] <- TRUE
+  }
+  if (anyNA(match_b)) {
+    if (length(a) > fidelity_class_exact) {
+      return(NULL)
+    }
+    # Maximum bipartite matching (Kuhn's augmenting paths).
+    adj <- lapply(seq_along(a), function(i) which(ok(i)))
+    owner <- rep(NA_integer_, length(b))
+    augment <- function(i, seen) {
+      for (j in adj[[i]]) {
+        if (seen[j]) next
+        seen[j] <- TRUE
+        if (is.na(owner[j])) {
+          owner[j] <<- i
+          return(list(found = TRUE, seen = seen))
+        }
+        r <- augment(owner[j], seen)
+        seen <- r$seen
+        if (r$found) {
+          owner[j] <<- i
+          return(list(found = TRUE, seen = seen))
+        }
+      }
+      list(found = FALSE, seen = seen)
+    }
+    for (i in seq_along(a)) augment(i, rep(FALSE, length(b)))
+    match_b <- match(seq_along(a), owner)
+  }
+  out <- stats::setNames(ifelse(is.na(match_b), NA_character_, b[match_b]), a)
+  # Whether the cells alone would have paired everyone.
+  attr(out, "offsets") <- anyNA(match_b) &&
+    all(fidelity_max_flow(as.vector(table(factor(group_a, seq_len(nrow(fits))))),
+      as.vector(table(factor(group_b, seq_len(ncol(fits))))), fits) |> rowSums() == table(factor(group_a, seq_len(nrow(fits)))))
+  out
+}
+
+# The largest class paired subject by subject by augmenting paths when the
+# greedy pass leaves some unpaired (fidelity_offset_pairs()).
+fidelity_class_exact <- 300L
 
 # Maximum flow from groups of originals (`supply`, subjects per group) to
 # groups of copies (`demand`) along the pairs `fits` allows, by augmenting
@@ -1703,8 +1921,17 @@ fidelity_related_ids <- function(orig, copy, align, intent) {
       owner_c <- align$owners_c[[ds]][pairs$c]
       if (col %in% intent$key_cols) {
         want <- unname(align$map[a])
-        use <- !is.na(a) & !is.na(want)
-        ok <- !is.na(b[use]) & b[use] == want[use]
+        # Blank where the original is blank, or names a subject the data
+        # doesn't hold (the IDs step removes it).
+        outside <- is.na(a) | !a %in% unlist(align$owners_o, use.names = FALSE)
+        use <- !is.na(want) | outside
+        # A subject paired as a class (alike with others in everything the
+        # checks compare) may be named by the pseudonym of any subject of
+        # its class.
+        same_class <- !is.na(a) & a %in% names(align$class_o) & !is.na(b) & b %in% names(align$class_c) &
+          unname(align$class_o[a]) == unname(align$class_c[b])
+        same_class[is.na(same_class)] <- FALSE
+        ok <- ifelse(outside[use], is.na(b[use]), !is.na(b[use]) & (b[use] %in% want[use] & b[use] == want[use] | same_class[use]))
       } else if (intent$pseudonymized) {
         use <- !is.na(a)
         ok <- !is.na(b[use]) & same_id(b[use], number(owner_c[use]))
@@ -1767,7 +1994,7 @@ fidelity_check_copies <- function(orig, copy, align, intent) {
 
 fidelity_check_pseudonyms <- function(align, related) {
   failed <- align$n_unmatched + align$n_mismatched + align$n_surplus + align$n_pattern + align$n_inconsistent +
-    related$failed
+    align$n_offsets + related$failed
   detail <- paste0(
     align$n_aligned, " of ", align$n_subjects, " subject(s) paired ", align$how,
     if (align$n_alike > 0) paste0(
@@ -1775,6 +2002,10 @@ fidelity_check_pseudonyms <- function(align, related) {
     ),
     if (align$n_class > 0) paste0(
       "; ", align$n_class, " of them alike in every unchanged column and in their dates, paired as a class"
+    ),
+    if (align$n_offsets > 0) paste0(
+      "; ", align$n_offsets, " alike subject(s) that no pairing within their class gives an offset within the ",
+      "dates step's range"
     ),
     if (align$n_inconsistent > 0) paste0(
       "; ", align$n_inconsistent, " alike subject(s) whose values no pairing within their class explains"
@@ -2177,11 +2408,8 @@ fidelity_check_intervals <- function(orig, copy, align, key, intent) {
   cells$ok[full] <- cells$delta[full] == subject_offset[full] & cells$same_time[full]
   # Each subject's offset within the dates step's range; none without it.
   range <- if (intent$dates) intent$offset_range else if (intent$step) c(0, 0) else NULL
-  # Subjects paired as a class have their range checked with the class (see
-  # fidelity_align()).
   outside <- if (is.null(range)) rep(FALSE, nrow(cells)) else {
-    !is.na(subject_offset) & (abs(subject_offset) < range[1] | abs(subject_offset) > range[2]) &
-      !cells$s %in% align$class_subjects
+    !is.na(subject_offset) & (abs(subject_offset) < range[1] | abs(subject_offset) > range[2])
   }
   cells$ok[full & outside] <- FALSE
   month <- cells$type == "month"

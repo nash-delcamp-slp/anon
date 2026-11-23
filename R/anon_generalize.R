@@ -591,7 +591,9 @@ set_generalized_column <- function(df, col, value, changed) {
   }
   df <- set_column(df, match(col, names(df)), value)
   if (inherits(df, c("grouped_df", "rowwise_df")) && col %in% names(attr(df, "groups", exact = TRUE))) {
-    df <- vctrs::vec_slice(df, seq_len(nrow_of(df)))
+    # Rebuilds the groups; slice_rows() keeps the attributes a column class
+    # drops when sliced (hms labels).
+    df <- slice_rows(df, seq_len(nrow_of(df)))
   }
   df
 }
