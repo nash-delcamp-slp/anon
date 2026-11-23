@@ -180,14 +180,14 @@ subjects remain, when a copy of a column quasi-identifier in another
 dataset with the key shows a different value than its own dataset for a
 subject (for example `AGE` in `adsl` not generalized like `AGE` in
 `dm`), or when a dataset holding `AGE` as a quasi-identifier also holds
-a birth date more precise than a year (`BRTHDTC`, or a Date `BRTHDT`):
-with a reference date such as `RFSTDTC`, it gives the age back exactly,
-even after the dates were offset (both move together). Remove birth
-dates or reduce them to the year first. Other dates can give a
-quasi-identifier back the same way (an age at an event from `--DTC`, an
-ADaM `AAGE`), and so can derived columns (`AGEGR1` from `AGE`, `RACEN`
-from `RACE`): list them as quasi-identifiers or generalize them
-together.
+a birth date more precise than a year (a column named like a birth date,
+such as `BRTHDTC`, a Date `BRTHDT`, `BIRTHDATE` or `DOB`): with a
+reference date such as `RFSTDTC`, it gives the age back exactly, even
+after the dates were offset (both move together). Remove birth dates or
+reduce them to the year first. Other dates can give a quasi-identifier
+back the same way (an age at an event from `--DTC`, an ADaM `AAGE`), and
+so can derived columns (`AGEGR1` from `AGE`, `RACEN` from `RACE`): list
+them as quasi-identifiers or generalize them together.
 
 The log has one row per quasi-identifier (and result column) blanked,
 with the number of cells blanked and of subjects, one row per dataset

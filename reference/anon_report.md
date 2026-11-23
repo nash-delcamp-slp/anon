@@ -18,7 +18,8 @@ anon_report(
   df_classes = NULL,
   check_names = TRUE,
   check_labels = TRUE,
-  nlp_auto = getOption("anon.nlp_auto")
+  nlp_auto = getOption("anon.nlp_auto"),
+  fidelity = NULL
 )
 ```
 
@@ -148,6 +149,13 @@ anon_report(
   and can be set as the `anon.nlp_auto` global option. This argument
   overrides the global option.
 
+- fidelity:
+
+  Optional result of
+  [`anon_check_fidelity()`](https://nash-delcamp-slp.github.io/anon/reference/anon_check_fidelity.md)
+  for the de-identification step the report describes, added to its
+  De-identification section.
+
 ## Value
 
 An object of class `"anon_report"` containing the names of the selected
@@ -155,4 +163,24 @@ objects (`object_names`), an object inventory and an environment summary
 for them, with your rules applied to all of it, object names and a
 step's dataset names (`step$dm`) included: every part shows the same
 redacted names, made unique when two redact alike (`"[DRUG]"`,
-`"[DRUG] 1"`). `selection` takes the objects' real names.
+`"[DRUG] 1"`). `selection` takes the objects' real names. For a
+de-identification step, also `deidentification` (see Details).
+
+## Details
+
+**De-identification.** When `envir` is a de-identification step (such as
+an
+[`anon_deidentify()`](https://nash-delcamp-slp.github.io/anon/reference/anon_deidentify.md)
+result), or holds one, the report gains a `deidentification` element
+telling whoever reads the copy what was changed: `caveats` (short notes
+generated from the step's log and settings, such as "Dates are shifted
+by a per-subject offset ..."), `risk` before and after (smallest group,
+subjects below the target, maximum risk), `meets_target` and `not_met`,
+`settings` (rule parameters), `levels` (the level each quasi-identifier
+was released at), `profile_rules`, `signals` (residual signals, counts
+only), `steps` (the step log) and `fidelity`, if given. It holds counts,
+names and rule parameters only, with your rules applied as to the rest
+of the report; never data values, pseudonym maps, date offsets or
+original keys, even when the step kept its secrets. With several steps,
+`deidentification` holds one such section per step, named as the report
+names the step, and `fidelity` can't be given.

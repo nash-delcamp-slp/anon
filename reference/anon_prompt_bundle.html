@@ -48,7 +48,8 @@
 <span>  include_inventory <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  include_data_summary <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  include_text <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  include_comparison <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>  include_comparison <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  include_deidentification <span class="op">=</span> <span class="cn">TRUE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -93,6 +94,13 @@ section when <code>report</code> is provided.</p></dd>
 
 <dt id="arg-include-comparison">include_comparison<a class="anchor" aria-label="anchor" href="#arg-include-comparison"></a></dt>
 <dd><p>Logical indicating whether to include <code>comparison</code>.</p></dd>
+
+
+<dt id="arg-include-deidentification">include_deidentification<a class="anchor" aria-label="anchor" href="#arg-include-deidentification"></a></dt>
+<dd><p>Logical indicating whether to include the
+report's De-identification section (see <code><a href="anon_report.html">anon_report()</a></code>), when it has
+one. It comes first, before the inventory, so that the caveats about the
+de-identified copy are read before the data.</p></dd>
 
 </dl></div>
     <div class="section level2">

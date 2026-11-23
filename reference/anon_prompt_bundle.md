@@ -14,7 +14,8 @@ anon_prompt_bundle(
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,
-  include_comparison = TRUE
+  include_comparison = TRUE,
+  include_deidentification = TRUE
 )
 ```
 
@@ -60,6 +61,14 @@ anon_prompt_bundle(
 - include_comparison:
 
   Logical indicating whether to include `comparison`.
+
+- include_deidentification:
+
+  Logical indicating whether to include the report's De-identification
+  section (see
+  [`anon_report()`](https://nash-delcamp-slp.github.io/anon/reference/anon_report.md)),
+  when it has one. It comes first, before the inventory, so that the
+  caveats about the de-identified copy are read before the data.
 
 ## Value
 

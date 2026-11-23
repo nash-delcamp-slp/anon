@@ -154,7 +154,7 @@
       </dl></div><div class="section level2">
       <h2 id="de-identification">De-identification<a class="anchor" aria-label="anchor" href="#de-identification"></a></h2>
 
-      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets, pseudonymize subjects and offset their dates consistently across datasets, and generalize or suppress quasi-identifiers to bring the risk under a target.</p></div>
+      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets, pseudonymize subjects and offset their dates consistently across datasets, and generalize or suppress quasi-identifiers to bring the risk under a target, step by step or in one call with an SDTM or ADaM profile.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -162,6 +162,27 @@
 
 
       <dl><dt>
+
+          <code><a href="anon_deidentify.html">anon_deidentify()</a></code>
+
+        </dt>
+        <dd>De-identify linked datasets with a profile</dd>
+
+        <dt>
+
+          <code><a href="anon_check_fidelity.html">anon_check_fidelity()</a></code>
+
+        </dt>
+        <dd>Check that code tested on a de-identified copy should run on the original</dd>
+
+        <dt>
+
+          <code><a href="anon_profile.html">anon_profile()</a></code> <code><a href="anon_profile.html">anon_profile_rule()</a></code> <code><a href="anon_profile.html">anon_profile_sdtm()</a></code> <code><a href="anon_profile.html">anon_profile_adam()</a></code> <code><a href="anon_profile.html">anon_profile_combine()</a></code> <code><a href="anon_profile.html">c(<i>&lt;anon_profile&gt;</i>)</a></code> <code><a href="anon_profile.html">as.data.frame(<i>&lt;anon_profile&gt;</i>)</a></code>
+
+        </dt>
+        <dd>De-identification profiles</dd>
+
+        <dt>
 
           <code><a href="anon_risk.html">anon_risk()</a></code>
 
@@ -181,6 +202,13 @@
 
         </dt>
         <dd>Specify quasi-identifier values that vary by row</dd>
+
+        <dt>
+
+          <code><a href="anon_quasi_duration.html">anon_quasi_duration()</a></code>
+
+        </dt>
+        <dd>Specify a duration between two dates as a quasi-identifier</dd>
 
         <dt>
 
