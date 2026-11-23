@@ -1195,3 +1195,22 @@ test_that("a codelist without the key can be kept with a rule limited to it", {
   expect_true(r$settings$deidentify$meets_target)
   expect_identical(r$data$fmt, fmt)
 })
+
+test_that("the settings name the datasets tied to subjects through `also` columns, and the columns", {
+  n <- 12
+  dm <- data.frame(
+    USUBJID = sprintf("ZZT-%03d", 1:n), SUBJID = sprintf("%03d", 1:n), USUBJIDN = 1:n,
+    AGE = rep(c(30, 40, 50), 4), SEX = rep(c("F", "M"), 6), stringsAsFactors = FALSE
+  )
+  at <- rev(rep(1:n, each = 2))
+  xs <- data.frame(SUBJID = dm$SUBJID[at], USUBJIDN = dm$USUBJIDN[at], XSORRES = seq_along(at), stringsAsFactors = FALSE)
+  xs$SUBJID[c(TRUE, FALSE)] <- NA
+  xs$USUBJIDN[c(FALSE, TRUE)] <- NA
+  res <- suppressWarnings(anon_deidentify(list(dm = dm, xs = xs), anon_profile_sdtm(min_n = 2), max_risk = 1/2, seed = 1))
+  tied <- res$settings$deidentify$tied
+  expect_named(tied, "xs")
+  expect_setequal(tied$xs, c("SUBJID", "USUBJIDN"))
+  expect_false("USUBJID" %in% names(res$data$xs))
+  plain <- suppressWarnings(anon_deidentify(list(dm = dm), anon_profile_sdtm(min_n = 2), max_risk = 1/2, seed = 1))
+  expect_length(plain$settings$deidentify$tied, 0)
+})

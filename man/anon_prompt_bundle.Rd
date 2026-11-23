@@ -13,7 +13,8 @@ anon_prompt_bundle(
   include_inventory = TRUE,
   include_data_summary = TRUE,
   include_text = TRUE,
-  include_comparison = TRUE
+  include_comparison = TRUE,
+  include_deidentification = TRUE
 )
 }
 \arguments{
@@ -37,6 +38,11 @@ section when \code{report} is provided.}
 \item{include_text}{Logical indicating whether to include \code{text}.}
 
 \item{include_comparison}{Logical indicating whether to include \code{comparison}.}
+
+\item{include_deidentification}{Logical indicating whether to include the
+report's De-identification section (see \code{\link[=anon_report]{anon_report()}}), when it has
+one. It comes first, before the inventory, so that the caveats about the
+de-identified copy are read before the data.}
 }
 \value{
 A length-one character vector of class \code{"anon_prompt_bundle"}.

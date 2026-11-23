@@ -471,7 +471,7 @@ assemble_tables <- function(tables, finish = function(df, tb, m) df) {
     e <- finish(e, tb, m)
     if (inherits(e, c("grouped_df", "rowwise_df")) &&
       any(names(e)[tb$changed] %in% names(attr(e, "groups", exact = TRUE)))) {
-      e <- vctrs::vec_slice(e, seq_len(nrow_of(e)))
+      e <- slice_rows(e, seq_len(nrow_of(e)))
     }
     e
   }

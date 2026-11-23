@@ -51,6 +51,7 @@ reference:
       ADaM profile.
     contents:
       - anon_deidentify
+      - anon_check_fidelity
       - anon_profile
       - anon_risk
       - anon_risk_subjects

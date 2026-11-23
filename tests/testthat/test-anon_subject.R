@@ -2078,3 +2078,21 @@ test_that("the dates step masks the values of every related-ID column in the loc
   )
   expect_equal(step$settings$subject_dates$also, also)
 })
+
+test_that("the subject steps keep the attributes of hms columns when they sort and drop rows", {
+  skip_if_not_installed("hms")
+  tm <- hms::hms(hours = c(8, 9, 10, 11))
+  attr(tm, "label") <- "Analysis Time"
+  dm <- data.frame(USUBJID = c("B", "A", "D", "C"), AGE = c(30, 30, 40, 70))
+  pc <- data.frame(USUBJID = c("B", "A", "D", "C"))
+  pc$ATM <- tm
+  pc$PK <- data.frame(TM = tm)
+  data <- list(dm = dm, pc = pc)
+  ids <- suppressWarnings(anon_subject_ids(data, seed = 1))
+  expect_identical(attr(ids$data$pc$ATM, "label"), "Analysis Time")
+  expect_identical(attr(ids$data$pc$PK$TM, "label"), "Analysis Time")
+  expect_s3_class(ids$data$pc$ATM, "hms")
+  dropped <- suppressWarnings(anon_suppress(data, list(dm = "AGE"), max_risk = 1/2, method = "drop"))
+  expect_lt(nrow(dropped$data$pc), 4)
+  expect_identical(attr(dropped$data$pc$ATM, "label"), "Analysis Time")
+})

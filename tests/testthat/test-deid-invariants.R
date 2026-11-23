@@ -413,22 +413,27 @@ for (pipeline_name in names(deid_pipelines)) {
           expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
           next
         }
-        if (!key %in% names(original)) {
+        # A dataset that anon_deidentify() tied to subjects through SUBJID is
+        # processed as one with the key, and released without it.
+        tied <- deid_tied_through(step, deid_rewrite_text(ds, oracle, names = TRUE))
+        if (!key %in% names(original) && is.null(tied)) {
           no_key <- rep(NA_character_, nrow(original))
           want <- deid_expected_frame(original, no_key, oracle, pipeline$prefix, key, FALSE, sort = TRUE, nested = FALSE)
           expect_identical(out, want, info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
-        all_keys <- as.character(deid_zap_codes(original[[key]]))
+        all_keys <- if (is.null(tied)) as.character(deid_zap_codes(original[[key]])) else deid_tied_keys(data, ds, tied, key)
         keys <- all_keys[keep]
         # Rows are sorted by the new key, keeping their order within a
         # subject; rows without a key come last.
         ord <- order(unname(oracle$new_key[keys]), seq_along(keys))
-        out_keys <- as.character(out[[key]])
-        blank <- is.na(out_keys) | out_keys == ""
-        expect_false(is.unsorted(out_keys[!blank]), info = ds)
-        expect_identical(blank, sort(blank), info = ds)
+        if (is.null(tied)) {
+          out_keys <- as.character(out[[key]])
+          blank <- is.na(out_keys) | out_keys == ""
+          expect_false(is.unsorted(out_keys[!blank]), info = ds)
+          expect_identical(blank, sort(blank), info = ds)
+        }
 
         for (col in setdiff(names(original), deid_removed_columns(pipeline$removed, ds))) {
           id <- paste0(ds, ".", col)
@@ -644,6 +649,27 @@ for (pipeline_name in names(deid_pipelines)) {
         }
       }
     }
+  })
+
+  # anon_check_fidelity() on the fixture: no check fails. The harness's own
+  # checks of the same properties, above and below, stay independent of it.
+  test_that(paste0(pipeline_name, ": anon_check_fidelity() finds no regression against the fixture"), {
+    data <- pipeline$fixture()
+    step <- deid_run(pipeline, data)$step
+    fidelity <- anon_check_fidelity(data, step, key = key)
+    failed <- fidelity[fidelity$status == "fail", , drop = FALSE]
+    expect_identical(paste(failed$dataset, failed$check, failed$detail, sep = ": "), character(0))
+    # The result names no original key, real date or user term (the original's
+    # names that hold them are counted, not shown), as text or serialized, nor
+    # does a report that includes it.
+    report <- anon_report(deid_drop_flagged(step, pipeline$flagged), fidelity = fidelity)
+    shown <- list(
+      print = list(text = capture.output(print(fidelity)), patterns = FALSE),
+      json = list(text = as.character(as_anon_json(fidelity)), patterns = FALSE),
+      serialize = list(raw = serialize(fidelity, NULL), patterns = FALSE),
+      report = list(text = as.character(as_anon_json(report)), raw = serialize(report, NULL), patterns = FALSE)
+    )
+    expect_equal(deid_leaks(shown), character(0))
   })
 
   test_that(paste0(pipeline_name, ": datasets still join and study days stay consistent"), {

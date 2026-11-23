@@ -362,3 +362,15 @@ test_that("anon_generalize() warns about birth dates next to AGE and about copie
   )
   expect_no_warning(anon_generalize(list(dm = dm, adsl = adsl), list(dm = list(AGE = anon_band(10)), adsl = list(AGE = anon_band(10)))))
 })
+
+test_that("generalizing a grouping column keeps the attributes of the other grouping columns", {
+  skip_if_not_installed("hms")
+  skip_if_not_installed("dplyr")
+  tm <- hms::hms(hours = c(8, 9, 10, 11))
+  attr(tm, "label") <- "Time"
+  df <- dplyr::group_by(data.frame(USUBJID = c("A", "B", "C", "D"), AGE = c(31, 34, 52, 58), TM = tm), AGE, TM)
+  out <- anon_generalize(list(dm = df), list(dm = list(AGE = anon_band(10))))$data$dm
+  expect_s3_class(out, "grouped_df")
+  expect_identical(out$AGE, c(30, 30, 50, 50))
+  expect_identical(attr(out$TM, "label"), "Time")
+})

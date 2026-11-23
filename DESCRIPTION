@@ -26,6 +26,7 @@ Suggests:
     bench,
     bslib,
     haven,
+    hms,
     officer,
     pdftools,
     pharmaverseadam,
