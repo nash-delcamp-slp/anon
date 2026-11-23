@@ -45,14 +45,19 @@ reference:
   - title: De-identification
     desc: >
       Measure re-identification risk from quasi-identifiers across linked
-      datasets, and pseudonymize subjects and offset their dates consistently
-      across datasets.
+      datasets, pseudonymize subjects and offset their dates consistently
+      across datasets, and generalize or suppress quasi-identifiers to bring
+      the risk under a target.
     contents:
       - anon_risk
       - anon_risk_subjects
       - anon_quasi_values
       - anon_subject_ids
       - anon_subject_dates
+      - anon_generalize
+      - anon_band
+      - anon_rule
+      - anon_suppress
       - anon_secrets
 
   - title: Named entity recognition

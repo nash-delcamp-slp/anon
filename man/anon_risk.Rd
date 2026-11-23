@@ -4,7 +4,13 @@
 \alias{anon_risk}
 \title{Measure re-identification risk from quasi-identifiers}
 \usage{
-anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
+anon_risk(
+  data,
+  quasi,
+  key = "USUBJID",
+  max_risk = 0.09,
+  na = c("value", "wildcard")
+)
 }
 \arguments{
 \item{data}{A data frame, a named list of data frames linked by \code{key}, or
@@ -29,6 +35,17 @@ threshold Health Canada and EMA encourage for public release of clinical
 information, and requires groups of at least 12. Health Canada equates
 0.09 with a cell size of 11, but \code{1 / 11} is about 0.0909; to use groups of
 11, pass \code{max_risk = 1/11}. See Details.}
+
+\item{na}{How a missing quasi-identifier value counts when forming groups.
+\code{"value"} (default): a missing value is a value of its own, and a cell
+blanked by \code{\link[=anon_suppress]{anon_suppress()}} is another value of its own (see "After
+suppression" in Details): groups are records with exactly the same
+released pattern. \code{"wildcard"}: every missing value matches any value,
+both ways, as sdcMicro's symmetric count does; a subject's \code{k} is then
+the number of subjects whose values agree with its own wherever both
+have a value. It counts real missing values as suppressed, and a few
+records blanked everywhere match everyone, so it can claim a target is
+met when it isn't; it is kept for comparison only.}
 }
 \value{
 An object of class \code{"anon_risk"}, a list with:
@@ -47,7 +64,11 @@ non-missing values (\code{n_values}), the number of missing values
 left out). Rows are ordered so the variable whose removal helps most
 comes first: by \code{n_below_k_without}, then \code{n_unique_without}, then
 \code{avg_risk_without} (all ascending), then the order of \code{quasi}.
-\item \code{quasi}, \code{key}: the quasi-identifier names and key used.
+\item \code{quasi}, \code{key}, \code{na}: the quasi-identifier names, key and \code{na} used;
+\code{n_blanked}, the number of cells blanked by suppression, from the
+step's record of them; and \code{from_step}, whether \code{data} was a step (a
+plain list can't tell blanked cells from missing values, and the print
+says so).
 \item \code{sources}: one row per quasi-identifier giving where it comes from:
 \code{variable}, \code{dataset}, and either \code{column} or \code{test_col}, \code{test} and
 \code{result_col}, plus \code{filtered} (whether a \code{filter} was used). The filter
@@ -73,6 +94,34 @@ with no value for a quasi-identifier (for example, missing from \code{vs}) gets
 \code{NA} for it, and \code{NA} is treated as a value of its own when forming groups.
 Blank strings, which is how SAS transport (XPT) files store missing text, are
 treated as missing. Values are otherwise grouped by exact equality.
+
+\strong{After suppression.} Risk is k-anonymity on the released table: each
+released record's pattern is its visible values plus the places of the
+cells \code{\link[=anon_suppress]{anon_suppress()}} blanked, a blanked cell counting as a value of its
+own, and a subject's \code{k} is the number of released records with exactly
+its pattern. Real missing values are values, distinct from blanked cells.
+An attacker who knows a subject's values then finds at least \code{k} records
+that could be it, and a record blanked everywhere hides only among other
+records blanked everywhere. Which cells were blanked is read from the step
+result that \code{\link[=anon_suppress]{anon_suppress()}} returns (and that later steps carry on).
+Measuring a plain list of data frames treats blanked cells as missing
+values: pass the step.
+
+A filter in \code{\link[=anon_quasi_values]{anon_quasi_values()}} measures one value per subject; a subject
+without a value after the filter (for example, without a baseline flag)
+has a missing value, which is a value. Its other rows are still in the
+data: generalize every row of the test (see \code{\link[=anon_rule]{anon_rule()}}).
+
+With \code{na = "wildcard"}, groups overlap: a subject with a missing value can
+count towards several groups, and \code{k} is counted for each subject on its
+own, as sdcMicro does for suppressed cells. Subjects with the same values
+are counted together, so the work grows with the number of distinct
+combinations that have a missing value times the number of distinct
+combinations (at most the number of subjects squared, times the number of
+quasi-identifiers). With 3,000 subjects, 7 quasi-identifiers and a few
+hundred blanked cells, \code{anon_risk()}, which repeats the count once for each
+quasi-identifier left out (\code{drivers}), takes about a second. Without
+missing values it gives the same result as \code{"value"}.
 
 Risk is measured on one value per subject for each quasi-identifier. A copy
 shared with others usually contains every row of a dataset (for example
@@ -139,5 +188,6 @@ anon_risk(
 
 }
 \seealso{
-\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject group sizes.
+\code{\link[=anon_risk_subjects]{anon_risk_subjects()}} for per-subject group sizes;
+\code{\link[=anon_generalize]{anon_generalize()}} and \code{\link[=anon_suppress]{anon_suppress()}} to bring the risk down.
 }

@@ -58,11 +58,14 @@ value). With \code{"shift"}, a year-and-month date (\code{"2014-03"}, or SDTM
 \code{"2014-03--T08:00"} with the time kept) moves the middle of the month by
 the subject's offset and keeps month precision; a year-only date
 (\code{"2014"}, or SDTM \code{"2014---15"} with the day kept) moves by whole years,
-at least one, in the direction of the offset, so the real year is never
-kept. Both ends of an interval (\code{"2014-01-02/2014-01-05"}) are shifted.}
+\verb{max(1, round(|offset| / 365.25))}, so the real year is never kept, in a
+direction (earlier or later) drawn at random for each subject apart from
+the offset, so that it doesn't reveal which way the subject's dates
+moved. Both ends of an interval (\code{"2014-01-02/2014-01-05"}) are shifted.}
 
-\item{keep_secrets}{Logical. If \code{TRUE}, keep each subject's offset; read it
-with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}.}
+\item{keep_secrets}{Logical. If \code{TRUE}, keep each subject's offset and the
+direction of its year-only dates (\code{offset_days} and \code{year_direction}, -1
+or 1); read them with \code{\link[=anon_secrets]{anon_secrets()}}. Default \code{FALSE}.}
 
 \item{seed}{Optional seed for the random assignment, for reproducible tests.
 Anyone with the seed and the original data can rebuild the mapping, so do

@@ -7,10 +7,11 @@
 # pseudonym's number, dates move by the subject's offset, and everything else
 # is unchanged. Full dates move by the offset (POSIXct by calendar days,
 # keeping the clock time), year-and-month dates from day 15 of the month,
-# year-only dates by whole years (at least one, in the direction of the
-# offset), each end of an interval on its own; durations are kept. In rows
-# without a key, the key stays blank and SUBJID and dates are removed (set to
-# the column's missing value).
+# year-only dates by whole years (at least one, in the subject's own random
+# direction, kept in the secrets apart from the offset), each end of an
+# interval on its own; durations are kept. In rows without a key, the key
+# stays blank and SUBJID and dates are removed (set to the column's missing
+# value).
 deid_date_cols <- c(
   "RFSTDTC", "rficdtc", "RFSTDT", "VSDTC", "VSDTM", "VSNYDTM", "EXSTDTC", "EXENDTC", "QVAL",
   "PRSTDTC", "PRENDTC", "PRRNDTC", "PRDUDTC", "PRMTDTC", "PRYDDTC", "PRYRDTC",
@@ -24,13 +25,13 @@ deid_missing_like <- function(x) {
   if (any(!is.na(x) & x == "")) "" else NA_character_
 }
 
-deid_shift_text <- function(x, off) {
+deid_shift_text <- function(x, off, direction) {
   if (is.na(x) || !nzchar(x) || grepl("^P", x)) {
     return(x)
   }
   if (grepl("/", x, fixed = TRUE)) {
     ends <- strsplit(x, "/", fixed = TRUE)[[1]]
-    return(paste(vapply(ends, deid_shift_text, character(1), off = off, USE.NAMES = FALSE), collapse = "/"))
+    return(paste(vapply(ends, deid_shift_text, character(1), off = off, direction = direction, USE.NAMES = FALSE), collapse = "/"))
   }
   if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}", x)) {
     return(paste0(format(as.Date(substr(x, 1, 10)) + off), substring(x, 11)))
@@ -39,7 +40,7 @@ deid_shift_text <- function(x, off) {
     return(paste0(format(as.Date(paste0(substr(x, 1, 7), "-15")) + off, "%Y-%m"), substring(x, 8)))
   }
   if (grepl("^[0-9]{4}($|---)", x)) {
-    years <- sign(off) * max(1, round(abs(off) / 365.25))
+    years <- direction * max(1, round(abs(off) / 365.25))
     return(paste0(sprintf("%04d", as.integer(substr(x, 1, 4)) + years), substring(x, 5)))
   }
   stop("No expected value for date ", x)
@@ -50,6 +51,7 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
     return(deid_expected_nested(x, keys, oracle, prefix, key, keyed = TRUE))
   }
   off <- unname(oracle$offset[keys])
+  direction <- unname(oracle$year_direction[keys])
   if (col %in% c(key, "RSUBJID")) {
     # A key's haven missing-value codes become missing; numeric keys get
     # numbers.
@@ -73,7 +75,7 @@ deid_expected_column <- function(x, col, keys, oracle, prefix, key) {
   present <- !is.na(x) & nzchar(x)
   no_key <- is.na(off)
   out <- x
-  out[!no_key] <- vapply(which(!no_key), function(i) deid_shift_text(x[i], off[i]), character(1))
+  out[!no_key] <- vapply(which(!no_key), function(i) deid_shift_text(x[i], off[i], direction[i]), character(1))
   out[no_key & present] <- deid_missing_like(x)
   out
 }
@@ -102,7 +104,8 @@ deid_shift_value <- function(x, off) {
 # de-identified are left as they are.
 deid_expected_nested <- function(x, keys, oracle, prefix, key, keyed) {
   if (is.data.frame(x)) {
-    return(deid_expected_frame(x, keys, oracle, prefix, key, keyed))
+    # A packed column: its rows are its outer rows'.
+    return(deid_expected_frame(x, keys, oracle, prefix, key, keyed, filter = FALSE))
   }
   if (!deid_plain_list(x)) {
     return(x)
@@ -203,54 +206,16 @@ deid_expected_element <- function(e, owner, oracle, prefix, key, keyed) {
   deid_rewrite_attributes(out, oracle)
 }
 
-# The subjects a data frame's rows have of their own (kept apart from the
-# package's own rule, covering the same cases): from its key column; from a
-# packed column that has its own (each packed row belongs to its outer row);
-# or from a list column whose data frames hold one subject per row. Returns
-# the keys (NA: none) and where they came from, or NULL.
-deid_frame_owners <- function(df, key) {
-  if (key %in% names(df)) {
-    k <- as.character(deid_zap_codes(df[[key]]))
-    # Blank keys, also of spaces only, are no key.
-    k[!is.na(k) & trimws(k) == ""] <- NA
-    return(list(keys = k, from = "own"))
-  }
-  for (v in unclass(df)) {
-    if (is.data.frame(v)) {
-      o <- deid_frame_owners(v, key)
-      if (!is.null(o) && o$from != "list") return(list(keys = o$keys, from = "packed"))
-    }
-  }
-  # The subjects of all data frames a list element holds, at any depth
-  # through plain lists.
-  held <- function(e) {
-    if (is.data.frame(e)) {
-      return(deid_frame_owners(e, key)$keys)
-    }
-    if (deid_plain_list(e)) {
-      return(unlist(lapply(e, held), use.names = FALSE))
-    }
-    NULL
-  }
-  for (v in unclass(df)) {
-    if (!is.data.frame(v) && deid_plain_list(v)) {
-      per_row <- lapply(v, function(e) unique(stats::na.omit(held(e))))
-      # Every row must hold exactly one subject.
-      if (length(per_row) > 0 && all(lengths(per_row) == 1)) {
-        return(list(keys = unlist(per_row), from = "list"))
-      }
-    }
-  }
-  NULL
-}
-
 # A data frame as each pipeline should leave it, its rows belonging to `keys`
 # (NA: no subject) unless it has subjects of its own (see
 # deid_frame_owners(); those found through a list column only when its rows
 # don't already belong to subjects). With `sort` (a data frame held in a list
 # column, or a dataset), rows with subjects of their own are sorted by the new
 # key; inside nested data, with subjects, a data frame's row names are reset.
-deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FALSE, nested = TRUE) {
+# With `filter`, rows with subjects of their own that the pipeline drops
+# (`oracle$dropped`) are removed; a packed column (`filter = FALSE`) keeps
+# its rows, which are its outer rows'.
+deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FALSE, nested = TRUE, filter = TRUE) {
   o <- deid_frame_owners(df, key)
   own <- !is.null(o) && (o$from != "list" || !keyed)
   if (own) {
@@ -285,6 +250,11 @@ deid_expected_frame <- function(df, keys, oracle, prefix, key, keyed, sort = FAL
   rn <- attr(df, "row.names")
   positions <- is.numeric(rn) || all(grepl("^[0-9]+$", rn))
   x <- deid_rewrite_frame_text(x, df, cls, oracle)
+  if (filter && own && length(oracle$dropped) > 0) {
+    kept <- is.na(keys) | !keys %in% oracle$dropped
+    x <- vctrs::vec_slice(x, kept)
+    keys <- keys[kept]
+  }
   if (sort && own && nrow(x) > 1) {
     x <- vctrs::vec_slice(x, order(unname(oracle$new_key[keys]), seq_along(keys), na.last = TRUE))
   }
@@ -317,13 +287,13 @@ deid_no_row_names <- function(x, packed) {
 # pipeline without secrets, that of the pipeline it must match.
 deid_text_oracle <- function(pipeline, step) {
   if (isTRUE(pipeline$keep_secrets)) {
-    return(deid_oracle(step, pipeline$other_attributes))
+    return(deid_oracle(step, pipeline$other_attributes, pipeline$dropped))
   }
   if (is.null(pipeline$same_as)) {
     stop("A pipeline without secrets needs `same_as` to check its attributes and names.")
   }
   twin <- deid_complete_pipeline(deid_pipelines[[pipeline$same_as]])
-  deid_oracle(deid_run(twin, twin$fixture())$step, pipeline$other_attributes)
+  deid_oracle(deid_run(twin, twin$fixture())$step, pipeline$other_attributes, twin$dropped)
 }
 
 # Columns of dataset `ds` named in a pipeline's `removed` ("ds.col").
@@ -402,7 +372,7 @@ for (pipeline_name in names(deid_pipelines)) {
 
     test_that(paste0(pipeline_name, ": offsets and pseudonyms don't follow a pattern"), {
       step <- deid_run(pipeline, pipeline$fixture())$step
-      oracle <- deid_oracle(step, pipeline$other_attributes)
+      oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
       n <- length(deid_keys)
       expect_setequal(names(oracle$new_key), pipeline$keys)
       expect_setequal(names(oracle$offset), pipeline$keys)
@@ -425,7 +395,7 @@ for (pipeline_name in names(deid_pipelines)) {
     test_that(paste0(pipeline_name, ": every value matches its subject's pseudonym and offset, and the rest is unchanged"), {
       data <- pipeline$fixture()
       step <- deid_run(pipeline, data)$step
-      oracle <- deid_oracle(step, pipeline$other_attributes)
+      oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
       flagged_datasets <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$dataset) && is.null(f$column)) f$dataset))
       flagged_columns <- unlist(lapply(pipeline$flagged, function(f) if (!is.null(f$column)) paste0(f$dataset, ".", f$column)))
 
@@ -499,6 +469,21 @@ for (pipeline_name in names(deid_pipelines)) {
     })
   }
 
+  if (!is.null(pipeline$risk)) {
+    test_that(paste0(pipeline_name, ": the released data is k-anonymous for the target the input misses"), {
+      r <- pipeline$risk
+      data <- pipeline$fixture()
+      before <- anon_risk(data, quasi = r$quasi, max_risk = r$max_risk)
+      expect_false(before$summary$meets_target)
+      step <- deid_run(pipeline, data)$step
+      oracle <- deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
+      expect_true(all(deid_release_k(data, step, oracle) >= risk_k_target(r$max_risk)))
+      expect_true(step$settings$suppress$meets_target)
+      # Measured from the step's record of blanked cells too.
+      expect_true(anon_risk(step, quasi = r$quasi, max_risk = r$max_risk)$summary$meets_target)
+    })
+  }
+
   if (!is.null(pipeline$same_as)) {
     test_that(paste0(pipeline_name, ": gives the same data as ", pipeline$same_as, ", and holds nothing to link back"), {
       step <- deid_run(pipeline, pipeline$fixture())$step
@@ -514,7 +499,7 @@ for (pipeline_name in names(deid_pipelines)) {
     data <- pipeline$fixture()
     step <- deid_run(pipeline, data)$step
     out <- step$data
-    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step, pipeline$other_attributes)
+    oracle <- if (isTRUE(pipeline$keep_secrets)) deid_oracle(step, pipeline$other_attributes, pipeline$dropped)
     # Keys and dates in attributes and names are rewritten.
     text_oracle <- deid_text_oracle(pipeline, step)
     rewrite <- function(x) deid_rewrite_text(x, text_oracle, names = TRUE)
@@ -559,14 +544,16 @@ for (pipeline_name in names(deid_pipelines)) {
           expect_null(attr(x, "contrasts", exact = TRUE), info = id)
         }
         expect_identical(keep(x, c(also, "names")), keep(want, c(also, "names")), info = id)
-        # Names of a vector column follow its values (in any row order),
-        # rewritten; a packed data frame column's names are rewritten.
+        # Names of a vector column follow its values (in any row order, of
+        # the rows kept), rewritten; a packed data frame column's names are
+        # rewritten.
         if (is.data.frame(x)) {
           expect_identical(names(x), rewrite(names(data[[ds]][[col]])), info = id)
         } else if (is.null(names(data[[ds]][[col]]))) {
           expect_null(names(x), info = id)
         } else {
-          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))), info = id)
+          kept_rows <- pipeline$keep_rows(ds, data[[ds]], oracle)
+          expect_identical(sort(names(x)), sort(rewrite(names(data[[ds]][[col]]))[kept_rows]), info = id)
         }
         # Value labels and missing-value codes are kept on columns that are
         # neither replaced nor shifted, and are never anything but the
