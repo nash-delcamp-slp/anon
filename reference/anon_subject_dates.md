@@ -77,13 +77,17 @@ anon_subject_dates(
   `"2014-03--T08:00"` with the time kept) moves the middle of the month
   by the subject's offset and keeps month precision; a year-only date
   (`"2014"`, or SDTM `"2014---15"` with the day kept) moves by whole
-  years, at least one, in the direction of the offset, so the real year
-  is never kept. Both ends of an interval (`"2014-01-02/2014-01-05"`)
-  are shifted.
+  years, `max(1, round(|offset| / 365.25))`, so the real year is never
+  kept, in a direction (earlier or later) drawn at random for each
+  subject apart from the offset, so that it doesn't reveal which way the
+  subject's dates moved. Both ends of an interval
+  (`"2014-01-02/2014-01-05"`) are shifted.
 
 - keep_secrets:
 
-  Logical. If `TRUE`, keep each subject's offset; read it with
+  Logical. If `TRUE`, keep each subject's offset and the direction of
+  its year-only dates (`offset_days` and `year_direction`, -1 or 1);
+  read them with
   [`anon_secrets()`](https://nash-delcamp-slp.github.io/anon/reference/anon_secrets.md).
   Default `FALSE`.
 

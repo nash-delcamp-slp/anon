@@ -124,13 +124,16 @@ value). With <code>"shift"</code>, a year-and-month date (<code>"2014-03"</code>
 <code>"2014-03--T08:00"</code> with the time kept) moves the middle of the month by
 the subject's offset and keeps month precision; a year-only date
 (<code>"2014"</code>, or SDTM <code>"2014---15"</code> with the day kept) moves by whole years,
-at least one, in the direction of the offset, so the real year is never
-kept. Both ends of an interval (<code>"2014-01-02/2014-01-05"</code>) are shifted.</p></dd>
+<code>max(1, round(|offset| / 365.25))</code>, so the real year is never kept, in a
+direction (earlier or later) drawn at random for each subject apart from
+the offset, so that it doesn't reveal which way the subject's dates
+moved. Both ends of an interval (<code>"2014-01-02/2014-01-05"</code>) are shifted.</p></dd>
 
 
 <dt id="arg-keep-secrets">keep_secrets<a class="anchor" aria-label="anchor" href="#arg-keep-secrets"></a></dt>
-<dd><p>Logical. If <code>TRUE</code>, keep each subject's offset; read it
-with <code><a href="anon_secrets.html">anon_secrets()</a></code>. Default <code>FALSE</code>.</p></dd>
+<dd><p>Logical. If <code>TRUE</code>, keep each subject's offset and the
+direction of its year-only dates (<code>offset_days</code> and <code>year_direction</code>, -1
+or 1); read them with <code><a href="anon_secrets.html">anon_secrets()</a></code>. Default <code>FALSE</code>.</p></dd>
 
 
 <dt id="arg-seed">seed<a class="anchor" aria-label="anchor" href="#arg-seed"></a></dt>

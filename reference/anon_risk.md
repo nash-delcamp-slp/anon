@@ -10,7 +10,13 @@ come from several datasets linked by `key`.
 ## Usage
 
 ``` r
-anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
+anon_risk(
+  data,
+  quasi,
+  key = "USUBJID",
+  max_risk = 0.09,
+  na = c("value", "wildcard")
+)
 ```
 
 ## Arguments
@@ -49,6 +55,21 @@ anon_risk(data, quasi, key = "USUBJID", max_risk = 0.09)
   Canada equates 0.09 with a cell size of 11, but `1 / 11` is about
   0.0909; to use groups of 11, pass `max_risk = 1/11`. See Details.
 
+- na:
+
+  How a missing quasi-identifier value counts when forming groups.
+  `"value"` (default): a missing value is a value of its own, and a cell
+  blanked by
+  [`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
+  is another value of its own (see "After suppression" in Details):
+  groups are records with exactly the same released pattern.
+  `"wildcard"`: every missing value matches any value, both ways, as
+  sdcMicro's symmetric count does; a subject's `k` is then the number of
+  subjects whose values agree with its own wherever both have a value.
+  It counts real missing values as suppressed, and a few records blanked
+  everywhere match everyone, so it can claim a target is met when it
+  isn't; it is kept for comparison only.
+
 ## Value
 
 An object of class `"anon_risk"`, a list with:
@@ -69,7 +90,11 @@ An object of class `"anon_risk"`, a list with:
   most comes first: by `n_below_k_without`, then `n_unique_without`,
   then `avg_risk_without` (all ascending), then the order of `quasi`.
 
-- `quasi`, `key`: the quasi-identifier names and key used.
+- `quasi`, `key`, `na`: the quasi-identifier names, key and `na` used;
+  `n_blanked`, the number of cells blanked by suppression, from the
+  step's record of them; and `from_step`, whether `data` was a step (a
+  plain list can't tell blanked cells from missing values, and the print
+  says so).
 
 - `sources`: one row per quasi-identifier giving where it comes from:
   `variable`, `dataset`, and either `column` or `test_col`, `test` and
@@ -91,6 +116,40 @@ missing from `vs`) gets `NA` for it, and `NA` is treated as a value of
 its own when forming groups. Blank strings, which is how SAS transport
 (XPT) files store missing text, are treated as missing. Values are
 otherwise grouped by exact equality.
+
+**After suppression.** Risk is k-anonymity on the released table: each
+released record's pattern is its visible values plus the places of the
+cells
+[`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
+blanked, a blanked cell counting as a value of its own, and a subject's
+`k` is the number of released records with exactly its pattern. Real
+missing values are values, distinct from blanked cells. An attacker who
+knows a subject's values then finds at least `k` records that could be
+it, and a record blanked everywhere hides only among other records
+blanked everywhere. Which cells were blanked is read from the step
+result that
+[`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
+returns (and that later steps carry on). Measuring a plain list of data
+frames treats blanked cells as missing values: pass the step.
+
+A filter in
+[`anon_quasi_values()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_values.md)
+measures one value per subject; a subject without a value after the
+filter (for example, without a baseline flag) has a missing value, which
+is a value. Its other rows are still in the data: generalize every row
+of the test (see
+[`anon_rule()`](https://nash-delcamp-slp.github.io/anon/reference/anon_rule.md)).
+
+With `na = "wildcard"`, groups overlap: a subject with a missing value
+can count towards several groups, and `k` is counted for each subject on
+its own, as sdcMicro does for suppressed cells. Subjects with the same
+values are counted together, so the work grows with the number of
+distinct combinations that have a missing value times the number of
+distinct combinations (at most the number of subjects squared, times the
+number of quasi-identifiers). With 3,000 subjects, 7 quasi-identifiers
+and a few hundred blanked cells, `anon_risk()`, which repeats the count
+once for each quasi-identifier left out (`drivers`), takes about a
+second. Without missing values it gives the same result as `"value"`.
 
 Risk is measured on one value per subject for each quasi-identifier. A
 copy shared with others usually contains every row of a dataset (for
@@ -134,7 +193,11 @@ measure again.
 ## See also
 
 [`anon_risk_subjects()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk_subjects.md)
-for per-subject group sizes.
+for per-subject group sizes;
+[`anon_generalize()`](https://nash-delcamp-slp.github.io/anon/reference/anon_generalize.md)
+and
+[`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
+to bring the risk down.
 
 ## Examples
 
@@ -149,6 +212,7 @@ anon_risk(dm, quasi = c("AGE", "SEX"), max_risk = 1/3)
 #> ======================
 #> 
 #> Quasi-identifiers: AGE, SEX 
+#> Measured without a step's record of suppressed cells: blanked cells count as missing values
 #> Subjects: 6 
 #> Target: maximum risk 0.3333333 (groups of at least 3) 
 #> Maximum risk: 1 (smallest group: 1)  Average risk: 0.5 
@@ -186,6 +250,7 @@ anon_risk(
 #> ======================
 #> 
 #> Quasi-identifiers: AGE, SEX, HEIGHT, WEIGHT 
+#> Measured without a step's record of suppressed cells: blanked cells count as missing values
 #> Subjects: 6 
 #> Target: maximum risk 0.5 (groups of at least 2) 
 #> Maximum risk: 1 (smallest group: 1)  Average risk: 0.6666667 

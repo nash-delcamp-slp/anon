@@ -45,7 +45,7 @@ subjects are at risk, and don't share it.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon_risk_subjects</span><span class="op">(</span><span class="va">data</span>, <span class="va">quasi</span>, key <span class="op">=</span> <span class="st">"USUBJID"</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon_risk_subjects</span><span class="op">(</span><span class="va">data</span>, <span class="va">quasi</span>, key <span class="op">=</span> <span class="st">"USUBJID"</span>, na <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"value"</span>, <span class="st">"wildcard"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -70,6 +70,19 @@ vary by row, such as baseline height and weight in <code>vs</code>.</p></dd>
 <dd><p>Name of the subject identifier column shared by the datasets. It
 must have the same type (character or factor, or numeric) in every
 dataset used.</p></dd>
+
+
+<dt id="arg-na">na<a class="anchor" aria-label="anchor" href="#arg-na"></a></dt>
+<dd><p>How a missing quasi-identifier value counts when forming groups.
+<code>"value"</code> (default): a missing value is a value of its own, and a cell
+blanked by <code><a href="anon_suppress.html">anon_suppress()</a></code> is another value of its own (see "After
+suppression" in Details): groups are records with exactly the same
+released pattern. <code>"wildcard"</code>: every missing value matches any value,
+both ways, as sdcMicro's symmetric count does; a subject's <code>k</code> is then
+the number of subjects whose values agree with its own wherever both
+have a value. It counts real missing values as suppressed, and a few
+records blanked everywhere match everyone, so it can claim a target is
+met when it isn't; it is kept for comparison only.</p></dd>
 
 </dl></div>
     <div class="section level2">

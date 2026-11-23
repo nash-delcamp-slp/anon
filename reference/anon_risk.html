@@ -54,7 +54,13 @@ several datasets linked by <code>key</code>.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon_risk</span><span class="op">(</span><span class="va">data</span>, <span class="va">quasi</span>, key <span class="op">=</span> <span class="st">"USUBJID"</span>, max_risk <span class="op">=</span> <span class="fl">0.09</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">anon_risk</span><span class="op">(</span></span>
+<span>  <span class="va">data</span>,</span>
+<span>  <span class="va">quasi</span>,</span>
+<span>  key <span class="op">=</span> <span class="st">"USUBJID"</span>,</span>
+<span>  max_risk <span class="op">=</span> <span class="fl">0.09</span>,</span>
+<span>  na <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"value"</span>, <span class="st">"wildcard"</span><span class="op">)</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -91,6 +97,19 @@ information, and requires groups of at least 12. Health Canada equates
 0.09 with a cell size of 11, but <code>1 / 11</code> is about 0.0909; to use groups of
 11, pass <code>max_risk = 1/11</code>. See Details.</p></dd>
 
+
+<dt id="arg-na">na<a class="anchor" aria-label="anchor" href="#arg-na"></a></dt>
+<dd><p>How a missing quasi-identifier value counts when forming groups.
+<code>"value"</code> (default): a missing value is a value of its own, and a cell
+blanked by <code><a href="anon_suppress.html">anon_suppress()</a></code> is another value of its own (see "After
+suppression" in Details): groups are records with exactly the same
+released pattern. <code>"wildcard"</code>: every missing value matches any value,
+both ways, as sdcMicro's symmetric count does; a subject's <code>k</code> is then
+the number of subjects whose values agree with its own wherever both
+have a value. It counts real missing values as suppressed, and a few
+records blanked everywhere match everyone, so it can claim a target is
+met when it isn't; it is kept for comparison only.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
@@ -108,7 +127,11 @@ non-missing values (<code>n_values</code>), the number of missing values
 left out). Rows are ordered so the variable whose removal helps most
 comes first: by <code>n_below_k_without</code>, then <code>n_unique_without</code>, then
 <code>avg_risk_without</code> (all ascending), then the order of <code>quasi</code>.</p></li>
-<li><p><code>quasi</code>, <code>key</code>: the quasi-identifier names and key used.</p></li>
+<li><p><code>quasi</code>, <code>key</code>, <code>na</code>: the quasi-identifier names, key and <code>na</code> used;
+<code>n_blanked</code>, the number of cells blanked by suppression, from the
+step's record of them; and <code>from_step</code>, whether <code>data</code> was a step (a
+plain list can't tell blanked cells from missing values, and the print
+says so).</p></li>
 <li><p><code>sources</code>: one row per quasi-identifier giving where it comes from:
 <code>variable</code>, <code>dataset</code>, and either <code>column</code> or <code>test_col</code>, <code>test</code> and
 <code>result_col</code>, plus <code>filtered</code> (whether a <code>filter</code> was used). The filter
@@ -125,6 +148,31 @@ with no value for a quasi-identifier (for example, missing from <code>vs</code>)
 <code>NA</code> for it, and <code>NA</code> is treated as a value of its own when forming groups.
 Blank strings, which is how SAS transport (XPT) files store missing text, are
 treated as missing. Values are otherwise grouped by exact equality.</p>
+<p><strong>After suppression.</strong> Risk is k-anonymity on the released table: each
+released record's pattern is its visible values plus the places of the
+cells <code><a href="anon_suppress.html">anon_suppress()</a></code> blanked, a blanked cell counting as a value of its
+own, and a subject's <code>k</code> is the number of released records with exactly
+its pattern. Real missing values are values, distinct from blanked cells.
+An attacker who knows a subject's values then finds at least <code>k</code> records
+that could be it, and a record blanked everywhere hides only among other
+records blanked everywhere. Which cells were blanked is read from the step
+result that <code><a href="anon_suppress.html">anon_suppress()</a></code> returns (and that later steps carry on).
+Measuring a plain list of data frames treats blanked cells as missing
+values: pass the step.</p>
+<p>A filter in <code><a href="anon_quasi_values.html">anon_quasi_values()</a></code> measures one value per subject; a subject
+without a value after the filter (for example, without a baseline flag)
+has a missing value, which is a value. Its other rows are still in the
+data: generalize every row of the test (see <code><a href="anon_rule.html">anon_rule()</a></code>).</p>
+<p>With <code>na = "wildcard"</code>, groups overlap: a subject with a missing value can
+count towards several groups, and <code>k</code> is counted for each subject on its
+own, as sdcMicro does for suppressed cells. Subjects with the same values
+are counted together, so the work grows with the number of distinct
+combinations that have a missing value times the number of distinct
+combinations (at most the number of subjects squared, times the number of
+quasi-identifiers). With 3,000 subjects, 7 quasi-identifiers and a few
+hundred blanked cells, <code>anon_risk()</code>, which repeats the count once for each
+quasi-identifier left out (<code>drivers</code>), takes about a second. Without
+missing values it gives the same result as <code>"value"</code>.</p>
 <p>Risk is measured on one value per subject for each quasi-identifier. A copy
 shared with others usually contains every row of a dataset (for example
 weight at every visit), and any row can identify a subject as well as the
@@ -160,7 +208,8 @@ loss. Use it to decide what to try next, then measure again.</p>
     </div>
     <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
-    <div class="dont-index"><p><code><a href="anon_risk_subjects.html">anon_risk_subjects()</a></code> for per-subject group sizes.</p></div>
+    <div class="dont-index"><p><code><a href="anon_risk_subjects.html">anon_risk_subjects()</a></code> for per-subject group sizes;
+<code><a href="anon_generalize.html">anon_generalize()</a></code> and <code><a href="anon_suppress.html">anon_suppress()</a></code> to bring the risk down.</p></div>
     </div>
 
     <div class="section level2">
@@ -175,6 +224,7 @@ loss. Use it to decide what to try next, then measure again.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ======================</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Quasi-identifiers: AGE, SEX </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Measured without a step's record of suppressed cells: blanked cells count as missing values</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Subjects: 6 </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Target: maximum risk 0.3333333 (groups of at least 3) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Maximum risk: 1 (smallest group: 1)  Average risk: 0.5 </span>
@@ -212,6 +262,7 @@ loss. Use it to decide what to try next, then measure again.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span> ======================</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Quasi-identifiers: AGE, SEX, HEIGHT, WEIGHT </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Measured without a step's record of suppressed cells: blanked cells count as missing values</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Subjects: 6 </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Target: maximum risk 0.5 (groups of at least 2) </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Maximum risk: 1 (smallest group: 1)  Average risk: 0.6666667 </span>

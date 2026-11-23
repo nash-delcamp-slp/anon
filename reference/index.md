@@ -47,19 +47,43 @@ structure useful.
 ## De-identification
 
 Measure re-identification risk from quasi-identifiers across linked
-datasets, and pseudonymize subjects and offset their dates consistently
-across datasets.
+datasets, pseudonymize subjects and offset their dates consistently
+across datasets, and generalize or suppress quasi-identifiers to bring
+the risk under a target, step by step or in one call with an SDTM or
+ADaM profile.
 
+- [`anon_deidentify()`](https://nash-delcamp-slp.github.io/anon/reference/anon_deidentify.md)
+  : De-identify linked datasets with a profile
+- [`anon_profile()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`anon_profile_rule()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`anon_profile_sdtm()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`anon_profile_adam()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`anon_profile_combine()`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`c(`*`<anon_profile>`*`)`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  [`as.data.frame(`*`<anon_profile>`*`)`](https://nash-delcamp-slp.github.io/anon/reference/anon_profile.md)
+  : De-identification profiles
 - [`anon_risk()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk.md)
   : Measure re-identification risk from quasi-identifiers
 - [`anon_risk_subjects()`](https://nash-delcamp-slp.github.io/anon/reference/anon_risk_subjects.md)
   : Per-subject re-identification risk
 - [`anon_quasi_values()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_values.md)
   : Specify quasi-identifier values that vary by row
+- [`anon_quasi_duration()`](https://nash-delcamp-slp.github.io/anon/reference/anon_quasi_duration.md)
+  : Specify a duration between two dates as a quasi-identifier
 - [`anon_subject_ids()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_ids.md)
   : Pseudonymize subject identifiers consistently across datasets
 - [`anon_subject_dates()`](https://nash-delcamp-slp.github.io/anon/reference/anon_subject_dates.md)
   : Shift each subject's dates by a random offset
+- [`anon_generalize()`](https://nash-delcamp-slp.github.io/anon/reference/anon_generalize.md)
+  : Generalize quasi-identifiers across datasets
+- [`anon_band()`](https://nash-delcamp-slp.github.io/anon/reference/generalize_rules.md)
+  [`anon_round()`](https://nash-delcamp-slp.github.io/anon/reference/generalize_rules.md)
+  [`anon_fold()`](https://nash-delcamp-slp.github.io/anon/reference/generalize_rules.md)
+  : Rules that generalize quasi-identifier values
+- [`anon_rule()`](https://nash-delcamp-slp.github.io/anon/reference/anon_rule.md)
+  : Generalize the results of a test
+- [`anon_suppress()`](https://nash-delcamp-slp.github.io/anon/reference/anon_suppress.md)
+  : Suppress quasi-identifiers until every subject reaches the target
 - [`anon_secrets()`](https://nash-delcamp-slp.github.io/anon/reference/anon_secrets.md)
   : Read the secrets kept by a de-identification step
 

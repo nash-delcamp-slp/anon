@@ -99,9 +99,14 @@ transformed data, in the same form as the input), `log` (a tibble with
 `step`, `dataset`, `variable`, `n_changed`, `n_removed` and `detail`;
 the first row of each step records its settings; earlier steps are
 included when `data` was a step result), `settings` (a named list with
-each step's arguments, without the seed value) and `secrets` (`NULL`
-unless `keep_secrets = TRUE` here or in an earlier step). Saving the
-object (for example with
+each step's arguments, without the seed value, and `findings`: a tibble
+of what its warnings name as left in the data, one row per location,
+with `kind` (such as `"keys_left"`, `"dates_unshifted"` or `"objects"`),
+`dataset`, `column` (as the warnings print them), `n_values` (the
+distinct text values holding what was found, `NA` where that doesn't
+apply) and `single_value` (whether the column holds one value in every
+row); no values) and `secrets` (`NULL` unless `keep_secrets = TRUE` here
+or in an earlier step). Saving the object (for example with
 [`saveRDS()`](https://rdrr.io/r/base/readRDS.html)) also saves its
 secrets.
 

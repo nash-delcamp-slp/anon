@@ -154,7 +154,7 @@
       </dl></div><div class="section level2">
       <h2 id="de-identification">De-identification<a class="anchor" aria-label="anchor" href="#de-identification"></a></h2>
 
-      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets, and pseudonymize subjects and offset their dates consistently across datasets.</p></div>
+      <div class="section-desc"><p>Measure re-identification risk from quasi-identifiers across linked datasets, pseudonymize subjects and offset their dates consistently across datasets, and generalize or suppress quasi-identifiers to bring the risk under a target, step by step or in one call with an SDTM or ADaM profile.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -162,6 +162,20 @@
 
 
       <dl><dt>
+
+          <code><a href="anon_deidentify.html">anon_deidentify()</a></code>
+
+        </dt>
+        <dd>De-identify linked datasets with a profile</dd>
+
+        <dt>
+
+          <code><a href="anon_profile.html">anon_profile()</a></code> <code><a href="anon_profile.html">anon_profile_rule()</a></code> <code><a href="anon_profile.html">anon_profile_sdtm()</a></code> <code><a href="anon_profile.html">anon_profile_adam()</a></code> <code><a href="anon_profile.html">anon_profile_combine()</a></code> <code><a href="anon_profile.html">c(<i>&lt;anon_profile&gt;</i>)</a></code> <code><a href="anon_profile.html">as.data.frame(<i>&lt;anon_profile&gt;</i>)</a></code>
+
+        </dt>
+        <dd>De-identification profiles</dd>
+
+        <dt>
 
           <code><a href="anon_risk.html">anon_risk()</a></code>
 
@@ -184,6 +198,13 @@
 
         <dt>
 
+          <code><a href="anon_quasi_duration.html">anon_quasi_duration()</a></code>
+
+        </dt>
+        <dd>Specify a duration between two dates as a quasi-identifier</dd>
+
+        <dt>
+
           <code><a href="anon_subject_ids.html">anon_subject_ids()</a></code>
 
         </dt>
@@ -195,6 +216,34 @@
 
         </dt>
         <dd>Shift each subject's dates by a random offset</dd>
+
+        <dt>
+
+          <code><a href="anon_generalize.html">anon_generalize()</a></code>
+
+        </dt>
+        <dd>Generalize quasi-identifiers across datasets</dd>
+
+        <dt>
+
+          <code><a href="generalize_rules.html">anon_band()</a></code> <code><a href="generalize_rules.html">anon_round()</a></code> <code><a href="generalize_rules.html">anon_fold()</a></code>
+
+        </dt>
+        <dd>Rules that generalize quasi-identifier values</dd>
+
+        <dt>
+
+          <code><a href="anon_rule.html">anon_rule()</a></code>
+
+        </dt>
+        <dd>Generalize the results of a test</dd>
+
+        <dt>
+
+          <code><a href="anon_suppress.html">anon_suppress()</a></code>
+
+        </dt>
+        <dd>Suppress quasi-identifiers until every subject reaches the target</dd>
 
         <dt>
 
