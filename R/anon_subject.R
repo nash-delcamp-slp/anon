@@ -3385,10 +3385,30 @@ any_numeric_key <- function(data, key) {
 sort_by_new_key <- function(df, idx, numbers) {
   if (nrow(df) >= 2) {
     ord <- order(numbers[idx], seq_len(nrow(df)), na.last = TRUE)
-    df <- vctrs::vec_slice(df, ord)
+    df <- slice_rows(df, ord)
   }
   # Row names can hold original keys or reveal the original order.
   reset_row_names(df)
+}
+
+# vctrs::vec_slice() on a data frame's rows, with the column attributes that a
+# column class drops when it is sliced (hms drops `label`) put back, in
+# packed data frame columns too.
+slice_rows <- function(df, i) {
+  out <- vctrs::vec_slice(df, i)
+  for (j in seq_along(df)) {
+    old <- df[[j]]
+    new <- out[[j]]
+    if (is.data.frame(old) && is.data.frame(new)) {
+      new <- slice_rows(old, i)
+    } else {
+      lost <- setdiff(names(attributes(old)), c(names(attributes(new)), "names", "dim", "dimnames", "row.names"))
+      if (length(lost) == 0) next
+      attributes(new) <- c(attributes(new), attributes(old)[lost])
+    }
+    out[[j]] <- new
+  }
+  out
 }
 
 # A data frame (a tibble too) without row names; with `packed`, its packed

@@ -699,7 +699,7 @@ drop_subject_rows <- function(df, key, key_cols, dropped) {
     if (!is.null(owners) && any(owners %in% dropped)) {
       keep <- !owners %in% dropped
       n <- n + sum(!keep)
-      df <- drop_gone_levels(df, vctrs::vec_slice(df, keep))
+      df <- drop_gone_levels(df, slice_rows(df, keep))
     }
   }
   df <- map_keyed_frames(df, key, function(f, packed) {
@@ -714,7 +714,7 @@ drop_subject_rows <- function(df, key, key_cols, dropped) {
       return(f)
     }
     n <<- n + sum(remove)
-    drop_gone_levels(f, vctrs::vec_slice(f, !remove))
+    drop_gone_levels(f, slice_rows(f, !remove))
   })
   list(df = df, n = n)
 }
