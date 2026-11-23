@@ -555,3 +555,19 @@ test_that("single steps that leave dates alone pass, year-only dates included", 
     expect_false(any(f$status == "fail"))
   }
 })
+
+test_that("caveats name what the keys and dates steps left, by place only", {
+  data <- fid_data()
+  data$notes <- data.frame(NOTE = paste("seen", fid_keys[1:3]), stringsAsFactors = FALSE)
+  step <- fid_run(data)
+  findings <- step$settings$subject_ids$findings
+  expect_true("notes" %in% findings$dataset)
+  report <- anon_report(step, nlp_auto = FALSE)
+  caveats <- report$deidentification$caveats
+  found <- grep("^Left as found by the keys and dates steps", caveats, value = TRUE)
+  expect_length(found, 1)
+  expect_match(found, "columns still hold original subject keys (notes.NOTE)", fixed = TRUE)
+  # The target isn't met, with the steps' reason among the caveats.
+  expect_true(any(grepl("risk target is not met:.*original subject keys", caveats)))
+  for (k in fid_keys) expect_false(any(grepl(k, unlist(report$deidentification), fixed = TRUE)))
+})

@@ -179,6 +179,22 @@ deid_caveats <- function(step, deid, fidelity = NULL) {
   if (length(ids) > 0) {
     out <- c(out, paste0("Pseudonyms replace ", deid_and(ids), "; they are the same in every dataset."))
   }
+  # What the keys and dates steps found and left (their `findings`), by
+  # reason, with the places named; never values.
+  findings <- do.call(rbind, lapply(c(pick("subject_ids"), pick("subject_dates")), `[[`, "findings"))
+  if (!is.null(findings) && nrow(findings) > 0) {
+    reason <- unname(step_finding_reason[findings$kind])
+    reason[is.na(reason)] <- findings$kind[is.na(reason)]
+    where <- ifelse(is.na(findings$column), findings$dataset, paste0(findings$dataset, ".", findings$column))
+    places <- vapply(split(where, factor(reason, levels = unique(reason))), function(w) {
+      w <- unique(w)
+      paste0(paste(utils::head(w, 10), collapse = ", "), if (length(w) > 10) paste0(" and ", length(w) - 10, " more"))
+    }, character(1))
+    out <- c(out, paste0(
+      "Left as found by the keys and dates steps (see their warnings): ",
+      paste0(names(places), " (", places, ")", collapse = "; "), "."
+    ))
+  }
   removed <- unique(unlist(lapply(pick("remove"), `[[`, "columns"), use.names = FALSE))
   if (length(removed) > 0) {
     out <- c(out, paste0("Direct identifiers are blank in every row: ", paste(removed, collapse = ", "), "."))
