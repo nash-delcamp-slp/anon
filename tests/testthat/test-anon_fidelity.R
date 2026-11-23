@@ -367,19 +367,15 @@ test_that("subjects alike but for their dates are paired by them", {
   expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "20 of 20 subject(s) paired", fixed = TRUE)
 })
 
-test_that("subjects that can't be told apart are reported, and their changes fail", {
+test_that("subjects alike in everything are compared as a class, and their changes fail", {
   data <- fid_alike()
   step <- fid_alike_run(data)
   f <- anon_check_fidelity(data, step)
-  expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "warn")
-  expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "20 alike")
-  expect_false(attr(f, "complete"))
-  expect_false(attr(f, "passed"))
-  expect_identical(fid_row(f, "dm", "ISO 8601")$status, "not applicable")
-  expect_match(fid_row(f, "dm", "ISO 8601")$detail, "nothing compared")
-  report <- anon_report(step, fidelity = f, nlp_auto = FALSE)
-  expect_true(any(grepl("incomplete", report$deidentification$caveats)))
-  expect_false(any(grepl("check against the original passed", report$deidentification$caveats)))
+  expect_true(attr(f, "complete"))
+  expect_true(attr(f, "passed"))
+  expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "pass")
+  expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "20 of them alike in every unchanged column and in their dates, paired as a class", fixed = TRUE)
+  expect_identical(fid_row(f, "dm", "ISO 8601")$n_checked, 40L)
 
   moved <- step
   moved$data$dm$RFENDTC <- format(as.Date(moved$data$dm$RFENDTC) + 37)
@@ -393,6 +389,48 @@ test_that("subjects that can't be told apart are reported, and their changes fai
   row <- fid_row(anon_check_fidelity(data, swapped), "(all)", "pseudonyms")
   expect_identical(row$status, "fail")
   expect_identical(row$n_failed, 2L)
+})
+
+test_that("a class pairs only when its cells a step logged can be explained", {
+  data <- fid_alike()
+  data$dm$SEX <- rep(c("F", "M"), 10)
+  step <- fid_alike_run(data)
+  # SEX suppressed (blanked) for two subjects, as the step logs it.
+  step$data$dm$SEX[1:2] <- ""
+  step$log <- rbind(step$log, tibble::tibble(
+    step = "suppress", dataset = "dm", variable = "SEX", n_changed = 2L, n_removed = 0L, detail = "blanked for 2 subject(s)"
+  ))
+  f <- anon_check_fidelity(data, step)
+  expect_true(attr(f, "passed"))
+  expect_identical(fid_row(f, "dm", "values")$status, "pass")
+  # A category no original subject has, or more M than the original holds,
+  # can't be explained by any pairing. (One F made M could be: a blanked
+  # subject may have been the M.)
+  for (change in list(function(x) replace(x, which(x == "F")[1], "U"), function(x) replace(x, x == "F", "M"))) {
+    broken <- step
+    broken$data$dm$SEX <- change(broken$data$dm$SEX)
+    value <- paste(sort(unique(broken$data$dm$SEX)), collapse = ",")
+    row <- fid_row(anon_check_fidelity(data, broken), "(all)", "pseudonyms")
+    expect_identical(row$status, "fail", info = value)
+    expect_match(row$detail, "no pairing within their class explains", info = value)
+  }
+})
+
+test_that("a class with fewer subjects in the copy stays unpaired, and the result incomplete", {
+  data <- fid_alike()
+  step <- fid_alike_run(data)
+  step$data$dm <- vctrs::vec_slice(step$data$dm, -1)
+  step$settings$suppress <- list(n_dropped = 1L)
+  f <- anon_check_fidelity(data, step)
+  expect_identical(fid_row(f, "(all)", "pseudonyms")$status, "warn")
+  expect_match(fid_row(f, "(all)", "pseudonyms")$detail, "19 alike")
+  expect_false(attr(f, "complete"))
+  expect_false(attr(f, "passed"))
+  expect_identical(fid_row(f, "dm", "ISO 8601")$status, "not applicable")
+  expect_match(fid_row(f, "dm", "ISO 8601")$detail, "nothing compared")
+  report <- anon_report(step, fidelity = f, nlp_auto = FALSE)
+  expect_true(any(grepl("incomplete", report$deidentification$caveats)))
+  expect_false(any(grepl("check against the original passed", report$deidentification$caveats)))
 })
 
 test_that("one result changed per subject is found though every subject differs", {

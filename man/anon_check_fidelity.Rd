@@ -61,11 +61,18 @@ dates (their formats and their distances from the subject's first date,
 which the per-subject offset keeps). A step's kept pseudonym map
 (\code{keep_secrets = TRUE}) is used instead when there is one, and keys that
 weren't pseudonymized pair directly. Within a subject, rows pair in
-order. Subjects still alike can't be told apart: they are counted
-(\code{pseudonyms} is \code{"warn"}), their rows are not compared one by one, and
-the result is incomplete. A copy subject whose dates match none of the
-originals alike in the other columns fails. Rows of datasets without
-\code{key} pair by position.
+order. Subjects alike in every column no step logged and in their date
+pattern give the same result for every check whichever way they pair, so
+when the copy holds as many of them as the original, they are compared as
+a class: each copy subject is paired, in a fixed order, with an original
+whose values explain the cells a step logged (blanked, generalized or
+derived where the step says so, and otherwise equal), and the checks run
+on them. If no pairing explains them all, the subjects left fail. A class
+with a different number of subjects in the copy can't be paired: those
+subjects are counted (\code{pseudonyms} is \code{"warn"}), their rows are not
+compared one by one, and the result is incomplete. A copy subject whose
+dates match none of the originals alike in the other columns fails. Rows
+of datasets without \code{key} pair by position.
 
 \strong{Checks} (one row per dataset and check; \code{"(all)"} for checks across
 datasets):

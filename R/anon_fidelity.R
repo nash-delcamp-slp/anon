@@ -40,11 +40,18 @@
 #' which the per-subject offset keeps). A step's kept pseudonym map
 #' (`keep_secrets = TRUE`) is used instead when there is one, and keys that
 #' weren't pseudonymized pair directly. Within a subject, rows pair in
-#' order. Subjects still alike can't be told apart: they are counted
-#' (`pseudonyms` is `"warn"`), their rows are not compared one by one, and
-#' the result is incomplete. A copy subject whose dates match none of the
-#' originals alike in the other columns fails. Rows of datasets without
-#' `key` pair by position.
+#' order. Subjects alike in every column no step logged and in their date
+#' pattern give the same result for every check whichever way they pair, so
+#' when the copy holds as many of them as the original, they are compared as
+#' a class: each copy subject is paired, in a fixed order, with an original
+#' whose values explain the cells a step logged (blanked, generalized or
+#' derived where the step says so, and otherwise equal), and the checks run
+#' on them. If no pairing explains them all, the subjects left fail. A class
+#' with a different number of subjects in the copy can't be paired: those
+#' subjects are counted (`pseudonyms` is `"warn"`), their rows are not
+#' compared one by one, and the result is incomplete. A copy subject whose
+#' dates match none of the originals alike in the other columns fails. Rows
+#' of datasets without `key` pair by position.
 #'
 #' **Checks** (one row per dataset and check; `"(all)"` for checks across
 #' datasets):
@@ -823,7 +830,8 @@ fidelity_align <- function(orig, copy, key, intent) {
     global_stable_o <- global(stable_o, subjects_o)
     res <- list(
       map = stats::setNames(rep(NA_character_, length(subjects_o)), subjects_o), dropped = character(0),
-      near = character(0), n_unmatched = 0L, n_mismatched = 0L, n_surplus = 0L, n_alike = 0L, n_pattern = 0L
+      near = character(0), n_unmatched = 0L, n_mismatched = 0L, n_surplus = 0L, n_alike = 0L, n_pattern = 0L,
+      n_class = 0L, n_inconsistent = 0L
     )
     if (by_key) {
       target <- if (use_secret) secret$pseudonym[match(subjects_o, secret$key)] else subjects_o
@@ -894,6 +902,28 @@ fidelity_align <- function(orig, copy, key, intent) {
       b <- b[!fb %in% once]
       fa <- fp_o[a]
       fb <- fp_c[b]
+      # Subjects with one date pattern, as many in the copy as in the
+      # original, are alike in everything the checks compare but the cells a
+      # step logged: they are paired as a class, each copy subject with an
+      # original whose values explain its own (see fidelity_class_pairs()).
+      done_a <- character(0)
+      done_b <- character(0)
+      for (fp in unique(fa)) {
+        aa <- a[fa == fp]
+        bb <- b[fb == fp]
+        if (length(aa) != length(bb)) next
+        paired <- fidelity_class_pairs(aa, bb, orig, copy, owners_o, owners_c, keyed, key, intent, kept)
+        if (is.null(paired)) next
+        res$map[names(paired)] <- paired
+        res$n_class <- res$n_class + sum(!is.na(paired))
+        res$n_inconsistent <- res$n_inconsistent + sum(is.na(paired))
+        done_a <- c(done_a, aa)
+        done_b <- c(done_b, bb)
+      }
+      a <- setdiff(a, done_a)
+      b <- setdiff(b, done_b)
+      fa <- fp_o[a]
+      fb <- fp_c[b]
       # A copy subject whose date pattern no original subject of its kind
       # has was changed; as many originals as are missing count as dropped,
       # those whose pattern the copy lacks first; the rest can't be told
@@ -938,6 +968,8 @@ fidelity_align <- function(orig, copy, key, intent) {
   out$n_surplus <- n_surplus
   out$n_near <- length(res$near)
   out$n_pattern <- res$n_pattern
+  out$n_class <- res$n_class
+  out$n_inconsistent <- res$n_inconsistent
   out$dropped <- dropped
 
   # Rows pair in order within each paired subject whose rows are in the same
@@ -1073,6 +1105,134 @@ fidelity_match_rows <- function(o, c) {
     }
   }
   out
+}
+
+# Pairs a class of original subjects (`a`) with as many copy subjects (`b`)
+# that are alike in every column no step logged and in their date pattern.
+# The checks give the same result whichever way such subjects pair, apart
+# from the cells a step logged, so each copy subject is paired with an
+# original whose cells explain its own: every compared cell (the values
+# check's columns, in every keyed dataset, row by row) must equal the
+# original's, unless the step may have changed it there (blanked where a
+# blanking step logged it, generalized, folded to the rule's category, or
+# derived again), which matches any original value. Subjects are grouped by
+# their cells, and a maximum flow between the groups gives a pairing that
+# explains every copy subject when there is one, assigned in order of the
+# subjects' positions. Returns the copy subject of each original (NA for
+# those no pairing explains: a change), or NULL when the groups are too many
+# to compare (the class then stays unpaired).
+fidelity_class_pairs <- function(a, b, orig, copy, owners_o, owners_c, keyed, key, intent, kept) {
+  cells <- function(data, owners, subjects, side) {
+    parts <- list()
+    for (ds in keyed) {
+      df <- data[[ds]]
+      own <- owners[[ds]]
+      rows <- which(!is.na(own) & own %in% subjects & (if (side == "o") kept[[ds]] else TRUE))
+      if (length(rows) == 0) next
+      skip <- c(key, intent$ids, fidelity_text_date_columns(df, key, intent, ds))
+      for (col in setdiff(names(df), skip)) {
+        x <- df[[col]]
+        if (is.list(x) || !is.null(dim(x)) || fidelity_is_date(x)) next
+        v <- if (fidelity_is_text(x)) fidelity_text(x) else as.character(fidelity_plain(x))
+        v[fidelity_blank(v)] <- ""
+        v <- v[rows]
+        if (side == "c" && intent$step) {
+          blank <- v == ""
+          free <- (blank & fidelity_logged_rows(intent, ds, col, df, steps = c("remove", "suppress", "deidentify", "generalize"))[rows]) |
+            fidelity_rewritten_rows(intent, ds, col, df)[rows] |
+            (!is.na(fidelity_fold_values(intent, ds, col, df)[rows]) & v == fidelity_fold_values(intent, ds, col, df)[rows]) |
+            fidelity_logged_rows(intent, ds, col, df, steps = "deidentify", derived = TRUE)[rows]
+          v[free] <- "\r*"
+        }
+        parts[[length(parts) + 1]] <- data.frame(s = own[rows], v = v, stringsAsFactors = FALSE)
+      }
+    }
+    if (length(parts) == 0) {
+      return(stats::setNames(rep("", length(subjects)), subjects))
+    }
+    long <- do.call(vctrs::vec_rbind, parts)
+    out <- tapply(long$v, factor(long$s, levels = subjects), paste, collapse = "\x1f")
+    stats::setNames(ifelse(is.na(out), "", out), subjects)
+  }
+  ta <- cells(orig, owners_o, a, "o")
+  tb <- cells(copy, owners_c, b, "c")
+  ga <- unique(ta)
+  gb <- unique(tb)
+  if (length(ga) * length(gb) > 250000) {
+    return(NULL)
+  }
+  split_cells <- function(t) strsplit(t, "\x1f", fixed = TRUE)
+  ca <- split_cells(ga)
+  cb <- split_cells(gb)
+  fits <- matrix(FALSE, length(ga), length(gb))
+  for (j in seq_along(gb)) {
+    wild <- cb[[j]] == "\r*"
+    fits[, j] <- vapply(ca, function(x) {
+      length(x) == length(cb[[j]]) && all(wild | x == cb[[j]])
+    }, logical(1))
+  }
+  flow <- fidelity_max_flow(as.vector(table(factor(ta, ga))), as.vector(table(factor(tb, gb))), fits)
+  out <- stats::setNames(rep(NA_character_, length(a)), a)
+  left_a <- split(a, factor(ta, ga))
+  left_b <- split(b, factor(tb, gb))
+  for (i in seq_along(ga)) {
+    for (j in which(flow[i, ] > 0)) {
+      k <- flow[i, j]
+      out[left_a[[i]][seq_len(k)]] <- left_b[[j]][seq_len(k)]
+      left_a[[i]] <- left_a[[i]][-seq_len(k)]
+      left_b[[j]] <- left_b[[j]][-seq_len(k)]
+    }
+  }
+  out
+}
+
+# Maximum flow from groups of originals (`supply`, subjects per group) to
+# groups of copies (`demand`) along the pairs `fits` allows, by augmenting
+# paths. Returns the flow by pair of groups.
+fidelity_max_flow <- function(supply, demand, fits) {
+  flow <- matrix(0L, length(supply), length(demand))
+  left_s <- supply
+  left_d <- demand
+  repeat {
+    # Breadth-first search from the groups of originals with subjects left,
+    # through fitting pairs forward and flow backward, to a group of copies
+    # with subjects left.
+    from_s <- rep(NA_integer_, length(supply))
+    from_d <- rep(NA_integer_, length(demand))
+    seen_s <- left_s > 0
+    queue <- which(seen_s)
+    end <- NA_integer_
+    while (length(queue) > 0 && is.na(end)) {
+      i <- queue[1]
+      queue <- queue[-1]
+      for (j in which(fits[i, ] & is.na(from_d))) {
+        from_d[j] <- i
+        if (left_d[j] > 0) {
+          end <- j
+          break
+        }
+        for (i2 in which(flow[, j] > 0 & !seen_s)) {
+          seen_s[i2] <- TRUE
+          from_s[i2] <- j
+          queue <- c(queue, i2)
+        }
+      }
+    }
+    if (is.na(end)) break
+    j <- end
+    left_d[j] <- left_d[j] - 1L
+    repeat {
+      i <- from_d[j]
+      flow[i, j] <- flow[i, j] + 1L
+      if (is.na(from_s[i])) {
+        left_s[i] <- left_s[i] - 1L
+        break
+      }
+      j <- from_s[i]
+      flow[i, j] <- flow[i, j] - 1L
+    }
+  }
+  flow
 }
 
 # Each subject's dates as a pattern that the per-subject offset keeps: for
@@ -1230,11 +1390,18 @@ fidelity_related_ids <- function(orig, copy, align, intent) {
 }
 
 fidelity_check_pseudonyms <- function(align, related) {
-  failed <- align$n_unmatched + align$n_mismatched + align$n_surplus + align$n_pattern + related$failed
+  failed <- align$n_unmatched + align$n_mismatched + align$n_surplus + align$n_pattern + align$n_inconsistent +
+    related$failed
   detail <- paste0(
     align$n_aligned, " of ", align$n_subjects, " subject(s) paired ", align$how,
     if (align$n_alike > 0) paste0(
       "; ", align$n_alike, " alike in every unchanged column and in their dates, not compared row by row"
+    ),
+    if (align$n_class > 0) paste0(
+      "; ", align$n_class, " of them alike in every unchanged column and in their dates, paired as a class"
+    ),
+    if (align$n_inconsistent > 0) paste0(
+      "; ", align$n_inconsistent, " alike subject(s) whose values no pairing within their class explains"
     ),
     if (align$n_pattern > 0) paste0(
       "; ", align$n_pattern, " copy subject(s) whose dates match no original subject alike in the other columns"
