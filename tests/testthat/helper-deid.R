@@ -1292,6 +1292,40 @@ deid_profile_clean_fixture <- function() {
   data[c("notes", "qc", "lof")] <- NULL
   data
 }
+# The clean fixture with `xs`, a dataset without USUBJID whose rows belong
+# to subjects through SUBJID (two rows each, in reverse subject order, with a
+# result and a date of the subject's own), which anon_deidentify() ties to
+# subjects and sorts by the new key.
+deid_subjid_fixture <- function() {
+  data <- deid_profile_clean_fixture()
+  dm <- data$dm[!is.na(data$dm$SUBJID) & data$dm$SUBJID != "" & !is.na(data$dm$USUBJID) & data$dm$USUBJID != "", ]
+  at <- rev(rep(seq_len(nrow(dm)), each = 2))
+  data$xs <- data.frame(
+    SUBJID = as.character(dm$SUBJID[at]), XSTESTCD = "PAIN", XSSTRESN = seq_along(at) * 1.5,
+    XSDTC = format(as.Date(substr(dm$RFSTDTC[at], 1, 10)) + rep(c(2, 5), length.out = length(at))),
+    stringsAsFactors = FALSE
+  )
+  data
+}
+
+# The `also` column through which anon_deidentify() tied the rows of dataset
+# `ds` (as the step names it) to subjects, from the step's log; NULL if none.
+deid_tied_through <- function(step, ds) {
+  log <- step$log
+  at <- which(log$step == "subject_ids" & log$dataset %in% ds & is.na(log$variable) &
+    grepl("^rows tied to subjects through `", log$detail))
+  if (length(at) == 0) NULL else sub("^rows tied to subjects through `([^`]+)`.*$", "\\1", log$detail[at[1]])
+}
+
+# Each row's original key in dataset `ds` without the key, through its
+# `col` values and the datasets that hold both.
+deid_tied_keys <- function(data, ds, col, key) {
+  pairs <- unique(do.call(rbind, lapply(data, function(d) {
+    if (key %in% names(d) && col %in% names(d)) data.frame(v = as.character(d[[col]]), k = as.character(d[[key]]))
+  })))
+  pairs$k[match(as.character(data[[ds]][[col]]), pairs$v)]
+}
+
 # What the clean fixture still warns about, none of it left in the data:
 # values removed because no subject owns their row, value labels merged,
 # and a missing-value code that is another subject's key.
@@ -1553,6 +1587,21 @@ deid_pipelines <- list(
     fixture = function() deid_profile_fixture(adam = TRUE),
     flagged = deid_profile_flagged(adam = TRUE), not_met = deid_profile_not_met(adam = TRUE),
     expected = deid_profile_expected(adam = TRUE),
+    risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
+    deidentify = deid_profile_checks(adam = TRUE)
+  ),
+  # The clean fixture with a dataset tied to subjects by SUBJID only, its
+  # rows in reverse subject order (see deid_subjid_fixture()).
+  deidentify_subjid = list(
+    run = deid_profile_run(c(anon_profile_sdtm(min_n = 2), anon_profile_adam(min_n = 2))),
+    keep_secrets = TRUE, prefix = "SUBJ-", min_days = 30, max_days = 365,
+    fixture = function() deid_subjid_fixture(),
+    flagged = deid_profile_clean_flagged(), not_met = character(0),
+    # Its dates (full dates) move by their subject's offset, as *DTC
+    # columns do.
+    expected = c(deid_profile_expected(adam = TRUE), list(xs.XSDTC = function(x, keys, oracle) {
+      format(as.Date(x) + unname(oracle$offset[keys]))
+    })),
     risk = list(quasi = deid_profile_quasi, max_risk = 1/2, truth = deid_profile_truth),
     deidentify = deid_profile_checks(adam = TRUE)
   ),

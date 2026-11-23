@@ -84,11 +84,12 @@ of nested data frames (packed columns, and data frames in list columns).
 \item \code{attributes}: the same dataset and column labels, formats
 (\code{format.sas}, \code{format.spss}, \code{format.stata}, \code{display_width}), time
 zones (\code{tzone}), factor levels (their set and order) and value labels.
-Value labels and levels changed in a column a step changed (the key,
-related IDs, dates, logged columns) are intended. In a dataset where the
-log of \code{\link[=anon_subject_ids]{anon_subject_ids()}} or \code{\link[=anon_subject_dates]{anon_subject_dates()}} counts labels it
-rewrote (keys and dates in them), a changed label is \code{"warn"}; elsewhere
-it fails, and so does a label lost.
+Value labels and levels of the key, related IDs and dates may change; a
+column another step logged keeps the original's levels in their order,
+less those no longer used, plus the fold category. In a dataset where
+the log of \code{\link[=anon_subject_ids]{anon_subject_ids()}} or \code{\link[=anon_subject_dates]{anon_subject_dates()}} counts labels
+it rewrote, a changed label whose original holds a key, a related ID or
+a date is \code{"warn"}; any other change fails, and so does a label lost.
 \item \code{rows}: the same number of rows, or fewer only by the rows of subjects
 the step dropped (\code{"warn"}, with counts). Rows of subjects that couldn't
 be paired are counted, and make the result incomplete.
@@ -97,16 +98,27 @@ be paired are counted, and make the result incomplete.
 \item \verb{distinct keys}: the original's number of subjects, less those dropped.
 \item \code{pseudonyms}: each subject has one pseudonym in every dataset, and each
 pseudonym one subject: every copy subject's rows across datasets match
-one original subject's. Related IDs that end with the key in the
-original (\code{SUBJID} of \code{USUBJID}) must end with the pseudonym.
+one original subject's. Related IDs follow the pseudonyms, row by row: a
+column the IDs step replaces (\code{SUBJID}) holds the pseudonym's number,
+and a key column (\code{RSUBJID}) the pseudonym of the subject the original
+names; a blank where the original held a value fails.
 \item \code{values}: every column no step logged keeps its values, row by row over
 the paired rows; the key, related IDs and dates have checks of their
-own. A cell a step logged may be blank where it blanked it, and changed
-where it generalized it (a fold only to the rule's category) or derived
-it again; a column logged for one test only is compared on the other
-rows. Packed data frame columns are compared the same way; data frames
-in list columns by their number of rows, and by their values when their
-rows keep their order (no key column, or one subject).
+own. A cell a step logged may differ only by the change it logged:
+blank where a blanking step logged it; the band or rounding of the
+original value, or the fold's category where the rule folds the
+original's category (from the rule's parameters in the settings);
+numbers rewritten from a generalized result at the row's own conversion
+and decimals; recomputed values (the numeric relations check them); or
+a derived value that the original data pairs with the released value of
+its quasi-identifier. No more cells are blanked or changed than the log
+counts, test by test. A column logged for one test only is compared on
+the other rows. Copies of a column a step changed (\code{AGE} in \code{adsl} and
+in \code{advs}) must agree within each subject where they did in the
+original (dataset \code{"(all)"}). Packed data frame columns are compared the
+same way; data frames in list columns by their number of rows, and by
+their values when their rows keep their order (no key column, or one
+subject); the detail names each by its path (\code{NEST[[]]$T}).
 \item \verb{categorical values}: each value of a character or factor column is a
 value of the original column, a blank, or a value a step introduced on
 purpose (a fold category of a generalization rule, numbers rewritten
@@ -119,10 +131,13 @@ the original, partial dates with \code{partial = "remove"}, rows without a
 key, columns a step blanked) are counted apart.
 \item \verb{date intervals}: within each subject, every date (text, Date and
 date-time columns, in every dataset) moves by the subject's offset, so
-the interval between any two is kept; clock times are kept. Year-and-
+the interval between any two is kept; clock times are kept. The offset
+lies within the dates step's range (\code{min_days} to \code{max_days}), or is 0
+when a step ran that doesn't offset dates. Year-and-
 month dates are compared at month precision (the month of the
 original's day 15 moved by the offset, as \code{\link[=anon_subject_dates]{anon_subject_dates()}} shifts
-them), and year-only dates must all move by the same number of years.
+them), and year-only dates must all move by one number of years, the
+subject's year step (\verb{max(1, round(|offset| / 365.25))}, 0 for no offset).
 \item \verb{study days}: \code{--DY} recomputed from \code{--DTC} and \code{RFSTDTC} (SDTM rule,
 no day 0), and ADaM \verb{*DY} from \verb{*DT} and \code{TRTSDT}, agree with the
 copy's values wherever they agreed in the original.
@@ -133,8 +148,11 @@ logged it) are counted apart; if the relation no longer holds in some of
 them, the check is \code{"warn"}.
 }
 
-\strong{Not checked:} business rules beyond these; values that a step logged
-as changed (beyond being blanked, folded or generalized where it said);
+\strong{Not checked:} business rules beyond these; changes among subjects
+alike in every unchanged column and their date pattern that another
+pairing of them explains (they are compared as a class, and without the
+pseudonym map which one is which can't be known); the derived values of
+several quasi-identifiers beyond being blank or unchanged;
 values of data frames nested in list columns whose rows hold several
 subjects (their order changes), and dates and keys inside nested data;
 statistics (means and counts by group change with banding and

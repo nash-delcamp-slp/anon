@@ -413,22 +413,27 @@ for (pipeline_name in names(deid_pipelines)) {
           expect_identical(out, deid_rewrite_frame(original, oracle), info = ds)
           next
         }
-        if (!key %in% names(original)) {
+        # A dataset that anon_deidentify() tied to subjects through SUBJID is
+        # processed as one with the key, and released without it.
+        tied <- deid_tied_through(step, deid_rewrite_text(ds, oracle, names = TRUE))
+        if (!key %in% names(original) && is.null(tied)) {
           no_key <- rep(NA_character_, nrow(original))
           want <- deid_expected_frame(original, no_key, oracle, pipeline$prefix, key, FALSE, sort = TRUE, nested = FALSE)
           expect_identical(out, want, info = ds)
           next
         }
         keep <- pipeline$keep_rows(ds, original, oracle)
-        all_keys <- as.character(deid_zap_codes(original[[key]]))
+        all_keys <- if (is.null(tied)) as.character(deid_zap_codes(original[[key]])) else deid_tied_keys(data, ds, tied, key)
         keys <- all_keys[keep]
         # Rows are sorted by the new key, keeping their order within a
         # subject; rows without a key come last.
         ord <- order(unname(oracle$new_key[keys]), seq_along(keys))
-        out_keys <- as.character(out[[key]])
-        blank <- is.na(out_keys) | out_keys == ""
-        expect_false(is.unsorted(out_keys[!blank]), info = ds)
-        expect_identical(blank, sort(blank), info = ds)
+        if (is.null(tied)) {
+          out_keys <- as.character(out[[key]])
+          blank <- is.na(out_keys) | out_keys == ""
+          expect_false(is.unsorted(out_keys[!blank]), info = ds)
+          expect_identical(blank, sort(blank), info = ds)
+        }
 
         for (col in setdiff(names(original), deid_removed_columns(pipeline$removed, ds))) {
           id <- paste0(ds, ".", col)

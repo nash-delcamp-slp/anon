@@ -571,3 +571,178 @@ test_that("caveats name what the keys and dates steps left, by place only", {
   expect_true(any(grepl("risk target is not met:.*original subject keys", caveats)))
   for (k in fid_keys) expect_false(any(grepl(k, unlist(report$deidentification), fixed = TRUE)))
 })
+
+test_that("a dataset tied to subjects through SUBJID is checked subject by subject", {
+  data <- fid_data()
+  sj <- rev(rep(data$dm$SUBJID, each = 2))
+  data$xx <- data.frame(
+    SUBJID = sj, XXTESTCD = "PAIN", XXSTRESN = seq_along(sj) * 0.5,
+    XXDTC = format(fid_starts[match(sj, data$dm$SUBJID)] + rep(c(1, 5), 12)), stringsAsFactors = FALSE
+  )
+  res <- fid_run(data)
+  expect_false("USUBJID" %in% names(res$data$xx))
+  f <- anon_check_fidelity(data, res)
+  expect_true(attr(f, "passed"))
+  expect_identical(fid_row(f, "xx", "values")$n_checked, 48L)
+  s <- res
+  s$data$xx$XXDTC[1] <- format(as.Date(s$data$xx$XXDTC[1]) + 40)
+  expect_identical(fid_row(anon_check_fidelity(data, s), "xx", "date intervals")$status, "fail")
+  s <- res
+  s$data$xx$SUBJID <- rev(s$data$xx$SUBJID)
+  expect_identical(fid_row(anon_check_fidelity(data, s), "xx", "values")$status, "fail")
+})
+
+test_that("a logged change frees a cell only for the change the step made", {
+  data <- fid_data()
+  res <- fid_run(data)
+  age <- which(!is.na(res$data$dm$AGE))
+  # Off the bands, or another band.
+  for (change in list(function(x) replace(x, age[1], 999), function(x) replace(x, age, x[age] + 20))) {
+    s <- res
+    s$data$dm$AGE <- change(s$data$dm$AGE)
+    expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "values")$status, "fail")
+  }
+  # A number rewritten from the generalized result: at the row's own
+  # conversion only.
+  s <- res
+  s$data$vs$VSSTRESC[2] <- "1000"
+  expect_match(fid_row(anon_check_fidelity(data, s), "vs", "values")$detail, "VSSTRESC (1)", fixed = TRUE)
+  # More cells blanked than the log counts.
+  s <- res
+  s$data$dm$RACE[] <- ""
+  expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "values")$status, "fail")
+
+  # A fold makes only the categories it folds the rule's category.
+  step <- anon_generalize(data, rules = list(dm = list(RACE = anon_fold(4, "OTHER"))))
+  expect_true(attr(anon_check_fidelity(data, step), "passed"))
+  s <- step
+  s$data$dm$RACE[s$data$dm$RACE == "WHITE"][1] <- "OTHER"
+  expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "values")$status, "fail")
+
+  # Recomputed CHG must keep its relation.
+  step <- anon_generalize(data, rules = list(anon_rule(anon_quasi_values("adlb", "PARAMCD", "ALT", "AVAL"), anon_band(10))))
+  expect_true(attr(anon_check_fidelity(data, step), "passed"))
+  s <- step
+  s$data$adlb$CHG[2] <- s$data$adlb$CHG[2] + 5
+  expect_identical(fid_row(anon_check_fidelity(data, s), "adlb", "numeric relations")$status, "fail")
+})
+
+test_that("derived values follow the original's pairs, and copies of a column agree", {
+  data <- fid_data()
+  data$dm$RACEN <- match(data$dm$RACE, unique(data$dm$RACE))
+  data$adlb$AGE <- data$dm$AGE[match(data$adlb$USUBJID, data$dm$USUBJID)]
+  res <- fid_run(data)
+  expect_true(attr(anon_check_fidelity(data, res), "passed"))
+  s <- res
+  i <- which(!is.na(s$data$dm$RACEN))[1]
+  s$data$dm$RACEN[i] <- s$data$dm$RACEN[i] %% 4 + 1
+  expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "values")$status, "fail")
+  s <- res
+  i <- which(!is.na(s$data$adlb$AGE))[1]
+  k <- s$data$adlb$USUBJID[i]
+  s$data$adlb$AGE[s$data$adlb$USUBJID == k] <- if (s$data$adlb$AGE[i] == 20) 40 else 20
+  f <- anon_check_fidelity(data, s)
+  expect_identical(fid_row(f, "(all)", "values")$status, "fail")
+  expect_match(fid_row(f, "(all)", "values")$detail, "AGE (1)", fixed = TRUE)
+})
+
+test_that("related IDs are the pseudonyms the step gives", {
+  data <- fid_data()
+  data$dm$RSUBJID <- data$dm$USUBJID[c(2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11)]
+  res <- fid_run(data)
+  expect_true(attr(anon_check_fidelity(data, res), "passed"))
+  breaks <- list(
+    function(d) { d$dm$SUBJID[] <- ""; d },
+    function(d) { d$dm$SUBJID[1:2] <- d$dm$SUBJID[2:1]; d },
+    function(d) { d$dm$RSUBJID <- d$dm$RSUBJID[c(2:12, 1)]; d }
+  )
+  for (b in breaks) {
+    s <- res
+    s$data <- b(s$data)
+    expect_identical(fid_row(anon_check_fidelity(data, s), "(all)", "pseudonyms")$status, "fail")
+  }
+})
+
+test_that("each subject's offset is within the dates step's range", {
+  data <- fid_data()
+  res <- fid_run(data, keep_secrets = TRUE)
+  offsets <- anon_secrets(res)$date_offsets
+  # One subject's dates put back where they were: offset 0.
+  k <- res$data$dm$USUBJID[1]
+  off <- offsets$offset_days[offsets$key == k]
+  s <- res
+  for (ds in c("dm", "vs", "ae")) {
+    for (col in grep("DTC$", names(s$data[[ds]]), value = TRUE)) {
+      i <- s$data[[ds]]$USUBJID == k & nchar(s$data[[ds]][[col]]) >= 10
+      s$data[[ds]][[col]][i] <- paste0(format(as.Date(substr(s$data[[ds]][[col]][i], 1, 10)) - off), substring(s$data[[ds]][[col]][i], 11))
+    }
+  }
+  i <- s$data$adlb$USUBJID == k
+  s$data$adlb$ADT[i] <- s$data$adlb$ADT[i] - off
+  s$data$adlb$TRTSDT[i] <- s$data$adlb$TRTSDT[i] - off
+  f <- anon_check_fidelity(data, s)
+  expect_identical(fid_row(f, "dm", "date intervals")$status, "fail")
+  expect_match(fid_row(f, "dm", "date intervals")$detail, "outside 30 to 365 days", fixed = TRUE)
+  # A class of alike subjects moved too far.
+  alike <- fid_alike()
+  step <- fid_alike_run(alike)
+  step$data$dm$RFSTDTC <- format(as.Date(step$data$dm$RFSTDTC) + 5000)
+  step$data$dm$RFENDTC <- format(as.Date(step$data$dm$RFENDTC) + 5000)
+  expect_identical(fid_row(anon_check_fidelity(alike, step), "(all)", "pseudonyms")$status, "fail")
+})
+
+test_that("subjects are paired at scale when single row codes repeat", {
+  n <- 400
+  set.seed(5)
+  keys <- sprintf("ZZS-%04d", seq_len(n))
+  start <- as.Date("2021-01-01") + sample(0:300, n, TRUE)
+  dm <- data.frame(USUBJID = keys, ARM = "A", RFSTDTC = format(start), stringsAsFactors = FALSE)
+  vs <- data.frame(
+    USUBJID = rep(keys, each = 6), VSTESTCD = "SYSBP", VISITNUM = rep(1:6, n),
+    VSSTRESN = sample(100:110, 6 * n, TRUE), VSDTC = format(rep(start, each = 6) + rep(c(0, 7, 14, 21, 28, 35), n)),
+    stringsAsFactors = FALSE
+  )
+  data <- list(dm = dm, vs = vs)
+  step <- suppressWarnings(anon_subject_ids(anon_subject_dates(data, seed = 1), seed = 2))
+  first <- !duplicated(step$data$vs$USUBJID)
+  step$data$vs$VSSTRESN[first] <- step$data$vs$VSSTRESN[first] + 100L
+  f <- anon_check_fidelity(data, step)
+  expect_true(attr(f, "complete"))
+  expect_identical(fid_row(f, "vs", "values")$n_failed, as.integer(n))
+})
+
+test_that("levels and labels of columns a step logged change only as it says", {
+  data <- fid_data()
+  data$dm$SEX <- factor(data$dm$SEX, levels = c("F", "M"))
+  res <- fid_run(data)
+  expect_true(attr(anon_check_fidelity(data, res), "passed"))
+  for (lv in list(c("M", "F"), c("F", "M", "ZZZ"))) {
+    s <- res
+    s$data$dm$SEX <- factor(as.character(s$data$dm$SEX), levels = lv)
+    expect_identical(fid_row(anon_check_fidelity(data, s), "dm", "attributes")$status, "fail")
+  }
+  # A label with nothing the keys or dates step rewrites can't change, even
+  # in a dataset where the step rewrote another label.
+  data <- fid_data()
+  data$dm$ARMNOTE <- structure(rep("x", 12), label = paste("Randomized with", fid_keys[1]))
+  res <- fid_run(data)
+  f <- anon_check_fidelity(data, res)
+  expect_identical(fid_row(f, "dm", "attributes")$status, "warn")
+  s <- res
+  attr(s$data$dm$AGE, "label") <- "Age (years)"
+  row <- fid_row(anon_check_fidelity(data, s), "dm", "attributes")
+  expect_identical(row$status, "fail")
+  expect_match(row$detail, "AGE", fixed = TRUE)
+})
+
+test_that("nested values name their path, and print counts warnings", {
+  data <- fid_nested()
+  step <- suppressWarnings(anon_subject_dates(data, seed = 1))
+  step$data$dm$NEST[[2]]$T <- 999
+  expect_match(fid_row(anon_check_fidelity(data, step), "dm", "values")$detail, "NEST[[]]$T (1)", fixed = TRUE)
+  data <- fid_data()
+  copy <- fid_run(data)$data
+  copy$ae$AETERM[1] <- "NAUSEA"
+  out <- capture.output(print(anon_check_fidelity(data, copy)))
+  expect_match(out[1], "passed with [0-9]+ warning\\(s\\)")
+})
