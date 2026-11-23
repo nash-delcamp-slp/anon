@@ -12,6 +12,8 @@
   offset each subject's dates consistently across datasets, including nested
   data frames, and flag objects they can't de-identify, such as fitted models.
   `anon_generalize()` and `anon_suppress()` bring the measured risk down.
+* `anon_deidentify()` de-identifies SDTM and ADaM datasets in one call, with
+  `anon_profile_sdtm()`, `anon_profile_adam()` or both combined.
 * `anon()` redacts a copy of an environment, and text at any depth in
   attributes; reports and the app show object names redacted.
 * Environment summarization with `anon_report()` and `anon_data_summary()` to

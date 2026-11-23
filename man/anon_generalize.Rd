@@ -50,8 +50,9 @@ in them (packed columns and list columns, see \code{\link[=anon_subject_ids]{ano
 not generalized. A warning names the datasets with the key that hold a
 generalized column under the same name without a rule for it.
 
-A birth date more precise than a year (\code{BRTHDTC}, or a Date \code{BRTHDT}) in a
-dataset whose \code{AGE} is generalized gives the age back with a reference
+A birth date more precise than a year (a column named like a birth date,
+such as \code{BRTHDTC}, a Date \code{BRTHDT}, \code{BIRTHDATE} or \code{DOB}) in a dataset
+whose \code{AGE} is generalized gives the age back with a reference
 date such as \code{RFSTDTC}, even after the dates are offset: a warning names
 it. Remove birth dates or reduce them to the year. Other dates and derived
 columns can give a quasi-identifier back the same way (see

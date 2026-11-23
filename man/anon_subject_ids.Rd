@@ -71,7 +71,13 @@ transformed data, in the same form as the input), \code{log} (a tibble with
 \code{step}, \code{dataset}, \code{variable}, \code{n_changed}, \code{n_removed} and \code{detail}; the
 first row of each step records its settings; earlier steps are included
 when \code{data} was a step result), \code{settings} (a named list with each step's
-arguments, without the seed value) and
+arguments, without the seed value, and \code{findings}: a tibble of what its
+warnings name as left in the data, one row per location, with \code{kind}
+(such as \code{"keys_left"}, \code{"dates_unshifted"} or \code{"objects"}), \code{dataset},
+\code{column} (as the warnings print them), \code{n_values} (the distinct text
+values holding what was found, \code{NA} where that doesn't apply) and
+\code{single_value} (whether the column holds one value in every row); no
+values) and
 \code{secrets} (\code{NULL} unless \code{keep_secrets = TRUE} here or in an earlier step).
 Saving the object (for example with \code{\link[=saveRDS]{saveRDS()}}) also saves its secrets.
 }

@@ -244,8 +244,9 @@ print.anon_rule_values <- function(x, ...) {
 #' not generalized. A warning names the datasets with the key that hold a
 #' generalized column under the same name without a rule for it.
 #'
-#' A birth date more precise than a year (`BRTHDTC`, or a Date `BRTHDT`) in a
-#' dataset whose `AGE` is generalized gives the age back with a reference
+#' A birth date more precise than a year (a column named like a birth date,
+#' such as `BRTHDTC`, a Date `BRTHDT`, `BIRTHDATE` or `DOB`) in a dataset
+#' whose `AGE` is generalized gives the age back with a reference
 #' date such as `RFSTDTC`, even after the dates are offset: a warning names
 #' it. Remove birth dates or reduce them to the year. Other dates and derived
 #' columns can give a quasi-identifier back the same way (see
@@ -563,9 +564,15 @@ is_text_vector <- function(x) {
   is.factor(x) || is.character(if (inherits(x, "haven_labelled")) vctrs::vec_data(x) else x)
 }
 
-# Rows of a test, at any row (not only the measured one).
+# Rows of a test, at any row (not only the measured one). A target whose
+# `test` is a profile rule's (`pattern`, the derived variables of
+# anon_deidentify()) takes the codes the rule matches, as profile_match()
+# matches them (patterns, ignoring case); otherwise `test` is a code.
 test_rows <- function(df, tg) {
   tests <- df[[tg$test_col]]
+  if (isTRUE(tg$pattern)) {
+    return(!is.na(tests) & profile_match(tg$test, as.character(tests)))
+  }
   !is.na(tests) & as.character(tests) == tg$test
 }
 
